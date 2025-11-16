@@ -1,7 +1,0 @@
-{
-    "directory": ["./src/types"],
-    "delete": true,
-    "location": "all",
-    "structure": "flat",
-    "singleQuotes": false
-}

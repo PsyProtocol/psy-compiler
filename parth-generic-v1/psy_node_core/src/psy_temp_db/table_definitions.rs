@@ -1,1 +1,0 @@
-pub const PSY_TEMP_DB_TABLE_ID_PROOF_WITNESS: u16 = 1;

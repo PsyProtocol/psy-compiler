@@ -1,23 +1,18 @@
 [workspace]
 members = [
-    "psy_vm",
-    "psy_core/kvq",
-    "psy_core/psy_common",
-    "psy_core/psy_crypto",
-    "psy_store",
-    "psy_prover",
-    "psy_core/psy_data",
-    "psy_circuit/psy_common_circuit",
-    "psy_circuit/psy_network_circuit",
-    "psy_circuit/psy_ups_circuit",
-    "psy_circuit/psy_dpn_circuit",
-    "psy_node",
-    "psy_cli/psy_user_cli",
-    "psy_cli/psy_node_cli",
-    "psy_cli/psy_dev_cli",
-    "psy_services",
-    "psy_sdk/psy-rust-sdk",
-    "psy_core/psy_config",
+    "psy-precompiles",
+    "psy-fmt",
+    "psy-lsp-server",
+    "psy-parser",
+    "psy-ast",
+    "psy-sema",
+    "psy-lexer",
+    "psy-interpreter",
+    "psy-package",
+    "psy-dargo-cli",
+    "psy-abi",
+    "psylang_ex",
+    "psylang_macros",
 ]
 resolver = "2"
 
@@ -26,11 +21,40 @@ edition = "2021"
 rust-version = "1.86"
 version = "0.1.0"
 homepage = "https://psy.xyz"
-repository = "https://github.com/PsyProtocol/psy-v1"
+repository = "https://github.com/PsyProtocol/psy-compiler"
 
 [workspace.lints]
 
 [workspace.dependencies]
+# Reference the main qedlang-rust repo at specific commit
+psy_vm = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false }
+psy_crypto = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50" }
+psy_store = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
+psy_data = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
+psy_common = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50" }
+psy_config = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50" }
+psy_prover = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false }
+psy_common_circuit = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
+psy_dpn_circuit = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
+psy_ups_circuit = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
+psy_network_circuit = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
+kvq = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50" }
+
+# Local compiler packages
+psylang_macros = { path = "./psylang_macros" }
+psy-ast = { path = "./psy-ast" }
+psy-fmt = { path = "./psy-fmt" }
+psy-lsp-server = { path = "./psy-lsp-server" }
+psy-parser = { path = "./psy-parser" }
+psy-sema = { path = "./psy-sema" }
+psy-lexer = { path = "./psy-lexer" }
+psy-interpreter = { path = "./psy-interpreter" }
+psy-package = { path = "./psy-package" }
+dargo = { path = "./psy-dargo-cli" }
+psy-abi = { path = "./psy-abi" }
+psy-precompiles = { path = "./psy-precompiles", default-features = false}
+
+# Common dependencies
 colored = "2"
 serde = { version = "1.0.193", features = ["derive"] }
 serde_json = "1.0"
@@ -147,17 +171,13 @@ syn = { version = "2.0", features = ["full"] }
 proc-macro2 = { version = "1.0", features = ["span-locations"] }
 quote = "1.0"
 
-# Additional common dependencies
 uuid = { version = "1.0", features = ["serde", "v4", "js"] }
-scylla = { version = "0.15.1" }
-tikv-client = { git = "https://github.com/PsyProtocol/client-rust", rev = "3fe2b9d8482657a3442473084b365c9b9d9cf5eb" }
 http = "1"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 console_error_panic_hook = "0.1"
 wasm-logger = "0.2"
 wasm-tracing = "2.0"
-rsmq = { git = "https://github.com/QEDProtocol/rsmq-async-rs", package = "rsmq_async", features = ["break-js-comp", "sync", "tokio"], rev = "49b317094585e75dcdb619d204b6cf19010049fb" }
 
 num-traits = "0.2"
 num-bigint = { version = "0.4" }
@@ -169,12 +189,9 @@ ruint = { version = "1.12", default-features = false, features = [
 clap_complete = "4.5"
 color-eyre = "0.6"
 
-
 enum-as-inner = "0.6"
 strum = { version = "0.27", features = ["derive"] }
 
-# plonky2 = { path = "../plonky2-hwa/plonky2" }
-# plonky2_maybe_rayon = { path = "../plonky2-hwa/maybe_rayon" }
 plonky2 = { git = "https://github.com/PsyProtocol/plonky2-hwa", rev = "5bf6940a3ea2d27e854931787e93bb46be27ffa3" }
 plonky2_maybe_rayon = { git = "https://github.com/PsyProtocol/plonky2-hwa", rev = "5bf6940a3ea2d27e854931787e93bb46be27ffa3", default-features = false }
 
@@ -211,78 +228,16 @@ url = "2.5"
 dirs = "6.0"
 semver = "1.0"
 md5 = "0.7"
-jsonrpsee = { version = "0.26", features = ["server", "client", "macros"] }
 config = "0.15"
 
-psy_vm = { path = "./psy_vm", default-features = false }
-psy_crypto = { path = "./psy_core/psy_crypto" }
-psy_store = { path = "./psy_store", default-features = false}
-psy_data = { path = "./psy_core/psy_data", default-features = false}
-psy_common = { path = "./psy_core/psy_common" }
-psy_config = { path = "./psy_core/psy_config" }
-psy_node = { path = "./psy_node" }
-psy_prover = { path = "./psy_prover", default-features = false }
-psy_common_circuit = { path = "./psy_circuit/psy_common_circuit", default-features = false}
-psy_dpn_circuit = { path = "./psy_circuit/psy_dpn_circuit", default-features = false}
-psy_ups_circuit = { path = "./psy_circuit/psy_ups_circuit", default-features = false}
-kvq = { path = "./psy_core/kvq" }
-psy_network_circuit = { path = "./psy_circuit/psy_network_circuit", default-features = false}
-psy_services = { path = "./psy_services" }
-psy_rust_sdk = { path = "./psy_sdk/psy-rust-sdk" }
-psy_provider = { path = "./psy_provider" }
-
 serial_test = "3.2"
-
 shadow-rs = "0.27.1"
 bs58 = { version = "0.5.1", features = ["std", "check"] }
-hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["full"] }
-http-body-util = "0.1"
-reqwest = { version = "0.12", default-features = false, features = [
-  "json",
-  "blocking",
-] }
-
-jsonwebtoken = "9.3.1"
-
-psy_user_cli = { path = "./psy_user_cli" }
-psy-ts-type = { path = "./psy-ts-type" }
-
-futures-util = "0.3.28"
-axum = "0.8.3"
-ts-rs = "10.1.0"
-
-tower-http = { version = "0.6", features = ["full"] }
-tower = { version = "0.5", features = ["full"] }
-cfg-if = "1.0"
-maybe-async = { version = "0.2", default-features = false }
-web-sys = "0.3"
-js-sys = "0.3"
-serde-wasm-bindgen = "0.6"
-lapin = "=2.5.0"
-r2d2 = "0.8.10"
-rabbitmq-stream-client = "0.8.0"
-headers = { version = "0.4" }
-ambassador = "0.4"
-auto_impl = "1"
+strum_macros = "0.27"
 sodalite = "0.4.0"
 secp256k1 = { version = "0.31", features = ["rand", "hashes"] }
 rpassword = "7.3"
 ecdsa = "0.16.0"
-alloy-signer = { version = "1.0.23", default-features = false }
-alloy-signer-local = { version = "1.0.23", features = ["mnemonic", "keystore"] }
-alloy-primitives = { version = "1.3.1", features = [
-    "getrandom",
-    "rand",
-    "map-fxhash",
-    "map-foldhash",
-] }
-strum_macros = "0.27"
-
-# AWS dependencies
-aws-config = "1.0"
-aws-sdk-s3 = "1.0"
-
 
 [profile.release]
 debug = false
