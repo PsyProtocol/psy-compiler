@@ -33,6 +33,7 @@ psy_store = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd
 psy_data = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
 psy_common = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50" }
 psy_config = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50" }
+psy_node = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50" }
 psy_prover = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false }
 psy_common_circuit = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
 psy_dpn_circuit = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
