@@ -1,10 +1,10 @@
 #[test]
 fn test_basic_if_else() {
     let condition = 1;
-
     if condition == 1 {
         assert_eq(1, 1, "if branch should execute");
-    } else {
+    }    
+    else {
         assert_eq(0, 1, "else branch should not execute");
     };
 }
@@ -13,14 +13,15 @@ fn test_basic_if_else() {
 fn test_nested_if_else() {
     let outer_cond = 1;
     let inner_cond = 0;
-
     if outer_cond == 1 {
         if inner_cond == 1 {
             assert_eq(0, 1, "inner if should not execute");
-        } else {
+        }        
+        else {
             assert_eq(1, 1, "inner else should execute");
         };
-    } else {
+    }    
+    else {
         assert_eq(0, 1, "outer else should not execute");
     };
 }
@@ -28,14 +29,16 @@ fn test_nested_if_else() {
 #[test]
 fn test_multiple_else_if() {
     let value = 2;
-
     if value == 0 {
         assert_eq(0, 1, "first if should not execute");
-    } else if value == 1 {
+    }    
+    else if value == 1 {
         assert_eq(0, 1, "first else if should not execute");
-    } else if value == 2 {
+    }    
+    else if value == 2 {
         assert_eq(1, 1, "second else if should execute");
-    } else {
+    }    
+    else {
         assert_eq(0, 1, "final else should not execute");
     };
 }
@@ -44,12 +47,13 @@ fn test_multiple_else_if() {
 fn test_for_loop_with_if_else() {
     for i in 0u32..3u32 {
         let index = i as Felt;
-
         if index == 0 {
             assert_eq(index, 0, "should be 0 when i=0");
-        } else if index == 1 {
+        }        
+        else if index == 1 {
             assert_eq(index, 1, "should be 1 when i=1");
-        } else {
+        }        
+        else {
             assert_eq(index, 2, "should be 2 when i=2");
         };
     }
@@ -59,20 +63,21 @@ fn test_for_loop_with_if_else() {
 fn test_nested_for_if() {
     for outer in 0u32..2u32 {
         let outer_index = outer as Felt;
-
         for inner in 0u32..2u32 {
             let inner_index = inner as Felt;
-
             if outer_index == 0 {
                 if inner_index == 0 {
                     assert_eq(outer_index + inner_index, 0, "0+0=0");
-                } else {
+                }                
+                else {
                     assert_eq(outer_index + inner_index, 1, "0+1=1");
                 };
-            } else {
+            }            
+            else {
                 if inner_index == 0 {
                     assert_eq(outer_index + inner_index, 1, "1+0=1");
-                } else {
+                }                
+                else {
                     assert_eq(outer_index + inner_index, 2, "1+1=2");
                 };
             };

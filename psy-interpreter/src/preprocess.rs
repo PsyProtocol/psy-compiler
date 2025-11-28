@@ -13,6 +13,81 @@ impl<'a> StorageProcessor<'a> {
         Self { _marker: PhantomData }
     }
 
+    fn generate_event_impl<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
+        &self,
+        struct_node: &StructNode,
+        attr: &AttrNode,
+        ctx: &mut V,
+    ) -> TraitImplNode {
+        let emit_method = self.generate_event_emit_method(struct_node, attr, ctx);
+        TraitImplNode {
+            associated_types: IndexMap::new(),
+            generic_parameters: vec![],
+            ty: UncheckedType::Basic(struct_node.name),
+            trait_ty: UncheckedType::Basic(Identifier::new(ctx.intern("Event"), attr.location)),
+            body: vec![emit_method],
+            comments: vec![],
+            location: attr.location,
+            is_generated: true,
+        }
+    }
+
+    fn generate_event_emit_method<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
+    >(
+        &self,
+        struct_node: &StructNode,
+        attr: &AttrNode,
+        ctx: &mut V,
+    ) -> DefId {
+        // __emit(self);
+        let self_expr = ctx.alloc_expression(ExprNode::Path(PathNode {
+            root: None,
+            segments: vec![],
+            target: UncheckedType::Basic(Identifier::new(IdentId::SELF, attr.location)),
+            location: attr.location,
+        }));
+        let emit_instics_expr = ctx.alloc_expression(ExprNode::Intrinsic(IntrinsicExprNode::Emit {
+            event_data: self_expr,
+            location: attr.location,
+        }));
+        let emit_stmt = ctx.alloc_statement(StmtNode::Expression(emit_instics_expr));
+        let block = ctx.alloc_expression(ExprNode::BlockExpr(BlockExprNode {
+            stmts: vec![emit_stmt],
+            expr: None,
+            expr_comments: vec![],
+            location: attr.location,
+        }));
+
+        let parameter = FunctionParameter {
+            name: Identifier::new(IdentId::SELF, attr.location),
+            qualifier: TypeQualifier::new(false, attr.location),
+            ty: UncheckedType::Basic(Identifier::new(IdentId::TYPE_SELF, attr.location)),
+            location: attr.location,
+        };
+
+        let f = FunctionNode {
+            name: Identifier::new(ctx.intern("emit"), attr.location),
+            parameters: vec![parameter],
+            generic_parameters: vec![],
+            body: Some(block),
+            return_type: None,
+            qualifier: Qualifier {
+                is_extern: false,
+                is_const: false,
+                location: attr.location,
+            },
+            visibility: Visibility::Public,
+            attrs: vec![],
+            comments: vec![],
+            location: attr.location,
+        };
+
+        ctx.alloc_definition(DefinitionNode::Function(f))
+    }
+
     fn generate_storage_impl<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
         &self,
         struct_node: &StructNode,
@@ -1810,9 +1885,16 @@ impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcesso
         let storage_ref_attribute_id = ctx.intern("StorageRef");
         let contract_attribute_id = ctx.intern("contract");
 
+        let event_trait_id = ctx.intern("Event");
+
         for attr in &s.attrs {
             if attr.is_derive() && attr.properties.iter().any(|p| p == &storage_trait_id) {
                 let impl_node = self.generate_storage_impl(&s, attr, ctx);
+                ctx.insert_definition(DefinitionNode::TraitImpl(impl_node), InsertPosition::End);
+            }
+
+            if attr.is_derive() && attr.properties.iter().any(|p| p == &event_trait_id) {
+                let impl_node = self.generate_event_impl(&s, attr, ctx);
                 ctx.insert_definition(DefinitionNode::TraitImpl(impl_node), InsertPosition::End);
             }
 

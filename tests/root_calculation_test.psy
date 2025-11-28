@@ -3,58 +3,39 @@ fn test_complete_root_calculation() {
     // Test data from the JSON proof
     // Expected root: "1061913c4082f0b67cb9f041371df3e48ac597668f7ee147114b6e77945318ee"
     // Expected root felts: [1246211181766711534, 9999565014395969863, 8987478694282785764, 1180384265314169014]
-
-    let reward_leaf = [
-        14766743708420665888, 17765979509351206360,
-        2105232290032940756, 3109752530715174030
-    ];
-
-    let sibling_branch = [
-        15235198788082409904, 2935782993509517981,
-        8212987016377471206, 16405734921858906756
-    ];
-
-    let sibling_reward_leaf_0 = [
-        6228363996522663727, 74339009091137294,
-        2550191691564954315, 5322880393740762406
-    ];
-
+    let reward_leaf = [14766743708420665888, 17765979509351206360, 2105232290032940756, 3109752530715174030];
+    let sibling_branch = [15235198788082409904, 2935782993509517981, 8212987016377471206, 16405734921858906756];
+    let sibling_reward_leaf_0 = [6228363996522663727, 74339009091137294, 2550191691564954315, 5322880393740762406];
     let proof_height = 1;
     let index = 0;
-
     let mut current_node_value = hash_two_to_one(sibling_branch, reward_leaf);
-
     for i in 0u32..32u32 {
         let level_index = i as Felt;
-
         if level_index < proof_height {
             let sibling_node = if level_index == 0 {
                 [0, 0, 0, 0]
-            } else {
+            }            
+            else {
                 [0, 0, 0, 0]
             };
-
             let reward_leaf_at_level = if level_index == 0 {
                 sibling_reward_leaf_0
-            } else {
+            }            
+            else {
                 [0, 0, 0, 0]
             };
-
             let index_bit = (index >> level_index) & 1;
             let branch_path_hash = if index_bit == 0 {
                 hash_two_to_one(current_node_value, sibling_node)
-            } else {
+            }            
+            else {
                 hash_two_to_one(sibling_node, current_node_value)
             };
             current_node_value = hash_two_to_one(branch_path_hash, reward_leaf_at_level);
-        };
+        }        
+;
     }
-
-    let expected_root = [
-        1246211181766711534, 9999565014395969863,
-        8987478694282785764, 1180384265314169014
-    ];
-
+    let expected_root = [1246211181766711534, 9999565014395969863, 8987478694282785764, 1180384265314169014];
     // Verify the computed root matches expected
     assert(current_node_value[0] == expected_root[0], "root[0] mismatch");
     assert(current_node_value[1] == expected_root[1], "root[1] mismatch");

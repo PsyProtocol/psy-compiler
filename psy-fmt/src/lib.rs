@@ -1006,6 +1006,7 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
             }
             IntrinsicExprNode::SumBits { bits, .. } => Ok(format!("__sum_bits({})", self.visit_expr(bits, ctx)?,)),
             IntrinsicExprNode::SplitBits { target, num_bits, .. } => Ok(format!("__split_bits({}, {})", self.visit_expr(target, ctx)?, num_bits,)),
+            IntrinsicExprNode::Emit { event_data, .. } => Ok(format!("__emit({})", self.visit_expr(event_data, ctx)?,)),
         }
     }
 

@@ -4,23 +4,24 @@ struct TestSibling {
 
 #[test]
 fn test_for_if_simple() {
-    let mut test_array: [TestSibling; 3] = [
-        new TestSibling { value: [1, 2, 3, 4] },
-        new TestSibling { value: [0, 0, 0, 0] },
-        new TestSibling { value: [0, 0, 0, 0] }
-    ];
-
+    let mut test_array: [TestSibling; 3] = [new TestSibling {
+            value: [1, 2, 3, 4],
+        }, new TestSibling {
+            value: [0, 0, 0, 0],
+        }, new TestSibling {
+            value: [0, 0, 0, 0],
+        }];
     for i in 0u32..3u32 {
         let level_index = i as Felt;
         let sibling = test_array[level_index];
         let value = sibling.value;
-
         if level_index < 1 {
             assert_eq(value[0], 1, "should be 1");
             assert_eq(value[1], 2, "should be 2");
             assert_eq(value[2], 3, "should be 3");
             assert_eq(value[3], 4, "should be 4");
-        } else {
+        }        
+        else {
             assert_eq(value[0], 0, "should be 0");
             assert_eq(value[1], 0, "should be 0");
             assert_eq(value[2], 0, "should be 0");

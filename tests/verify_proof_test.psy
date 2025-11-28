@@ -38,7 +38,7 @@ fn verify_batch_with_arrays() -> Hash {
         let sibling = proof_siblings[0][i];
         if sibling_is_left[0][i] {
             current_hash = hash_two_to_one(sibling, current_hash);
-        }
+        }        
         else {
             current_hash = hash_two_to_one(current_hash, sibling);
         };

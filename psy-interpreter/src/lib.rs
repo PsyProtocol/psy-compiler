@@ -984,6 +984,15 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
                         return Ok(CheckedValueRef::from_vec(type_id.clone(), self.context.split_bits(target, *num_bits)));
                     }
+                    CheckedIntrinsicExprNode::Emit {
+                        event_data,
+                        type_id,
+                        location,
+                    } => {
+                        let event_data = self.interpret_expr(program, event_data.clone(), ctx)?;
+                        self.context.emit_event(event_data.to_felts());
+                        return Ok(CheckedValueRef::new_rc(CheckedValue::Type(type_id.clone())));
+                    }
                     CheckedIntrinsicExprNode::GetCheckpointStats {
                         checkpoint_id,
                         type_id,
@@ -1644,6 +1653,7 @@ mod tests {
             .unwrap();
 
             println!("result_vm: {:?}", cfc_input.outputs);
+            println!("result_events: {:?}", cfc_input.events);
             #[allow(static_mut_refs)]
             unsafe {
                 STD_PRIMITIVE_SCOPE_ID.take().unwrap()

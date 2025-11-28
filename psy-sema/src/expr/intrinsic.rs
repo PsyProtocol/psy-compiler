@@ -196,6 +196,11 @@ pub enum CheckedIntrinsicExprNode {
         type_id: TypeId,
         location: Location,
     },
+    Emit {
+        event_data: ExprId,
+        type_id: TypeId,
+        location: Location,
+    },
 }
 
 impl NodeInfo for CheckedIntrinsicExprNode {

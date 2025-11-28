@@ -6,7 +6,7 @@ fn cal1(a: Felt, b: Felt) -> Felt {
 fn min(a: Felt, b: Felt) -> Felt {
     if a < b {
         a
-    }
+    }    
     else {
         b
     }
@@ -16,21 +16,21 @@ fn middle(a: Felt, b: Felt, c: Felt) -> Felt {
     if a > b {
         if b > c {
             b
-        }
+        }        
         else if a > c {
             c
-        }
+        }        
         else {
             a
         }
-    }
+    }    
     else {
         if a > c {
             a
-        }
+        }        
         else if b > c {
             c
-        }
+        }        
         else {
             b
         }
@@ -51,16 +51,16 @@ fn main() {
     let e: Felt = 14;
     let basic: Felt = if a > b {
         c
-    }
+    }    
     else {
         d
     };
     let all: Felt = if a > b {
         c
-    }
+    }    
     else if b > a {
         d
-    }
+    }    
     else {
         e
     };
@@ -68,43 +68,43 @@ fn main() {
     let embedded1: Felt = if a > b {
         if b > c {
             a
-        }
+        }        
         else {
             b
         }
-    }
+    }    
     else {
         c
     };
     let embedded2: Felt = if a > b {
         if a > b {
             c
-        }
+        }        
         else if b > a {
             d
-        }
+        }        
         else {
             e
         }
-    }
+    }    
     else if c > d {
         if a > b {
             c
-        }
+        }        
         else if b > a {
             d
-        }
+        }        
         else {
             e
         }
-    }
+    }    
     else {
         if a > b {
             c
-        }
+        }        
         else if b > a {
             d
-        }
+        }        
         else {
             e
         }
@@ -114,27 +114,27 @@ fn main() {
         let tmp1: Felt = 2;
         if tmp0 > tmp1 {
             tmp0
-        }
+        }        
         else {
             tmp1
         }
-    }
+    }    
     else if c > d {
         let tmp2: Felt = 3;
         let tmp3: Felt = 4;
         if tmp2 > tmp3 {
             tmp2
-        }
+        }        
         else {
             tmp3
         }
-    }
+    }    
     else {
         let tmp4: Felt = 5;
         let tmp5: Felt = 6;
         if tmp4 > tmp5 {
             tmp4
-        }
+        }        
         else {
             tmp5
         }
@@ -154,7 +154,7 @@ fn main() {
     cal2(n1, n2);
     cal2(if n1 > n2 {
         n1
-    }
+    }    
     else {
         n2
     }, n2);

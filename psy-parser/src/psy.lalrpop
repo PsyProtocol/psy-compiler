@@ -1016,6 +1016,14 @@ IntrinsicExpression: ExprNode<F> = {
             }
         )
     },
+    <l:@L> <variable:EMIT> "(" <event_data: Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::Emit {
+                event_data: expr_nodes.alloc_item(event_data),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
     <l:@L> <variable:CHECK_SECP_SIGN> "(" <pub_key: Expression> "," <msg: Expression>  "," <sig: Expression> ")" <r:@R> => {
         ExprNode::Intrinsic(
             IntrinsicExprNode::Secp256k1Verify {
@@ -1294,6 +1302,8 @@ extern {
 
         SUM_BITS => Token::IntrinsicSumBits,
         SPLIT_BITS => Token::IntrinsicSplitBits,
+
+        EMIT => Token::IntrinsicEmit,
 
         MOD => Token::KeywordMod,
         USE => Token::KeywordUse,

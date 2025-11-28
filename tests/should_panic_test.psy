@@ -21,7 +21,7 @@ fn test_that_passes() {
 fn max(a: Felt, b: Felt) -> Felt {
     if a > b {
         a
-    }
+    }    
     else {
         b
     }

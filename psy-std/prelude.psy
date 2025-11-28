@@ -3,9 +3,11 @@ mod storage;
 mod context;
 mod default;
 mod mem;
+mod event;
 
 pub use storage::*;
 pub use context::*;
 pub use primitive::*;
 pub use default::*;
 pub use mem::*;
+pub use event::*;

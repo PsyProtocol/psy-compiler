@@ -12,54 +12,39 @@ struct VariableHeightRewardMerkleProof {
 }
 
 impl VariableHeightRewardMerkleProof {
-    pub fn compute_root_and_nullifier_index(self) -> ([Felt; 4], Felt) {
+    pub fn compute_root_and_nullifier_index(self: Self) -> ([Felt; 4], Felt) {
         let proof_height = self.proof_height;
         let index = self.index;
         let max_height = 32;
-
         assert(proof_height <= max_height, "proof height too large");
         assert(index < 4294967296, "index too large");
-
         let mut nullifier_base = 0;
         let mut nullifier_level_start_index_multiplier = 1;
-
         let mut current_node_value = hash_two_to_one(self.sibling_branch, self.reward_leaf);
-
         for i in 0u32..32u32 {
             let level_index = i as Felt;
             let sibling = self.top_siblings[level_index];
             let sibling_node = sibling.sibling_branch;
             let reward_leaf = sibling.sibling_reward_leaf;
             let index_bit = (index >> level_index) & 1;
-
             if level_index < proof_height {
                 let branch_path_hash = if index_bit == 0 {
                     hash_two_to_one(current_node_value, sibling_node)
-                } else {
+                }                
+                else {
                     hash_two_to_one(sibling_node, current_node_value)
                 };
                 current_node_value = hash_two_to_one(branch_path_hash, reward_leaf);
-
                 nullifier_base = nullifier_base + nullifier_level_start_index_multiplier;
                 nullifier_level_start_index_multiplier = nullifier_level_start_index_multiplier * 2;
-            } else {
+            }            
+            else {
                 let zero_hash = [0, 0, 0, 0];
-                assert(
-                    reward_leaf[0] == zero_hash[0]
-                    && reward_leaf[1] == zero_hash[1]
-                    && reward_leaf[2] == zero_hash[2]
-                    && reward_leaf[3] == zero_hash[3],
-                "unused reward leaf must be zero");
-                assert(sibling_node[0] == zero_hash[0]
-                    && sibling_node[1] == zero_hash[1]
-                    && sibling_node[2] == zero_hash[2]
-                    && sibling_node[3] == zero_hash[3],
-                "unused sibling node must be zero");
-
+                assert(reward_leaf[0] == zero_hash[0] && reward_leaf[1] == zero_hash[1] && reward_leaf[2] == zero_hash[2] && reward_leaf[3] == zero_hash[3], "unused reward leaf must be zero");
+                assert(sibling_node[0] == zero_hash[0] && sibling_node[1] == zero_hash[1] && sibling_node[2] == zero_hash[2] && sibling_node[3] == zero_hash[3], "unused sibling node must be zero");
                 assert(index_bit == 0, "unused index bit must be zero");
             };
         }
-
         let nullifier_final_index = nullifier_base + index;
         (current_node_value, nullifier_final_index)
     }
@@ -83,27 +68,107 @@ fn test_guta_verify_to_cap_proof() {
     //   ]
     // },
     // "root": "1061913c4082f0b67cb9f041371df3e48ac597668f7ee147114b6e77945318ee"
-
     // QHashOut felts from psy_dev_cli qhash from-string
-    let reward_leaf = [
-        14766743708420665888, 17765979509351206360,
-        2105232290032940756, 3109752530715174030
-    ];
-    let sibling_branch = [
-        15235198788082409904, 2935782993509517981,
-        8212987016377471206, 16405734921858906756
-    ];
-    let sibling_reward_leaf_0 = [
-        6228363996522663727, 74339009091137294,
-        2550191691564954315, 5322880393740762406
-    ];
-
-    let mut top_siblings: [WeirdMerkleProofSiblingLevel; 32] = [
-        new WeirdMerkleProofSiblingLevel {
+    let reward_leaf = [14766743708420665888, 17765979509351206360, 2105232290032940756, 3109752530715174030];
+    let sibling_branch = [15235198788082409904, 2935782993509517981, 8212987016377471206, 16405734921858906756];
+    let sibling_reward_leaf_0 = [6228363996522663727, 74339009091137294, 2550191691564954315, 5322880393740762406];
+    let mut top_siblings: [WeirdMerkleProofSiblingLevel; 32] = [new WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }; 32
-    ];
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }, new WeirdMerkleProofSiblingLevel {
+            sibling_branch: [0, 0, 0, 0],
+            sibling_reward_leaf: [0, 0, 0, 0],
+        }];
     top_siblings[0] = new WeirdMerkleProofSiblingLevel {
         sibling_branch: [0, 0, 0, 0],
         sibling_reward_leaf: sibling_reward_leaf_0,
@@ -115,20 +180,13 @@ fn test_guta_verify_to_cap_proof() {
         proof_height: 1,
         index: 0,
     };
-
     let result = proof.compute_root_and_nullifier_index();
     let computed_root = result.0;
     let nullifier_index = result.1;
-
-    let expected_root = [
-        1246211181766711534, 9999565014395969863,
-        8987478694282785764, 1180384265314169014
-    ];
-
+    let expected_root = [1246211181766711534, 9999565014395969863, 8987478694282785764, 1180384265314169014];
     assert(computed_root[0] == expected_root[0], "root[0] mismatch");
     assert(computed_root[1] == expected_root[1], "root[1] mismatch");
     assert(computed_root[2] == expected_root[2], "root[2] mismatch");
     assert(computed_root[3] == expected_root[3], "root[3] mismatch");
-
     assert(nullifier_index == 1, "nullifier index should be 1");
 }

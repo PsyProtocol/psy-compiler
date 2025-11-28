@@ -161,6 +161,10 @@ pub enum IntrinsicExprNode {
         num_bits: u64,
         location: Location,
     },
+    Emit {
+        event_data: ExprId,
+        location: Location,
+    },
 }
 
 impl NodeInfo for IntrinsicExprNode {

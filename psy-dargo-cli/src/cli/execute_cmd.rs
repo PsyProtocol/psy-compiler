@@ -80,6 +80,7 @@ pub(crate) async fn run(mut args: ExecuteCommand, workspace: Workspace) -> crate
             )
             .await?;
         println!("result_vm: {:?}", cfc_input.outputs);
+        println!("result_events: {:?}", cfc_input.events);
 
         let proof = circuit.prove_base(&cfc_input).unwrap();
         println!("public_inputs: {:?}", &proof.public_inputs);

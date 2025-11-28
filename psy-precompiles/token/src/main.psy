@@ -7,6 +7,17 @@ struct OtherUserInfo {
     pub amount_claimed: Felt,
 }
 
+#[derive(Event)]
+pub struct TransferEvent {
+    pub to: Felt,
+    pub amount: Felt,
+}
+
+#[derive(Event)]
+pub struct UserInfoEvent {
+    pub balance: Felt,
+}
+
 #[contract]
 #[derive(Storage, StorageRef)]
 struct PsyTokenContract {
@@ -31,6 +42,12 @@ impl PsyTokenContractRef {
     }
 
     pub fn simple_transfer(recipient: Felt, amount: Felt) {
+        let transfer_info_event = new TransferEvent {
+            to: recipient,
+            amount,
+        };
+        transfer_info_event.emit();
+
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
         assert(current_balance >= amount, "insufficient balance");
@@ -43,7 +60,15 @@ impl PsyTokenContractRef {
             amount_claimed: recipient_info.amount_claimed
         });
 
+        let sender_start_info = new UserInfoEvent {
+            balance: c.balance.get(),
+        };
+        sender_start_info.emit();
         c.balance.set(current_balance - amount);
+        let sender_end_info = new UserInfoEvent {
+            balance: c.balance.get(),
+        };
+        sender_end_info.emit();
     }
 
     pub fn simple_claim(sender: Felt) {

@@ -610,6 +610,14 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                     *target = self.rewrite_expr(*target, ctx)?;
                     *type_id = self.substitute_all(*type_id, ctx)?;
                 }
+                CheckedIntrinsicExprNode::Emit {
+                    event_data,
+                    type_id,
+                    location,
+                } => {
+                    *event_data = self.rewrite_expr(*event_data, ctx)?;
+                    *type_id = self.substitute_all(*type_id, ctx)?;
+                }
                 CheckedIntrinsicExprNode::GetCheckpointStats {
                     checkpoint_id,
                     type_id,

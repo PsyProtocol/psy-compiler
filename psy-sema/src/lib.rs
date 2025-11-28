@@ -755,6 +755,14 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                     location,
                 }));
             }
+            IntrinsicExprNode::Emit { event_data, location } => {
+                let event_data = self.visit_expr(event_data, ctx)?;
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::Emit {
+                    event_data: self.program.exprs.alloc_item(event_data),
+                    type_id: UNKOWN_TYPE,
+                    location,
+                }));
+            }
         }
     }
 

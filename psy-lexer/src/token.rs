@@ -129,6 +129,9 @@ pub enum Token<'input> {
     #[token("__split_bits")]
     IntrinsicSplitBits,
 
+    #[token("__emit")]
+    IntrinsicEmit,
+
     #[token("new")]
     KeywordNew,
     #[token("extern")]

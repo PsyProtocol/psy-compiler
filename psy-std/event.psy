@@ -1,0 +1,5 @@
+pub trait Event {
+    pub fn emit(self: Self) {
+        __emit(self);
+    }
+}

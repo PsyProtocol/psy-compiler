@@ -11,25 +11,29 @@ struct ComplexStruct {
 
 #[test]
 fn test_modify_array_struct_simple() {
-    let mut test_array: [TestItem; 3] = [
-        new TestItem { id: 1, value: 10, data: [100, 200] },
-        new TestItem { id: 2, value: 20, data: [300, 400] },
-        new TestItem { id: 3, value: 30, data: [500, 600] }
-    ];
-
+    let mut test_array: [TestItem; 3] = [new TestItem {
+            id: 1,
+            value: 10,
+            data: [100, 200],
+        }, new TestItem {
+            id: 2,
+            value: 20,
+            data: [300, 400],
+        }, new TestItem {
+            id: 3,
+            value: 30,
+            data: [500, 600],
+        }];
     // Test reading original values
     assert_eq(test_array[0].id, 1, "original id should be 1");
     assert_eq(test_array[0].value, 10, "original value should be 10");
     assert_eq(test_array[0].data[0], 100, "original data[0] should be 100");
-
     // Test modifying struct fields in array
     test_array[0].value = 99;
     test_array[0].data[1] = 999;
-
     // Verify modifications
     assert_eq(test_array[0].value, 99, "modified value should be 99");
     assert_eq(test_array[0].data[1], 999, "modified data[1] should be 999");
-
     // Ensure other elements unchanged
     assert_eq(test_array[1].id, 2, "other element should be unchanged");
     assert_eq(test_array[2].value, 30, "other element should be unchanged");
@@ -39,26 +43,30 @@ fn test_modify_array_struct_simple() {
 fn test_modify_nested_array_struct() {
     let mut complex: ComplexStruct = new ComplexStruct {
         name: 42,
-        items: [
-            new TestItem { id: 1, value: 10, data: [1, 2] },
-            new TestItem { id: 2, value: 20, data: [3, 4] },
-            new TestItem { id: 3, value: 30, data: [5, 6] }
-        ]
+        items: [new TestItem {
+                id: 1,
+                value: 10,
+                data: [1, 2],
+            }, new TestItem {
+                id: 2,
+                value: 20,
+                data: [3, 4],
+            }, new TestItem {
+                id: 3,
+                value: 30,
+                data: [5, 6],
+            }],
     };
-
     // Test reading nested values
     assert_eq(complex.name, 42, "complex name should be 42");
     assert_eq(complex.items[1].id, 2, "nested id should be 2");
     assert_eq(complex.items[1].data[0], 3, "nested data should be 3");
-
     // Test modifying nested struct in array
     complex.items[1].value = 777;
     complex.items[2].data[1] = 888;
-
     // Verify nested modifications
     assert_eq(complex.items[1].value, 777, "nested value should be modified to 777");
     assert_eq(complex.items[2].data[1], 888, "nested data should be modified to 888");
-
     // Ensure other nested elements unchanged
     assert_eq(complex.items[0].value, 10, "first item should be unchanged");
     assert_eq(complex.items[1].id, 2, "modified item id should remain unchanged");
@@ -66,12 +74,19 @@ fn test_modify_nested_array_struct() {
 
 #[test]
 fn test_modify_array_struct_in_loop() {
-    let mut test_array: [TestItem; 3] = [
-        new TestItem { id: 1, value: 0, data: [0, 0] },
-        new TestItem { id: 2, value: 0, data: [0, 0] },
-        new TestItem { id: 3, value: 0, data: [0, 0] }
-    ];
-
+    let mut test_array: [TestItem; 3] = [new TestItem {
+            id: 1,
+            value: 0,
+            data: [0, 0],
+        }, new TestItem {
+            id: 2,
+            value: 0,
+            data: [0, 0],
+        }, new TestItem {
+            id: 3,
+            value: 0,
+            data: [0, 0],
+        }];
     // Modify array elements in a loop
     for i in 0u32..3u32 {
         let index = i as Felt;
@@ -79,16 +94,13 @@ fn test_modify_array_struct_in_loop() {
         test_array[index].data[0] = index * 100;
         test_array[index].data[1] = index * 1000;
     }
-
     // Verify loop modifications
     assert_eq(test_array[0].value, 0, "first value should be 0*10=0");
     assert_eq(test_array[1].value, 10, "second value should be 1*10=10");
     assert_eq(test_array[2].value, 20, "third value should be 2*10=20");
-
     assert_eq(test_array[0].data[0], 0, "first data[0] should be 0*100=0");
     assert_eq(test_array[1].data[0], 100, "second data[0] should be 1*100=100");
     assert_eq(test_array[2].data[0], 200, "third data[0] should be 2*100=200");
-
     assert_eq(test_array[0].data[1], 0, "first data[1] should be 0*1000=0");
     assert_eq(test_array[1].data[1], 1000, "second data[1] should be 1*1000=1000");
     assert_eq(test_array[2].data[1], 2000, "third data[1] should be 2*1000=2000");
@@ -96,21 +108,27 @@ fn test_modify_array_struct_in_loop() {
 
 #[test]
 fn test_assign_entire_struct_to_array() {
-    let mut test_array: [TestItem; 2] = [
-        new TestItem { id: 1, value: 10, data: [100, 200] },
-        new TestItem { id: 2, value: 20, data: [300, 400] }
-    ];
-
+    let mut test_array: [TestItem; 2] = [new TestItem {
+            id: 1,
+            value: 10,
+            data: [100, 200],
+        }, new TestItem {
+            id: 2,
+            value: 20,
+            data: [300, 400],
+        }];
     // Create new struct and assign to array element
-    let new_item = new TestItem { id: 99, value: 999, data: [9999, 8888] };
+    let new_item = new TestItem {
+        id: 99,
+        value: 999,
+        data: [9999, 8888],
+    };
     test_array[1] = new_item;
-
     // Verify entire struct assignment
     assert_eq(test_array[1].id, 99, "assigned struct id should be 99");
     assert_eq(test_array[1].value, 999, "assigned struct value should be 999");
     assert_eq(test_array[1].data[0], 9999, "assigned struct data[0] should be 9999");
     assert_eq(test_array[1].data[1], 8888, "assigned struct data[1] should be 8888");
-
     // Ensure first element unchanged
     assert_eq(test_array[0].id, 1, "first element should remain unchanged");
     assert_eq(test_array[0].value, 10, "first element should remain unchanged");
@@ -119,8 +137,27 @@ fn test_assign_entire_struct_to_array() {
 #[test]
 fn test_array_struct_repeat_init() {
     // Test [struct; n] initialization syntax
-    let mut items: [TestItem; 5] = [new TestItem { id: 0, value: 100, data: [1, 2] }; 5];
-
+    let mut items: [TestItem; 5] = [new TestItem {
+            id: 0,
+            value: 100,
+            data: [1, 2],
+        }, new TestItem {
+            id: 0,
+            value: 100,
+            data: [1, 2],
+        }, new TestItem {
+            id: 0,
+            value: 100,
+            data: [1, 2],
+        }, new TestItem {
+            id: 0,
+            value: 100,
+            data: [1, 2],
+        }, new TestItem {
+            id: 0,
+            value: 100,
+            data: [1, 2],
+        }];
     // Verify all elements are initialized the same
     for i in 0u32..5u32 {
         let index = i as Felt;
@@ -129,21 +166,17 @@ fn test_array_struct_repeat_init() {
         assert_eq(items[index].data[0], 1, "all data[0] should be 1");
         assert_eq(items[index].data[1], 2, "all data[1] should be 2");
     }
-
     // Modify some elements
     items[1].id = 11;
     items[3].value = 300;
     items[4].data[0] = 999;
-
     // Verify modifications don't affect other elements
     assert_eq(items[0].id, 0, "first element id unchanged");
     assert_eq(items[1].id, 11, "second element id modified");
     assert_eq(items[2].id, 0, "third element id unchanged");
-
     assert_eq(items[0].value, 100, "first element value unchanged");
     assert_eq(items[3].value, 300, "fourth element value modified");
     assert_eq(items[4].value, 100, "fifth element value unchanged");
-
     assert_eq(items[0].data[0], 1, "first element data unchanged");
     assert_eq(items[4].data[0], 999, "fifth element data modified");
     assert_eq(items[4].data[1], 2, "fifth element other data unchanged");
@@ -157,19 +190,39 @@ struct DeepNested {
 #[test]
 fn test_deeply_nested_array_struct() {
     let mut deep: DeepNested = new DeepNested {
-        level1: [
-            new ComplexStruct {
+        level1: [new ComplexStruct {
                 name: 100,
-                items: [new TestItem { id: 1, value: 10, data: [1, 2] }; 3]
-            },
-            new ComplexStruct {
+                items: [new TestItem {
+                        id: 1,
+                        value: 10,
+                        data: [1, 2],
+                    }, new TestItem {
+                        id: 1,
+                        value: 10,
+                        data: [1, 2],
+                    }, new TestItem {
+                        id: 1,
+                        value: 10,
+                        data: [1, 2],
+                    }],
+            }, new ComplexStruct {
                 name: 200,
-                items: [new TestItem { id: 2, value: 20, data: [3, 4] }; 3]
-            }
-        ],
-        simple: 42
+                items: [new TestItem {
+                        id: 2,
+                        value: 20,
+                        data: [3, 4],
+                    }, new TestItem {
+                        id: 2,
+                        value: 20,
+                        data: [3, 4],
+                    }, new TestItem {
+                        id: 2,
+                        value: 20,
+                        data: [3, 4],
+                    }],
+            }],
+        simple: 42,
     };
-
     // Test reading deeply nested values
     assert_eq(deep.simple, 42, "simple field should be 42");
     assert_eq(deep.level1[0].name, 100, "first complex name should be 100");
@@ -177,17 +230,14 @@ fn test_deeply_nested_array_struct() {
     assert_eq(deep.level1[0].items[1].id, 1, "nested item id should be 1");
     assert_eq(deep.level1[1].items[2].value, 20, "deeply nested value should be 20");
     assert_eq(deep.level1[0].items[0].data[1], 2, "deeply nested data should be 2");
-
     // Modify deeply nested values
     deep.level1[1].items[0].value = 999;
     deep.level1[0].items[2].data[0] = 777;
     deep.level1[1].name = 888;
-
     // Verify deep modifications
     assert_eq(deep.level1[1].items[0].value, 999, "deeply nested value modified");
     assert_eq(deep.level1[0].items[2].data[0], 777, "deeply nested data modified");
     assert_eq(deep.level1[1].name, 888, "complex name modified");
-
     // Ensure other deep values unchanged
     assert_eq(deep.level1[0].name, 100, "first complex name unchanged");
     assert_eq(deep.level1[1].items[1].value, 20, "other nested values unchanged");
@@ -203,23 +253,19 @@ fn test_array_of_arrays_in_struct() {
 
     let mut container: ArrayContainer = new ArrayContainer {
         matrices: [[1, 2], [3, 4], [5, 6]],
-        id: 99
+        id: 99,
     };
-
     // Test reading array of arrays
     assert_eq(container.id, 99, "container id should be 99");
     assert_eq(container.matrices[0][0], 1, "matrix[0][0] should be 1");
     assert_eq(container.matrices[1][1], 4, "matrix[1][1] should be 4");
     assert_eq(container.matrices[2][0], 5, "matrix[2][0] should be 5");
-
     // Modify array of arrays
     container.matrices[1][0] = 333;
     container.matrices[2][1] = 666;
-
     // Verify modifications
     assert_eq(container.matrices[1][0], 333, "matrix[1][0] modified");
     assert_eq(container.matrices[2][1], 666, "matrix[2][1] modified");
-
     // Ensure other values unchanged
     assert_eq(container.matrices[0][1], 2, "matrix[0][1] unchanged");
     assert_eq(container.matrices[1][1], 4, "matrix[1][1] unchanged");
@@ -229,35 +275,43 @@ fn test_array_of_arrays_in_struct() {
 #[test]
 fn test_mixed_initialization_and_modification() {
     // Mix different initialization styles
-    let default_item = new TestItem { id: 0, value: 0, data: [0, 0] };
-    let mut mixed_array: [TestItem; 4] = [default_item; 4];
-
+    let default_item = new TestItem {
+        id: 0,
+        value: 0,
+        data: [0, 0],
+    };
+    let mut mixed_array: [TestItem; 4] = [default_item, default_item, default_item, default_item];
     // Initialize some elements explicitly
-    mixed_array[0] = new TestItem { id: 10, value: 100, data: [1000, 2000] };
-    mixed_array[2] = new TestItem { id: 30, value: 300, data: [3000, 4000] };
-
+    mixed_array[0] = new TestItem {
+        id: 10,
+        value: 100,
+        data: [1000, 2000],
+    };
+    mixed_array[2] = new TestItem {
+        id: 30,
+        value: 300,
+        data: [3000, 4000],
+    };
     // Verify mixed initialization
     assert_eq(mixed_array[0].id, 10, "explicitly set element");
     assert_eq(mixed_array[1].id, 0, "default initialized element");
     assert_eq(mixed_array[2].value, 300, "explicitly set element");
     assert_eq(mixed_array[3].value, 0, "default initialized element");
-
     // Modify in loop with conditions
     for i in 0u32..4u32 {
         let index = i as Felt;
         if index < 2 {
             mixed_array[index].data[0] = index + 1000;
-        } else {
+        }        
+        else {
             mixed_array[index].data[1] = index + 2000;
         }
     }
-
     // Verify conditional loop modifications
     assert_eq(mixed_array[0].data[0], 1000, "first half modified data[0]");
     assert_eq(mixed_array[1].data[0], 1001, "first half modified data[0]");
     assert_eq(mixed_array[2].data[1], 2002, "second half modified data[1]");
     assert_eq(mixed_array[3].data[1], 2003, "second half modified data[1]");
-
     // Ensure unmodified parts remain unchanged
     assert_eq(mixed_array[0].data[1], 2000, "unmodified data[1] in first half");
     assert_eq(mixed_array[2].data[0], 3000, "unmodified data[0] in second half");
