@@ -25,6 +25,9 @@ DARGO_CLI_COMPILE = RUST_LOG=$(LOG_LEVEL) ./target/${PROFILE}/dargo compile --pr
 DARGO_CLI_EXECUTE = RUST_LOG=${LOG_LEVEL} ./target/${PROFILE}/dargo execute --program-dir tests --debug --entry-path
 DARGO_CLI_TEST    = RUST_LOG=${LOG_LEVEL} ./target/${PROFILE}/dargo test --file
 
+DARGO = RUST_LOG=$(LOG_LEVEL) $(PWD)/target/${PROFILE}/dargo
+TOKEN_CONTRACT_PATH := $(PWD)/psy-precompiles/token
+
 ci:
 	@$(DARGO_CLI_TEST) tests/in_mod_attr_test.psy
 	# @$(DARGO_CLI_TEST) tests/should_panic_test.psy
@@ -102,3 +105,9 @@ PARAMETERS               := 1,2
 
 interpret:
 	@RUST_LOG=${LOG_LEVEL} ./target/${PROFILE}/dargo execute --program-dir $(dir ${FILE}) --debug --entry-path $(notdir ${FILE}) --parameters ${PARAMETERS}
+
+compile-token-contract:
+	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names simple_mint simple_transfer simple_claim batch_simple_transfer simple_burn simple_claim_pow_rewards
+
+compile-token-abi:
+	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c token.abi
