@@ -1,0 +1,8 @@
+[package]
+name = "psy_common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+psy_common_core = { workspace = true }
+indexmap = { workspace = true }

@@ -1031,7 +1031,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     } => {
                         let checkpoint_id = self.interpret_expr(program, checkpoint_id.clone(), ctx)?;
                         let checkpoint_id_value = checkpoint_id.to_felt();
-                        let fees = self.context.get_fees_collected(checkpoint_id_value);
+                        let fees = self.context.get_da_fees_collected(checkpoint_id_value);
                         return Ok(CheckedValueRef::from_felt(fees));
                     }
                     CheckedIntrinsicExprNode::GetUserOpsProcessed {
@@ -1532,12 +1532,15 @@ mod tests {
     use psy_common_circuit::circuits::zk_signature3::manager::SimplePsyZKSignatureManager;
     use psy_config::network_constants::GLOBAL_USER_TREE_HEIGHT;
     use psy_crypto::signature::zk::wallet::SimplePsyPrivateKey;
+    use kvq::memory::simple::KVQSimpleMemoryBackingStore;
     use psy_data::{
-        config::store_config::{PsyHasher, C, D},
-        qblock::cmds::register_user::QBCRegisterUser,
+        config::store_config::{PsyFelt, PsyHasher, C, D},
+        qblock::{cmds::register_user::QBCRegisterUser, process::simple::SimpleBlockProcessor},
+        qdata::checkpoint::{PsyBlockState, PsyCheckpointLeaf, PsyCheckpointLeafStats},
+        qstore::controllers::proving_session::PsyLocalProvingSessionStore,
+        traits::qdatastore::qmetadata::{QMetaDataStoreReaderSync, QMetaDataStoreWriterSync},
     };
     use psy_prover::session::gen_contract_deploy_and_circuits_for_functions;
-    use psy_store::prepare_environment_with_real_contract;
     use psy_vm::{
         dpn::{
             ops::{exec_context::QExecContext, sym_felt::SymFeltRef},
@@ -1600,14 +1603,32 @@ mod tests {
 
             let mut lps = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
-                    prepare_environment_with_real_contract(
+                    let store = KVQSimpleMemoryBackingStore::new();
+                    store.set_block_state(&PsyBlockState::get_genesis_value())?;
+                    store.set_checkpoint_leaf_data(
+                        0,
+                        &PsyCheckpointLeaf {
+                            global_chain_root: QHashOut::ZERO,
+                            stats: PsyCheckpointLeafStats::new_empty(),
+                        },
+                    )?;
+                    let final_store = SimpleBlockProcessor::prepare_environment_with_real_contract(
                         vec![QBCRegisterUser::new(wallet.get_zksig_circuit_fingerprint(), pub_key_param)],
                         vec![deploy_cmd],
-                        None,
-                        None,
-                        None,
+                        store,
                     )
-                    .await
+                    .await?;
+                    let latest_block_state = final_store.get_latest_block_state().await?;
+                    let checkpoint_id = PsyFelt::from_canonical_u64(latest_block_state.checkpoint_id);
+                    let user_id = PsyFelt::from_canonical_u64(5);
+                    Ok::<_, anyhow::Error>(PsyLocalProvingSessionStore::<_, _, PsyHasher>::new_at(
+                        final_store,
+                        checkpoint_id,
+                        user_id,
+                        PsyFelt::ZERO,
+                        PsyFelt::ZERO,
+                        GLOBAL_USER_TREE_HEIGHT as usize,
+                    ))
                 })
             })
             .unwrap();

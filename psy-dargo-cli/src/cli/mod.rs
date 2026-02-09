@@ -7,6 +7,7 @@ mod generate_abi_cmd;
 mod init_cmd;
 mod new_cmd;
 mod test_cmd;
+pub(crate) mod test_helpers;
 
 use std::{
     collections::{HashSet, VecDeque},

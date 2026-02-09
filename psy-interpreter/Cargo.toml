@@ -23,16 +23,15 @@ psy_data = { workspace = true }
 psy_common = { workspace = true }
 psy_config = { workspace = true }
 psy_common_circuit = { workspace = true }
-psy_store = { workspace = true }
 
 [features]
 # default = ["is_sync"]
 is_sync = [
     "psy_data/is_sync",
-    "psy_store/is_sync",
 ]
 
 [dev-dependencies]
 psy_prover = { workspace = true }
 psy_common_circuit = { workspace = true }
 serial_test = { workspace = true }
+kvq = { workspace = true }

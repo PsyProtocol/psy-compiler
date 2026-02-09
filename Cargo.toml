@@ -11,8 +11,7 @@ members = [
     "psy-package",
     "psy-dargo-cli",
     "psy-abi",
-    "psylang_ex",
-    "psylang_macros",
+    "psy-common",
 ]
 resolver = "2"
 
@@ -27,22 +26,20 @@ repository = "https://github.com/PsyProtocol/psy-compiler"
 
 [workspace.dependencies]
 # Reference the main qedlang-rust repo at specific commit
-psy_vm = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false }
-psy_crypto = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50" }
-psy_store = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
-psy_data = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
-psy_common = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50" }
-psy_config = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50" }
-psy_node = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50" }
-psy_prover = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false }
-psy_common_circuit = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
-psy_dpn_circuit = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
-psy_ups_circuit = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
-psy_network_circuit = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50", default-features = false}
-kvq = { git = "https://github.com/QEDProtocol/qedlang-rust", rev = "f5b3fd4ac01908f232d6b9580c966986e36e7b50" }
+psy_vm = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false }
+psy_crypto = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60" }
+psy_data = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false}
+psy_common_core = { package = "psy_common", git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60" }
+psy_common = { path = "./psy-common" }
+psy_config = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60" }
+psy_prover = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false }
+psy_common_circuit = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false}
+psy_dpn_circuit = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false}
+psy_ups_circuit = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false}
+psy_network_circuit = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false}
+kvq = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60" }
 
 # Local compiler packages
-psylang_macros = { path = "./psylang_macros" }
 psy-ast = { path = "./psy-ast" }
 psy-fmt = { path = "./psy-fmt" }
 psy-lsp-server = { path = "./psy-lsp-server" }
@@ -193,8 +190,8 @@ color-eyre = "0.6"
 enum-as-inner = "0.6"
 strum = { version = "0.27", features = ["derive"] }
 
-plonky2 = { git = "https://github.com/PsyProtocol/plonky2-hwa", rev = "5bf6940a3ea2d27e854931787e93bb46be27ffa3" }
-plonky2_maybe_rayon = { git = "https://github.com/PsyProtocol/plonky2-hwa", rev = "5bf6940a3ea2d27e854931787e93bb46be27ffa3", default-features = false }
+plonky2 = { git = "https://github.com/PsyProtocol/plonky2-hwa", rev = "1dfe6112c3eca3668c15820755371a8a3e75f934" }
+plonky2_maybe_rayon = { git = "https://github.com/PsyProtocol/plonky2-hwa", rev = "1dfe6112c3eca3668c15820755371a8a3e75f934", default-features = false }
 
 tracing-appender = "0.2"
 

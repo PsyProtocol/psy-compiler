@@ -27,14 +27,12 @@ psy-ast = { workspace = true }
 psy-abi = { workspace = true }
 num-bigint = { workspace = true }
 kvq = { workspace = true }
-psy_store = { workspace = true, default-features = false }
 psy_prover = { workspace = true, default-features = false }
 
 [features]
 # default = ["is_sync"]
 is_sync = [
     "psy_data/is_sync",
-    "psy_store/is_sync",
     "psy_prover/is_sync",
 ]
 
