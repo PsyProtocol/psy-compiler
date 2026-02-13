@@ -32,8 +32,12 @@ pub fn get_deploy_contracts_root(checkpoint_id: Felt) -> Hash {
     __ctx_get_deploy_contracts_root(checkpoint_id)
 }
 
-pub fn get_fees_collected(checkpoint_id: Felt) -> Felt {
-    __ctx_get_fees_collected(checkpoint_id)
+pub fn get_guta_fees_collected(checkpoint_id: Felt) -> Felt {
+    __ctx_get_guta_fees_collected(checkpoint_id)
+}
+
+pub fn get_da_fees_collected(checkpoint_id: Felt) -> Felt {
+    __ctx_get_da_fees_collected(checkpoint_id)
 }
 
 pub fn get_user_ops_processed(checkpoint_id: Felt) -> Felt {

@@ -870,9 +870,17 @@ IntrinsicExpression: ExprNode<F> = {
             }
         )
     },
-    <l:@L> <variable:CTX_GET_FEES_COLLECTED> "(" <checkpoint_id:Expression> ")" <r:@R> => {
+    <l:@L> <variable:CTX_GET_GUTA_FEES_COLLECTED> "(" <checkpoint_id:Expression> ")" <r:@R> => {
         ExprNode::Intrinsic(
-            IntrinsicExprNode::GetFeesCollected {
+            IntrinsicExprNode::GetGutaFeesCollected {
+                checkpoint_id: expr_nodes.alloc_item(checkpoint_id),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
+    <l:@L> <variable:CTX_GET_DA_FEES_COLLECTED> "(" <checkpoint_id:Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::GetDaFeesCollected {
                 checkpoint_id: expr_nodes.alloc_item(checkpoint_id),
                 location: Location::new(file_id, l, r)
             }
@@ -1280,7 +1288,8 @@ extern {
         CTX_GET_REGISTER_USERS_ROOT => Token::IntrinsicCtxGetRegisterUsersRoot,
         CTX_GET_GUTAS_ROOT => Token::IntrinsicCtxGetGutasRoot,
         CTX_GET_DEPLOY_CONTRACTS_ROOT => Token::IntrinsicCtxGetDeployContractsRoot,
-        CTX_GET_FEES_COLLECTED => Token::IntrinsicCtxGetFeesCollected,
+        CTX_GET_GUTA_FEES_COLLECTED => Token::IntrinsicCtxGetGutaFeesCollected,
+        CTX_GET_DA_FEES_COLLECTED => Token::IntrinsicCtxGetDAFeesCollected,
         CTX_GET_USER_OPS_PROCESSED => Token::IntrinsicCtxGetUserOpsProcessed,
         CTX_GET_TOTAL_TRANSACTIONS => Token::IntrinsicCtxGetTotalTransactions,
         CTX_GET_SLOTS_MODIFIED => Token::IntrinsicCtxGetSlotsModified,

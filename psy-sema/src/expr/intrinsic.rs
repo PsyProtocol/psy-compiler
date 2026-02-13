@@ -45,7 +45,12 @@ pub enum CheckedIntrinsicExprNode {
         type_id: TypeId,
         location: Location,
     },
-    GetFeesCollected {
+    GetGutaFeesCollected {
+        checkpoint_id: ExprId,
+        type_id: TypeId,
+        location: Location,
+    },
+    GetDaFeesCollected {
         checkpoint_id: ExprId,
         type_id: TypeId,
         location: Location,

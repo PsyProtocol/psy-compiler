@@ -1033,7 +1033,17 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let root = self.context.get_deploy_contracts_root(checkpoint_id_value);
                         return Ok(CheckedValueRef::from_vec(type_id.clone(), root.to_vec()));
                     }
-                    CheckedIntrinsicExprNode::GetFeesCollected {
+                    CheckedIntrinsicExprNode::GetGutaFeesCollected {
+                        checkpoint_id,
+                        type_id,
+                        location,
+                    } => {
+                        let checkpoint_id = self.interpret_expr(program, checkpoint_id.clone(), ctx)?;
+                        let checkpoint_id_value = checkpoint_id.to_felt();
+                        let fees = self.context.get_guta_fees_collected(checkpoint_id_value);
+                        return Ok(CheckedValueRef::from_felt(fees));
+                    }
+                    CheckedIntrinsicExprNode::GetDaFeesCollected {
                         checkpoint_id,
                         type_id,
                         location,

@@ -682,9 +682,17 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                     location,
                 }));
             }
-            IntrinsicExprNode::GetFeesCollected { checkpoint_id, location } => {
+            IntrinsicExprNode::GetGutaFeesCollected { checkpoint_id, location } => {
                 let checkpoint_id = self.visit_expr(checkpoint_id, ctx)?;
-                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::GetFeesCollected {
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::GetGutaFeesCollected {
+                    checkpoint_id: self.program.exprs.alloc_item(checkpoint_id),
+                    type_id: UNKOWN_TYPE,
+                    location,
+                }));
+            }
+            IntrinsicExprNode::GetDaFeesCollected { checkpoint_id, location } => {
+                let checkpoint_id = self.visit_expr(checkpoint_id, ctx)?;
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::GetDaFeesCollected {
                     checkpoint_id: self.program.exprs.alloc_item(checkpoint_id),
                     type_id: UNKOWN_TYPE,
                     location,

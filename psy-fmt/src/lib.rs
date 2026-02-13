@@ -983,8 +983,11 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
             IntrinsicExprNode::GetDeployContractsRoot { checkpoint_id, .. } => {
                 Ok(format!("__ctx_get_deploy_contracts_root({})", self.visit_expr(checkpoint_id, ctx)?))
             }
-            IntrinsicExprNode::GetFeesCollected { checkpoint_id, .. } => {
-                Ok(format!("__ctx_get_fees_collected({})", self.visit_expr(checkpoint_id, ctx)?))
+            IntrinsicExprNode::GetGutaFeesCollected { checkpoint_id, .. } => {
+                Ok(format!("__ctx_get_guta_fees_collected({})", self.visit_expr(checkpoint_id, ctx)?))
+            }
+            IntrinsicExprNode::GetDaFeesCollected { checkpoint_id, .. } => {
+                Ok(format!("__ctx_get_da_fees_collected({})", self.visit_expr(checkpoint_id, ctx)?))
             }
             IntrinsicExprNode::GetUserOpsProcessed { checkpoint_id, .. } => {
                 Ok(format!("__ctx_get_user_ops_processed({})", self.visit_expr(checkpoint_id, ctx)?))

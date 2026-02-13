@@ -99,7 +99,7 @@ impl PsyPOWMiningRewardsClaimContractRef {
 
         let expected_guta_rewards_tree_root = get_gutas_root(checkpoint_id);
         let total_proofs = get_gutas_completed(checkpoint_id);
-        let total_fees = get_fees_collected(checkpoint_id);
+        let total_fees = get_guta_fees_collected(checkpoint_id);
         assert(Self::check_guta_reward(total_proofs, total_fees, proposed_reward), "invalid reward amount");
 
         let result: ([Felt; 4], Felt) = proof.compute_root_and_nullifier_index();

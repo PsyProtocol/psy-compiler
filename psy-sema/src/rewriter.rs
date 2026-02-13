@@ -650,7 +650,15 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                     *checkpoint_id = self.rewrite_expr(*checkpoint_id, ctx)?;
                     *type_id = self.substitute_all(*type_id, ctx)?;
                 }
-                CheckedIntrinsicExprNode::GetFeesCollected {
+                CheckedIntrinsicExprNode::GetGutaFeesCollected {
+                    checkpoint_id,
+                    type_id,
+                    location,
+                } => {
+                    *checkpoint_id = self.rewrite_expr(*checkpoint_id, ctx)?;
+                    *type_id = self.substitute_all(*type_id, ctx)?;
+                }
+                CheckedIntrinsicExprNode::GetDaFeesCollected {
                     checkpoint_id,
                     type_id,
                     location,
