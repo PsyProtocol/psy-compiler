@@ -164,22 +164,18 @@ impl<'a, F: Clone + From<u32> + Debug, C> Formatter<'a, F, C> {
         let mut path = node
             .root
             .as_ref()
-            .map(|r| vec![self.visit_unchecked_type(r, true, ctx)])
+            .map(|r| vec![self.visit_unchecked_type(r, !node.is_ty, ctx)])
             .unwrap_or_default();
         path.extend_from_slice(
             &node
                 .segments
                 .iter()
-                .map(|s| self.visit_unchecked_type(&s, true, ctx))
+                .map(|s| self.visit_unchecked_type(&s, !node.is_ty, ctx))
                 .collect::<Vec<String>>(),
         );
-        path.extend_from_slice(&vec![self.visit_unchecked_type(&node.target, true, ctx)]);
+        path.extend_from_slice(&vec![self.visit_unchecked_type(&node.target, !node.is_ty, ctx)]);
 
-        if path.len() > 1 {
-            format!("<{}>", path.join("::"))
-        } else {
-            format!("{}", path.join("::"))
-        }
+        format!("{}", path.join("::"))
     }
 
     fn visit_comments(&self, comments: &[Comment]) -> String {
@@ -296,16 +292,16 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
         let mut path = node
             .root
             .as_ref()
-            .map(|r| vec![self.visit_unchecked_type(r, true, ctx)])
+            .map(|r| vec![self.visit_unchecked_type(r, !node.is_ty, ctx)])
             .unwrap_or_default();
         path.extend_from_slice(
             &node
                 .segments
                 .iter()
-                .map(|s| self.visit_unchecked_type(&s, true, ctx))
+                .map(|s| self.visit_unchecked_type(&s, !node.is_ty, ctx))
                 .collect::<Vec<String>>(),
         );
-        path.extend_from_slice(&vec![self.visit_unchecked_type(&node.target, true, ctx)]);
+        path.extend_from_slice(&vec![self.visit_unchecked_type(&node.target, !node.is_ty, ctx)]);
 
         Ok(format!("{}", path.join("::")))
     }
@@ -373,11 +369,7 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
                 format!(
                     "new {}{} {{\n{}{}}}",
                     name,
-                    if generic_parameters.is_empty() {
-                        "".to_string()
-                    } else {
-                        format!("#{}", generic_parameters)
-                    },
+                    generic_parameters,
                     fiels_content,
                     self.read_indent(0),
                 )

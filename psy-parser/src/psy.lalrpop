@@ -1105,7 +1105,7 @@ U32Expression: ExprNode<F> = {
 
 StructExpression: ExprNode<F> = {
    <l:@L> <name:PathTy> "{" <kv:Comma<KeyValue>> "}" <r:@R> => {
-        let name = ExprNode::Path(PathNode::from_target(name));
+        let name = ExprNode::Path(PathNode::from_target_ty(name));
         ExprNode::<F>::Value(
             ValueNode::Struct(
                 expr_nodes.alloc_item(name),
@@ -1154,6 +1154,7 @@ PathExpression: ExprNode<F> = {
             root,
             segments,
             target,
+            is_ty: false,
             location: Location::new(file_id, l, r),
         })
     },
@@ -1169,6 +1170,7 @@ PathExpression: ExprNode<F> = {
             root,
             segments,
             target: UncheckedType::Basic(Identifier::new(IdentId::NEW, Location::new(file_id, l, r))),
+            is_ty: false,
             location: Location::new(file_id, l, r),
         })
     },
@@ -1184,6 +1186,7 @@ PathTy: UncheckedType = {
                 root: Some(segs.first().unwrap().clone()),
                 segments: segs.into_iter().skip(1).collect::<Vec<_>>(),
                 target,
+                is_ty: true,
                 location: Location::new(file_id, l, r),
             }))
         }

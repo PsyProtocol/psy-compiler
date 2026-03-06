@@ -1748,6 +1748,7 @@ mod tests {
             writer.write_all(formatted_content.as_bytes()).unwrap();
             writer.flush().unwrap();
 
+            let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
             assert!(interpreter.typecheck_single(entry.clone()).is_ok(), "{}", entry.display());
 
             #[allow(static_mut_refs)]
