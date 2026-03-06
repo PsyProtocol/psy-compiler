@@ -1,0 +1,23 @@
+trait IdLike {
+    pub fn id(self: Self) -> Felt;
+}
+
+struct User {
+    pub id: Felt,
+}
+
+impl IdLike for User {
+    pub fn id(self: User) -> Felt {
+        return self.id + 100;
+    }
+}
+
+fn main() -> Felt {
+    let u: User = new User {
+        id: 5,
+    };
+
+    let field_value: Felt = u.id;
+    let method_value: Felt = u.id();
+    return field_value + method_value;
+}

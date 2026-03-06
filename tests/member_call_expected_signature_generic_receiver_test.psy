@@ -1,0 +1,32 @@
+trait ScoreFelt {
+    pub fn score(self: Self, x: Felt) -> Felt;
+}
+
+trait ScoreBool {
+    pub fn score(self: Self, x: bool) -> Felt;
+}
+
+struct Holder<T> {
+    pub value: T,
+}
+
+impl<T> ScoreFelt for Holder<T> {
+    pub fn score(self: Self, x: Felt) -> Felt {
+        return x + 1;
+    }
+}
+
+impl<T> ScoreBool for Holder<T> {
+    pub fn score(self: Self, x: bool) -> Felt {
+        return (x as Felt) + 2;
+    }
+}
+
+fn main() -> Felt {
+    let h: Holder<Felt> = new Holder {
+        value: 7,
+    };
+    let a = h.score(3);
+    let b = h.score(true);
+    return a + b;
+}

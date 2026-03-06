@@ -1,0 +1,44 @@
+mod math {
+    pub fn min(a: Felt, b: Felt) -> Felt {
+        return a * ((a < b) as Felt) + b * ((a >= b) as Felt);
+    }
+    
+    pub fn lt(a: Felt, b: Felt) -> bool {
+        return a < b;
+    }
+}
+
+trait ApplyFeltFn {
+    pub fn apply(self: Self, f: fn(Felt, Felt) -> Felt) -> Felt;
+}
+
+trait ApplyBoolFn {
+    pub fn apply(self: Self, f: fn(Felt, Felt) -> bool) -> Felt;
+}
+
+struct Worker {
+    pub x: Felt,
+    pub y: Felt,
+}
+
+impl ApplyFeltFn for Worker {
+    pub fn apply(self: Worker, f: fn(Felt, Felt) -> Felt) -> Felt {
+        return f(self.x, self.y);
+    }
+}
+
+impl ApplyBoolFn for Worker {
+    pub fn apply(self: Worker, f: fn(Felt, Felt) -> bool) -> Felt {
+        return f(self.x, self.y) as Felt;
+    }
+}
+
+fn main() -> Felt {
+    let w: Worker = new Worker {
+        x: 1,
+        y: 2,
+    };
+    let a = w.apply(math::min);
+    let b = w.apply(math::lt);
+    return a + b;
+}
