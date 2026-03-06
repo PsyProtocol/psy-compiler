@@ -143,7 +143,7 @@ UseDef: UseNode = {
 }
 
 ImplDef: ImplNode = {
-   <l:@L> <comments: Comment*> IMPL <generic_parameters_lhs:GenericParameters> <ty:Ty> "{" <associated_types:AssociatedTypeValue*> <body:FunctionDef*> <back_comments: Comment*> "}" <r:@R> =>? Ok({
+   <l:@L> <comments: Comment*> IMPL <generic_parameters_lhs:GenericParameters> <ty:PathTy> "{" <associated_types:AssociatedTypeValue*> <body:FunctionDef*> <back_comments: Comment*> "}" <r:@R> =>? Ok({
         ImplNode {
             generic_parameters: generic_parameters_lhs,
             ty,
@@ -178,7 +178,7 @@ ImplDef: ImplNode = {
 }
 
 TraitImplDef: TraitImplNode = {
-   <l:@L> <comments: Comment*> IMPL <generic_parameters_lhs:GenericParameters> <trait_ty:Ty> FOR <ty:Ty> "{" <associated_types:AssociatedTypeValue*> <body:FunctionDef*> <back_comments: Comment*> "}" <r:@R> =>? Ok({
+   <l:@L> <comments: Comment*> IMPL <generic_parameters_lhs:GenericParameters> <trait_ty:PathTy> FOR <ty:PathTy> "{" <associated_types:AssociatedTypeValue*> <body:FunctionDef*> <back_comments: Comment*> "}" <r:@R> =>? Ok({
         TraitImplNode {
             generic_parameters: generic_parameters_lhs,
             associated_types: associated_types.into_iter().collect(),
@@ -214,19 +214,10 @@ TraitImplDef: TraitImplNode = {
 }
 
 AssociatedTypeValue: (Identifier, AssociatedTypeValue) = {
-    <l:@L> <comments: Comment*> <visibility: Visibility> TYPE <name:Identifier> "=" <ty:Ty> ";" <r:@R> =>  (
+    <l:@L> <comments: Comment*> <visibility: Visibility> TYPE <name:Identifier> "=" <ty:PathTy> ";" <r:@R> =>  (
         name,
         AssociatedTypeValue {
             ty,
-            comments,
-            visibility,
-            location: Location::new(file_id, l, r)
-        }
-    ),
-    <l:@L> <comments: Comment*> <visibility: Visibility> TYPE <name:Identifier> "=" "<" <path:PathExpression> ">" ";" <r:@R> =>  (
-        name,
-        AssociatedTypeValue {
-            ty: UncheckedType::Path(Box::new(path.into_path().unwrap())),
             comments,
             visibility,
             location: Location::new(file_id, l, r)
@@ -267,7 +258,7 @@ EnumDef: EnumNode = {
 }
 
 TypeAliasDef: DefinitionNode = {
-    <l:@L> <comments: Comment*> <visibility:Visibility> TYPE <name:Identifier> "=" <ty:Ty> ";" <r:@R> => DefinitionNode::TypeAlias(TypeAliasNode {
+    <l:@L> <comments: Comment*> <visibility:Visibility> TYPE <name:Identifier> "=" <ty:PathTy> ";" <r:@R> => DefinitionNode::TypeAlias(TypeAliasNode {
         name,
         ty,
         visibility,
@@ -352,15 +343,14 @@ TypeQualifier: TypeQualifier = {
 }
 
 FunctionSignature: UncheckedType = {
-    <l:@L> FN "(" <parameters:Comma<Ty>> ")" <return_type:FunctionReturn?> <r:@R> => UncheckedType::FunctionSignature(
+    <l:@L> FN "(" <parameters:Comma<PathTy>> ")" <return_type:FunctionReturn?> <r:@R> => UncheckedType::FunctionSignature(
         Box::new(FunctionSignature {parameters, return_type}),
         Location::new(file_id, l, r)
     )
 }
 
 FunctionParameter: FunctionParameter = {
-    <l:@L> <type_qualifier: TypeQualifier> <name:IdentifierOrSelf> ":" "<" <path:PathExpression> ">" <r:@R> => FunctionParameter::new(name, type_qualifier, UncheckedType::Path(Box::new(path.into_path().unwrap())), Location::new(file_id, l, r)),
-    <l:@L> <type_qualifier: TypeQualifier> <name:IdentifierOrSelf> ":" <ty:Ty> <r:@R> => FunctionParameter::new(name, type_qualifier, ty, Location::new(file_id, l, r)),
+    <l:@L> <type_qualifier: TypeQualifier> <name:IdentifierOrSelf> ":" <ty:PathTy> <r:@R> => FunctionParameter::new(name, type_qualifier, ty, Location::new(file_id, l, r)),
     <l:@L> <type_qualifier: TypeQualifier> <name:SELF> <r:@R> => {
         FunctionParameter::new(
             Identifier::new(IdentId::SELF, Location::new(file_id, l, r)),
@@ -372,13 +362,12 @@ FunctionParameter: FunctionParameter = {
 }
 
 FunctionReturn: UncheckedType = {
-    <l:@L> "->" <return_type:Ty> <r:@R> => return_type,
-    <l:@L> "->" "<" <path:PathExpression> ">" <r:@R> => UncheckedType::Path(Box::new(path.into_path().unwrap())),
+    <l:@L> "->" <ty:PathTy> <r:@R> => ty,
 }
 
 EnumVariant: EnumVariant = {
     <l:@L> <name:Identifier> <r:@R> => EnumVariant::Basic(name),
-    <l:@L> <name:Identifier> "(" <members:Comma<Ty>> ")" <r:@R> => EnumVariant::Tuple(name, members),
+    <l:@L> <name:Identifier> "(" <members:Comma<PathTy>> ")" <r:@R> => EnumVariant::Tuple(name, members),
     <l:@L> <name:Identifier> "{" <fields:Comma<FieldTypeAnnotation>> "}" <r:@R> => EnumVariant::Struct(
         name,
         fields.into_iter().map(|(field_name, field_type)| (field_name, field_type)).collect()
@@ -386,12 +375,12 @@ EnumVariant: EnumVariant = {
 }
 
 TypeAnnotation: (Identifier, UncheckedType) = {
-    <l:@L> <name:Identifier> ":" <ty:Ty> <r:@R> => (name, ty),
+    <l:@L> <name:Identifier> ":" <ty:PathTy> <r:@R> => (name, ty),
     <l:@L> <name:Identifier> <r:@R> => (name, UncheckedType::Unknown)
 }
 
 FieldTypeAnnotation: (Identifier, StructField)  = {
-    <l:@L> <comments: Comment*> <attrs:Attribute*> <visibility:Visibility> <name:Identifier> ":" <ty:Ty> <r:@R> => (
+    <l:@L> <comments: Comment*> <attrs:Attribute*> <visibility:Visibility> <name:Identifier> ":" <ty:PathTy> <r:@R> => (
         name,
         StructField { ty, attrs, visibility, comments, location: Location::new(file_id, l, r) }
     ),
@@ -416,7 +405,7 @@ GenericParameter: GenericParameter = {
 }
 
 GenericConstraints: Vec<UncheckedType> = {
-    <l:@L> ":" <constraints:Plus<Ty>> <r:@R> => constraints,
+    <l:@L> ":" <constraints:Plus<PathTy>> <r:@R> => constraints,
     () => vec![]
 }
 
@@ -517,7 +506,7 @@ ReturnStatement: StmtNode = {
 }
 
 TupleType: UncheckedType = {
-    <l:@L> "(" <types:Comma<Ty>> ")" <r:@R> => UncheckedType::Tuple(types, Location::new(file_id, l, r))
+    <l:@L> "(" <types:Comma<PathTy>> ")" <r:@R> => UncheckedType::Tuple(types, Location::new(file_id, l, r))
 }
 
 TupleExpression: ExprNode<F> = {
@@ -727,7 +716,7 @@ Term: ExprNode<F> = {
 }
 
 IntrinsicExpression: ExprNode<F> = {
-    <l:@L> <variable:MEM_TRANSMUTE> "#" "<" <target_type:Ty> ">" "(" <data: Expression> ")" <r:@R> => {
+    <l:@L> <variable:MEM_TRANSMUTE> "#" "<" <target_type:PathTy> ">" "(" <data: Expression> ")" <r:@R> => {
         ExprNode::Intrinsic(
             IntrinsicExprNode::MemTransmute {
                 data: expr_nodes.alloc_item(data),
@@ -736,7 +725,7 @@ IntrinsicExpression: ExprNode<F> = {
             }
         )
     },
-    <l:@L> <variable:MEM_SIZE_OF> "#" "<" <query_type:Ty> ">" "(" ")" <r:@R> => {
+    <l:@L> <variable:MEM_SIZE_OF> "#" "<" <query_type:PathTy> ">" "(" ")" <r:@R> => {
         ExprNode::Intrinsic(
             IntrinsicExprNode::MemSizeOf {
                 query_type,
@@ -1115,14 +1104,17 @@ U32Expression: ExprNode<F> = {
 }
 
 StructExpression: ExprNode<F> = {
-   <l:@L> <name:PathExpression> <generic_parameters:Monomorphization> "{" <kv:Comma<KeyValue>> "}" <r:@R> => ExprNode::<F>::Value(
-       ValueNode::Struct(
-           expr_nodes.alloc_item(name),
-           generic_parameters,
-           kv.into_iter().collect(),
-           Location::new(file_id, l, r),
-       )
-   ),
+   <l:@L> <name:PathTy> "{" <kv:Comma<KeyValue>> "}" <r:@R> => {
+        let name = ExprNode::Path(PathNode::from_target(name));
+        ExprNode::<F>::Value(
+            ValueNode::Struct(
+                expr_nodes.alloc_item(name),
+                vec![],
+                kv.into_iter().collect(),
+                Location::new(file_id, l, r),
+            )
+        )
+    }
 }
 
 KeyValue: (Identifier, ExprId) = {
@@ -1150,22 +1142,53 @@ LambdaFunctionExpression: ExprNode<F> = {
 }
 
 PathExpression: ExprNode<F> = {
-    <l:@L> <target: IdentifierOrSelf> <r:@R> => ExprNode::Path(PathNode {
-        root: None,
-        segments: vec![],
-        target: UncheckedType::Basic(target),
-        location: Location::new(file_id, l, r),
-    }),
-    <l:@L> <root: PathRoot> "::" <segments: (<PathSegment> "::")*> <target: PathTarget> <r:@R> => {
+    <l:@L> <segments: (<BasicIdentOrGenericTy> "::")*> <target: BasicIdentTy> <r:@R> => {
         let segs = segments.into_iter().map(|seg| seg).collect::<Vec<_>>();
+        let root = if segs.is_empty() {
+            None
+        } else {
+            Some(segs.first().unwrap().clone())
+        };
+        let segments = segs.into_iter().skip(1).collect::<Vec<_>>();
         ExprNode::Path(PathNode {
-            root: Some(root),
-            segments: segs,
+            root,
+            segments,
             target,
             location: Location::new(file_id, l, r),
         })
     },
-};
+    <l:@L> <segments: (<BasicIdentOrGenericTy> "::")+> <target: NEW> <r:@R> => {
+        let segs = segments.into_iter().map(|seg| seg).collect::<Vec<_>>();
+        let root = if segs.is_empty() {
+            None
+        } else {
+            Some(segs.first().unwrap().clone())
+        };
+        let segments = segs.into_iter().skip(1).collect::<Vec<_>>();
+        ExprNode::Path(PathNode {
+            root,
+            segments,
+            target: UncheckedType::Basic(Identifier::new(IdentId::NEW, Location::new(file_id, l, r))),
+            location: Location::new(file_id, l, r),
+        })
+    },
+}
+
+PathTy: UncheckedType = {
+    <l:@L> <segments: (<BasicIdentTy> "::")*> <target:Ty> <r:@R> => {
+        let segs = segments.into_iter().map(|seg| seg).collect::<Vec<_>>();
+        if segs.is_empty() {
+            target
+        } else {
+            UncheckedType::Path(Box::new(PathNode {
+                root: Some(segs.first().unwrap().clone()),
+                segments: segs.into_iter().skip(1).collect::<Vec<_>>(),
+                target,
+                location: Location::new(file_id, l, r),
+            }))
+        }
+    },
+}
 
 ArgumentList: Vec<ExprNode<F>> = {
     <items:Sep<Expression, ",">> => items
@@ -1197,7 +1220,7 @@ Monomorphization: Vec<UncheckedType> = {
 
 MonomorphizationTy: UncheckedType = {
     ConstValue,
-    Ty
+    PathTy
 }
 
 ConstValue: UncheckedType = {
@@ -1216,7 +1239,7 @@ Ty: UncheckedType = {
 
 GenericType: UncheckedType = {
     <l:@L> <name:Identifier> "<" <generic_parameters:Comma<MonomorphizationTy>> ">" <r:@R> => UncheckedType::Generic(name, generic_parameters, Location::new(file_id, l, r)),
-    <l:@L>  "[" <ty:Ty> ";" <n:Identifier> "]" <r:@R> => UncheckedType::Generic(
+    <l:@L>  "[" <ty:PathTy> ";" <n:Identifier> "]" <r:@R> => UncheckedType::Generic(
         Identifier::new(IdentId::TYPE_ARRAY, Location::new(file_id, l, r)),
         vec![ty, UncheckedType::Basic(n)],
         Location::new(file_id, l, r)
@@ -1224,7 +1247,7 @@ GenericType: UncheckedType = {
 }
 
 ArrayType: UncheckedType = {
-    <l:@L> "[" <ty:Ty> ";" <n:U64> "]" <r:@R> => UncheckedType::Array(Box::new(ty), u32::try_from(n).unwrap(), Location::new(file_id, l, r))
+    <l:@L> "[" <ty:PathTy> ";" <n:U64> "]" <r:@R> => UncheckedType::Array(Box::new(ty), u32::try_from(n).unwrap(), Location::new(file_id, l, r))
 }
 
 ConstType: UncheckedType = {
@@ -1261,22 +1284,16 @@ IdentifierOrNew: Identifier = {
     <l:@L> <name:NEW> <r:@R> => Identifier::new(IdentId::NEW, Location::new(file_id, l, r))
 }
 
-PathRoot: UncheckedType = {
+BasicIdentTy: UncheckedType = {
     BasicType,
-    "<" <root: ArrayType> ">"   => root,
-    "<" <root: GenericType> ">" => root,
-    <l:@L> "<" <ty:Ty> AS <trait_ty:Ty> ">" <r:@R> => UncheckedType::TraitCast(Box::new(ty), Box::new(trait_ty), Location::new(file_id, l, r)),
+    <l:@L> <ty:SELF> <r:@R> => UncheckedType::Basic(Identifier::new(IdentId::SELF, Location::new(file_id, l, r)))
 }
 
-PathSegment: UncheckedType = {
-    BasicType,
-    "<" <root: GenericType> ">" => root,
-}
-
-PathTarget: UncheckedType = {
-    BasicType,
-    <l:@L> NEW <r:@R> => UncheckedType::Basic(Identifier::new(IdentId::NEW, Location::new(file_id, l, r))),
-    "<" <root: GenericType> ">" => root,
+BasicIdentOrGenericTy: UncheckedType = {
+    BasicIdentTy,
+    <l:@L> "<" <ty:GenericType> ">" <r:@R> => ty,
+    <l:@L> "<" <ty:ArrayType> ">" <r:@R> => ty,
+    <l:@L> "<" <ty:PathTy> AS <trait_ty:PathTy> ">" <r:@R> => UncheckedType::TraitCast(Box::new(ty), Box::new(trait_ty), Location::new(file_id, l, r)),
 }
 
 Identifier: Identifier = {

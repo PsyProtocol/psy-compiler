@@ -160,7 +160,7 @@ pub struct StorageRef<T: Storage, N: u32> {
 
 impl<T: Storage, N: u32> StorageRef<T, N> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
-        return new StorageRef#<T, N> {
+        return new StorageRef<T, N> {
             offset,
             metadata
         };
@@ -181,7 +181,7 @@ impl<T: Storage, N: u32> StorageRef<T, N> {
 
     pub fn index(self, index: Felt) -> StorageRef<T, 1u32> {
         assert(index < (N as Felt), "Index out of bounds");
-        return new StorageRef#<T, 1u32> {
+        return new StorageRef<T, 1u32> {
             offset: self.offset + index * T::size(),
             metadata: self.metadata
         };

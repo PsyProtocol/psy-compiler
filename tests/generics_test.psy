@@ -45,7 +45,7 @@ impl<K: One, T: Two<K>> Box<K, T> {
 // input:
 // output: 49
 fn main() -> Felt {
-    let bb = new Box#<u32, Felt> {
+    let bb = new Box<u32, Felt> {
         data: 1,
         extra: 1,
     };

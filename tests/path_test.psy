@@ -91,7 +91,7 @@ impl TraitWithType for FeltNumber {
 }
 
 fn main() {
-    let num = new Number#<Felt> {
+    let num = new Number<Felt> {
         a: 1,
         b: 2,
     };
@@ -111,7 +111,7 @@ fn main() {
     assert_eq(rrres, 1, "res!= 1");
     let generic_path_res = mod1::<Test<Felt>>::get_test#<u32>(666u32);
     assert_eq(generic_path_res, 666, "res!= 666");
-    let test_felt = new mod1::<Test<Felt>> {
+    let test_felt = new mod1::Test<Felt> {
         field: 1,
     };
     assert_eq(test_felt.field, 1, "res!= 1");

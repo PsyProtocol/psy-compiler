@@ -2,8 +2,8 @@ pub mod traits {
     pub trait PersonLike {
         pub type Age;
 
-        pub fn set_age(mut self: Self, age: <Self::Age>);
-        pub fn get_age(self: Self) -> <Self::Age>;
+        pub fn set_age(mut self: Self, age: Self::Age);
+        pub fn get_age(self: Self) -> Self::Age;
     }
     
     pub struct Person {
@@ -16,10 +16,10 @@ pub mod traits {
     // }
     impl PersonLike for Person {
         pub type Age = Felt;
-        pub fn set_age(mut self: Self, age: <Self::Age>) {
+        pub fn set_age(mut self: Self, age: Self::Age) {
             self.age_height[0][0] = age;
         }
-        pub fn get_age(self: Self) -> <Self::Age> {
+        pub fn get_age(self: Self) -> Self::Age {
             return self.age_height[0][0];
         }
     }
