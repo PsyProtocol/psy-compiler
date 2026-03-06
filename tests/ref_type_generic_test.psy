@@ -1,0 +1,59 @@
+pub struct FeltNumber {
+    pub value: Felt,
+}
+
+pub trait NewTrait {
+    pub fn new() -> Self;
+}
+
+impl NewTrait for Felt {
+    pub fn new() -> Self {
+        888
+    }
+}
+
+impl NewTrait for FeltNumber {
+    pub fn new() -> Self {
+        new FeltNumber {
+            value: Felt::new(),
+        }
+    }
+}
+
+pub trait RefTypeTrait {
+    pub type RefType: NewTrait;
+
+    pub fn new_ref() -> Self::RefType {
+        Self::RefType::new()
+    }
+}
+
+impl RefTypeTrait for FeltNumber {
+    pub type RefType = FeltNumber;
+    pub fn new_ref() -> Self::RefType {
+        Self::RefType::new()
+    }
+}
+
+pub struct StorageRef2<T: RefTypeTrait> {
+    pub offset: Felt,
+    pub metadata: Felt,
+}
+
+impl<T: RefTypeTrait> StorageRef2<T> {
+    pub fn new(offset: Felt, metadata: Felt) -> Self {
+        return new StorageRef2<T> {
+            offset: offset,
+            metadata: metadata,
+        };
+    }
+    pub fn index(self: Self, index: Felt) -> T::RefType {
+        return T::RefType::new();
+    }
+}
+
+fn main() {
+    let ref_number2: StorageRef2<FeltNumber> = <StorageRef2<FeltNumber>>::new(0, 0);
+    let value: FeltNumber = ref_number2.index(0);
+    assert_eq(value.value, 888, "value should be 888");
+}

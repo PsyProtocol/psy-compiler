@@ -882,14 +882,17 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
             ValueNode::Struct(path, generic_args, data, location) => Ok({
                 let checked_path_node = self.visit_expr(path, ctx)?;
-                let underlying_type_id = self.poly_of(checked_path_node.ty(), ctx).unwrap();
-                let fields = ctx.symbols[underlying_type_id].as_struct().unwrap().fields.clone();
-                let generic_parameters = ctx.symbols[underlying_type_id].generic_parameters();
+                // Keep the instantiated struct type from the path. Falling back to `poly_of`
+                // here drops concrete generic arguments (for example `StorageRef<T, N>` in impl scope),
+                // which then causes `new Struct { ... }` to be typed as the polymorphic base type.
+                let struct_type_id = checked_path_node.ty();
+                let fields = ctx.symbols[struct_type_id].as_struct().unwrap().fields.clone();
+                let generic_parameters = ctx.symbols[struct_type_id].generic_parameters();
                 if fields.len() != data.len() {
                     return Err(anyhow!(format!(
                         "Expected {} fields for Struct {} but found {} fields",
                         fields.len(),
-                        ctx.ident(ctx.symbols[underlying_type_id].name()),
+                        ctx.ident(ctx.symbols[struct_type_id].name()),
                         data.len()
                     ))
                     .into());
@@ -919,8 +922,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                     }
                 }
 
-                let type_id = self.substitute_all(underlying_type_id, ctx)?;
-                ctx.add_type_reference(underlying_type_id, checked_path_node.location(), false);
+                let type_id = self.substitute_all(struct_type_id, ctx)?;
+                ctx.add_type_reference(struct_type_id, checked_path_node.location(), false);
 
                 CheckedExprNode::Value(CheckedValueNode::Struct(type_id, new_data, location))
             }),
@@ -1069,8 +1072,69 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
     fn visit_call(&mut self, node: ExprId, ctx: &mut Self::Context) -> StdResult<Self::ExprResult, Self::Error> {
         // TODO: remove clone
         let call_node = ctx.expression(node).as_call().cloned().unwrap();
-        let callee = self.visit_expr(call_node.callee, ctx)?;
-        let ty = callee.ty();
+        let mut args = Vec::new();
+        for arg in call_node.args.iter() {
+            args.push(self.visit_expr(*arg, ctx)?);
+        }
+        let expected_parameters: Vec<TypeId> = args.iter().map(|arg| arg.ty()).collect();
+
+        let callee_path = ctx.expression(call_node.callee).as_path().cloned();
+        let (callee, ty) = if let Some(path_node) = callee_path {
+            if let Some(root) = &path_node.root {
+                if let Some(target) = path_node.target.as_basic() {
+                    if let Ok(mut root_type_id) = self.typecheck(root, ctx) {
+                        for segment in path_node.segments.iter() {
+                            let segment = segment.basic_target().ok_or(Error::InvalidPathSegment {
+                                location: segment.location(),
+                                segment: format!("{:?}", segment),
+                            })?;
+                            root_type_id = self.find_member(root_type_id, None, Some(segment.location), segment, None, ctx)?;
+                        }
+                        let trait_ty = self
+                            .visit_expr(call_node.callee, ctx)
+                            .ok()
+                            .and_then(|expr| expr.as_path().and_then(|path| path.trait_ty));
+                        let callee_ty = self.find_member(
+                            root_type_id,
+                            trait_ty,
+                            Some(target.location),
+                            target,
+                            Some(expected_parameters.as_slice()),
+                            ctx,
+                        )?;
+                        (
+                            CheckedExprNode::Path(CheckedPathNode::new(
+                                None,
+                                Some(root_type_id),
+                                Some(target.id),
+                                path_node.clone(),
+                                callee_ty,
+                                trait_ty,
+                                path_node.location,
+                            )),
+                            callee_ty,
+                        )
+                    } else {
+                        let callee = self.visit_expr(call_node.callee, ctx)?;
+                        let ty = callee.ty();
+                        (callee, ty)
+                    }
+                } else {
+                    let callee = self.visit_expr(call_node.callee, ctx)?;
+                    let ty = callee.ty();
+                    (callee, ty)
+                }
+            } else {
+                let callee = self.visit_expr(call_node.callee, ctx)?;
+                let ty = callee.ty();
+                (callee, ty)
+            }
+        } else {
+            let callee = self.visit_expr(call_node.callee, ctx)?;
+            let ty = callee.ty();
+            (callee, ty)
+        };
+
         let generic_parameters = ctx.symbols[ty].generic_parameters();
         for (generic_param, generic_arg) in generic_parameters.iter().zip(call_node.generic_parameters.iter()) {
             let generic_arg = self.typecheck(generic_arg, ctx)?;
@@ -1093,9 +1157,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 found: format!("{}", call_node.args.len()),
             });
         }
-        let mut args = Vec::new();
-        for (i, arg) in call_node.args.iter().enumerate() {
-            let type_arg = self.visit_expr(arg.clone(), ctx)?;
+        for (i, type_arg) in args.iter().enumerate() {
             if !self.unify(signature.parameters[i], type_arg.ty(), ctx) {
                 return Err(Error::TypeMismatch {
                     location: call_node.location,
@@ -1103,7 +1165,6 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                     found: type_arg.ty(),
                 });
             }
-            args.push(type_arg);
         }
 
         let callee_expr_id = self.program.exprs.alloc_item(callee);
@@ -1127,13 +1188,28 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let call_node = ctx.expression(node).as_member_call().cloned().unwrap();
         let receiver = self.visit_expr(call_node.receiver, ctx)?;
         let receiver_ty = receiver.ty();
+        let mut current = &receiver;
+        let is_type_receiver = loop {
+            match current {
+                CheckedExprNode::Path(path_node) => break path_node.variable.is_none(),
+                CheckedExprNode::Value(CheckedValueNode::Type(_)) => break true,
+                CheckedExprNode::MemberAccess(member_access_node) => {
+                    current = &self.program[member_access_node.target];
+                }
+                _ => break false,
+            }
+        };
 
         let mut args = Vec::new();
         for arg in call_node.args.iter() {
             args.push(self.visit_expr(*arg, ctx)?);
         }
 
-        let expected_parameters: Vec<TypeId> = std::iter::once(receiver_ty).chain(args.iter().map(|arg| arg.ty())).collect();
+        let expected_parameters: Vec<TypeId> = if is_type_receiver {
+            args.iter().map(|arg| arg.ty()).collect()
+        } else {
+            std::iter::once(receiver_ty).chain(args.iter().map(|arg| arg.ty())).collect()
+        };
         let callee_ty = if let Some(member_access_node) = ctx.expression(call_node.callee).as_member_access() {
             self.find_member(
                 receiver_ty,
@@ -1170,19 +1246,24 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             });
         }
 
-        if !self.unify(signature.parameters[0], receiver_ty, ctx) {
-            return Err(Error::TypeMismatch {
-                location: call_node.location,
-                expected: vec![signature.parameters[0]],
-                found: receiver_ty,
-            });
-        }
-
-        for (i, arg) in args.iter().enumerate() {
-            if !self.unify(signature.parameters[i + 1], arg.ty(), ctx) {
+        let arg_offset = if is_type_receiver {
+            0
+        } else {
+            if !self.unify(signature.parameters[0], receiver_ty, ctx) {
                 return Err(Error::TypeMismatch {
                     location: call_node.location,
-                    expected: vec![signature.parameters[i + 1]],
+                    expected: vec![signature.parameters[0]],
+                    found: receiver_ty,
+                });
+            }
+            1
+        };
+
+        for (i, arg) in args.iter().enumerate() {
+            if !self.unify(signature.parameters[i + arg_offset], arg.ty(), ctx) {
+                return Err(Error::TypeMismatch {
+                    location: call_node.location,
+                    expected: vec![signature.parameters[i + arg_offset]],
                     found: arg.ty(),
                 });
             }
@@ -2340,7 +2421,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             if !self.unify(associated_ty.type_id, type_id, ctx) {
                 return Err(Error::TypeMismatch {
                     location: trait_impl_node.location,
-                    expected: vec![associated_ty.type_id.clone()],
+                    expected: vec![associated_ty.type_id],
                     found: type_id,
                 });
             }
@@ -2359,6 +2440,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
         let mut unimplemented_methods: HashSet<DefId> = trait_node.unchecked_body.iter().cloned().collect();
         let mut checked_methods = Vec::with_capacity(trait_node.body.len());
+        let mut generated_default_methods = Vec::new();
 
         for &function_id in &trait_impl_node.body {
             ctx.push_node_id(NodeId::from(function_id));
@@ -2391,6 +2473,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         for unimplemented_method in unimplemented_methods {
             let new_def_id = ctx.alloc_definition(ctx.definition(unimplemented_method).clone());
             ctx.program.defs[node].as_trait_impl_mut().unwrap().body.push(new_def_id);
+            generated_default_methods.push(new_def_id);
             ctx.push_node_id(NodeId::from(new_def_id));
             self.infcx.enter_scope();
 
@@ -2421,7 +2504,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
         self.unchecked_checked.insert(node.into(), trait_impl_id.into());
 
-        for &function_id in &trait_impl_node.body {
+        for &function_id in trait_impl_node.body.iter().chain(generated_default_methods.iter()) {
             ctx.push_node_id(NodeId::from(function_id));
             self.infcx.enter_scope();
 

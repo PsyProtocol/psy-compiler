@@ -469,7 +469,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         }
         Ok(ControlState::Return(self.interpret_expr(
             program,
-            ctx.symbols[type_id].body().unwrap(),
+            ctx.symbols[type_id].body().ok_or(Error::UndefinedFunction)?,
             ctx,
         )?))
     }

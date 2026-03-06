@@ -304,6 +304,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
             (VOID_TYPE, None)
         };
 
+
         self.program.modify_definition(checked_def_id, |def: &mut CheckedDefinitionNode| {
             let checked_function_mut = def.as_function_mut().unwrap();
             checked_function_mut.parameters = parameters.clone();
@@ -331,6 +332,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
         let checked_def_id = self.unchecked_checked.get(&def_id.into()).unwrap().into_def().unwrap();
         let type_id = self.program[checked_def_id].as_function().unwrap().type_id;
         let expected_return_type = self.program[checked_def_id].as_function().unwrap().return_type;
+
 
         ctx.symbols.enter_scope(ctx.symbols[type_id].scope_id());
 

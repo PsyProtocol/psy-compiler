@@ -1,0 +1,17 @@
+#[derive(StorageRef, Storage)]
+pub struct Person {
+    pub age: Felt,
+}
+
+#[contract]
+#[derive(StorageRef, Storage)]
+pub struct SimpleContract {
+    #[RefType]
+    pub b: Person,
+}
+
+fn main() {
+    let c = SimpleContractRef::new(ContractMetadata::current());
+    c.b.age.set(11);
+    assert_eq(c.b.age.get(), 11, "c.b.age == 11");
+}

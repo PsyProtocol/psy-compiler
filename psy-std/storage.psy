@@ -2,7 +2,13 @@ use super::primitive::*;
 use super::mem;
 use super::context;
 
+pub trait StorageNew {
+    pub fn new(offset: Felt, metadata: ContractMetadata) -> Self;
+}
+
 pub trait Storage {
+    pub type RefType: StorageNew;
+
     pub fn size() -> Felt;
     pub fn read(
         contract_state_tree_height: Felt,
@@ -24,7 +30,37 @@ pub trait StorageAt<T: Storage, N: u32> {
     pub fn write_at(offset: Felt, index: Felt, value: T);
 }
 
+pub struct StorageRef<T, N: u32> {
+    pub offset: Felt,
+    pub metadata: ContractMetadata,
+}
+
+pub struct ArrayRef<T, N: u32> {
+    pub offset: Felt,
+    pub metadata: ContractMetadata,
+}
+
+impl<T, N: u32> StorageNew for StorageRef<T, N> {
+    pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
+        return new StorageRef<T, N> {
+            offset,
+            metadata
+        };
+    }
+}
+
+impl<T, N: u32> StorageNew for ArrayRef<T, N> {
+    pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
+        return new ArrayRef<T, N> {
+            offset,
+            metadata
+        };
+    }
+}
+
 impl Storage for Felt {
+    pub type RefType = StorageRef<Self, 1u32>;
+
     pub fn size() -> Felt {
         return 1;
     }
@@ -49,6 +85,8 @@ impl Storage for Felt {
 }
 
 impl Storage for bool {
+    pub type RefType = StorageRef<Self, 1u32>;
+
     pub fn size() -> Felt {
         return 1;
     }
@@ -73,6 +111,8 @@ impl Storage for bool {
 }
 
 impl Storage for u32 {
+    pub type RefType = StorageRef<Self, 1u32>;
+
     pub fn size() -> Felt {
         return 1;
     }
@@ -97,6 +137,8 @@ impl Storage for u32 {
 }
 
 impl<T: Storage, N: u32> Storage for [T; N] {
+    pub type RefType = ArrayRef<T, N>;
+
     pub fn size() -> Felt {
         return T::size() * (N as Felt);
     }
@@ -139,30 +181,6 @@ impl<T: Storage, N: u32> StorageAt<T, N> for [T; N] {
     }
 }
 
-// case 1:
-//     memory <- storage
-//     storage <- memory
-//     storage <- storage
-//
-// case 2:
-//      storage_ref.a
-//      storage_ref[0]
-//
-// case 3:
-//      storage_ref += 1
-//      storage_ref[1] /= 1
-//      storage_ref.a *= 1
-
-pub struct StorageRef<T: Storage, N: u32> {
-    pub offset: Felt,
-    pub metadata: ContractMetadata,
-}
-
-pub struct ArrayRef<T: Storage, N: u32> {
-    pub offset: Felt,
-    pub metadata: ContractMetadata,
-}
-
 impl<T: Storage, N: u32> StorageRef<T, N> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
         return new StorageRef<T, N> {
@@ -184,12 +202,9 @@ impl<T: Storage, N: u32> StorageRef<T, N> {
         T::write(self.offset, value);
     }
 
-    pub fn index(self, index: Felt) -> StorageRef<T, 1u32> {
+    pub fn index(self, index: Felt) -> T::RefType {
         assert(index < (N as Felt), "Index out of bounds");
-        return new StorageRef<T, 1u32> {
-            offset: self.offset + index * T::size(),
-            metadata: self.metadata
-        };
+        <T::RefType as StorageNew>::new(self.offset + index * T::size(), self.metadata)
     }
 }
 
@@ -214,12 +229,9 @@ impl<T: Storage, N: u32> ArrayRef<T, N> {
         <[T; N]>::write(self.offset, value);
     }
 
-    pub fn index(self, index: Felt) -> StorageRef<T, 1u32> {
+    pub fn index(self, index: Felt) -> T::RefType {
         assert(index < (N as Felt), "Index out of bounds");
-        return new StorageRef<T, 1u32> {
-            offset: self.offset + index * T::size(),
-            metadata: self.metadata
-        };
+        <T::RefType as StorageNew>::new(self.offset + index * T::size(), self.metadata)
     }
 }
 

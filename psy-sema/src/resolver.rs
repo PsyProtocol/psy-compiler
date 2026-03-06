@@ -393,6 +393,11 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
         // }
 
         let method_type_id = self.find_member(root, None, Some(path.location), target, None, ctx)?;
+        // Type-position paths (for example `T::RefType`) can legitimately resolve
+        // to concrete private impl details, so don't reject them here.
+        if path.is_ty {
+            return Ok(method_type_id);
+        }
         if !ctx.symbols[method_type_id].visibility().is_public() {
             return Err(Error::MemberNotPublic {
                 location: path.location,

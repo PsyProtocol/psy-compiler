@@ -81,3 +81,17 @@ pub struct CheckedFunctionSignature {
     pub parameters: Vec<TypeId>,
     pub return_type: TypeId,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ExpectedReturnType {
+    Unknown,
+    Known(TypeId),
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ExpectedFunctionSignature {
+    pub parameters: Vec<TypeId>,
+    pub return_type: ExpectedReturnType,
+    pub receiver: Option<TypeId>,
+}

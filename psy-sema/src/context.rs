@@ -8,10 +8,11 @@ use psy_ast::{
 use psy_common::Graph;
 use psy_vm::dpn::ops::context_trait::ContextFelt;
 
-use crate::{LocationIndices, ReferenceId, SymbolTable, Type, TypeId};
+use crate::{ExpectedFunctionSignature, LocationIndices, ReferenceId, SymbolTable, Type, TypeId};
 
 pub struct TypeCheckerVisitorContext<F: Clone + From<u32> + ContextFelt, C> {
     path_stack: Vec<NodeId>,
+    expected_signature_stack: Vec<ExpectedFunctionSignature>,
     pub program: Program<F>,
     pub symbols: SymbolTable<F>,
 
@@ -26,6 +27,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeCheckerVisitorContext<F, C> {
     pub fn new(program: Program<F>) -> Self {
         TypeCheckerVisitorContext {
             path_stack: vec![],
+            expected_signature_stack: vec![],
             program,
             symbols: SymbolTable::new(),
             reference_graph: DiGraph::new(),
@@ -33,6 +35,18 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeCheckerVisitorContext<F, C> {
             location_indices: LocationIndices::default(),
             _marker: std::marker::PhantomData,
         }
+    }
+
+    pub fn expected_signature(&self) -> Option<ExpectedFunctionSignature> {
+        self.expected_signature_stack.last().cloned()
+    }
+
+    pub fn push_expected_signature(&mut self, sig: ExpectedFunctionSignature) {
+        self.expected_signature_stack.push(sig);
+    }
+
+    pub fn pop_expected_signature(&mut self) {
+        self.expected_signature_stack.pop();
     }
 }
 

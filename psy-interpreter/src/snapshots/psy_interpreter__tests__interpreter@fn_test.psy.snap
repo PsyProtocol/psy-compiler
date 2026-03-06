@@ -5,577 +5,590 @@ input_file: tests/fn_test.psy
 ---
 ScopeId(0) (Module)
     Types:
-        fn add (TypeId(94))
+        fn add (TypeId(97))
             Parameters:
-                Felt a (Identifier { id: IdentId(23), location: Location { file_id: FileId(0), start: 7, end: 8 } }, TypeId(94))
-                Felt b (Identifier { id: IdentId(24), location: Location { file_id: FileId(0), start: 16, end: 17 } }, TypeId(94))
+                Felt a (Identifier { id: IdentId(23), location: Location { file_id: FileId(0), start: 7, end: 8 } }, TypeId(97))
+                Felt b (Identifier { id: IdentId(24), location: Location { file_id: FileId(0), start: 16, end: 17 } }, TypeId(97))
             Return Type: Felt (TypeId(3))
-            Body: ExprId(1697)
-        fn sub (TypeId(95))
+            Body: ExprId(1733)
+        fn sub (TypeId(98))
             Parameters:
-                Felt a (Identifier { id: IdentId(23), location: Location { file_id: FileId(0), start: 88, end: 89 } }, TypeId(95))
-                Felt b (Identifier { id: IdentId(24), location: Location { file_id: FileId(0), start: 97, end: 98 } }, TypeId(95))
+                Felt a (Identifier { id: IdentId(23), location: Location { file_id: FileId(0), start: 88, end: 89 } }, TypeId(98))
+                Felt b (Identifier { id: IdentId(24), location: Location { file_id: FileId(0), start: 97, end: 98 } }, TypeId(98))
             Return Type: Felt (TypeId(3))
-            Body: ExprId(1702)
-        fn mul (TypeId(96))
+            Body: ExprId(1738)
+        fn mul (TypeId(99))
             Parameters:
-                Felt a (Identifier { id: IdentId(23), location: Location { file_id: FileId(0), start: 169, end: 170 } }, TypeId(96))
-                Felt b (Identifier { id: IdentId(24), location: Location { file_id: FileId(0), start: 178, end: 179 } }, TypeId(96))
+                Felt a (Identifier { id: IdentId(23), location: Location { file_id: FileId(0), start: 169, end: 170 } }, TypeId(99))
+                Felt b (Identifier { id: IdentId(24), location: Location { file_id: FileId(0), start: 178, end: 179 } }, TypeId(99))
             Return Type: Felt (TypeId(3))
-            Body: ExprId(1707)
-        fn add_one (TypeId(97))
+            Body: ExprId(1743)
+        fn add_one (TypeId(100))
             Parameters:
-                Felt i (Identifier { id: IdentId(29), location: Location { file_id: FileId(0), start: 254, end: 255 } }, TypeId(97))
+                Felt i (Identifier { id: IdentId(29), location: Location { file_id: FileId(0), start: 254, end: 255 } }, TypeId(100))
             Return Type: Felt (TypeId(3))
-            Body: ExprId(1712)
-        fn main (TypeId(98))
+            Body: ExprId(1748)
+        fn main (TypeId(101))
             Return Type: void (TypeId(1))
-            Body: ExprId(1811)
-        pub trait Storage (TypeId(13))
-            Body: [DefId(0), DefId(1), DefId(2)]
-            Unchecked Body: [DefId(14), DefId(15), DefId(16)]
-        pub trait StorageAt (TypeId(17))
-            Body: [DefId(4), DefId(5)]
-            Unchecked Body: [DefId(18), DefId(19)]
-            Generic Parameters: [TypeId(99), TypeId(100)]
-        pub struct StorageRef (TypeId(19))
+            Body: ExprId(1847)
+        pub trait StorageNew (TypeId(11))
+            Body: [DefId(0)]
+            Unchecked Body: [DefId(14)]
+        pub trait Storage (TypeId(16))
+            Body: [DefId(2), DefId(3), DefId(4)]
+            Unchecked Body: [DefId(16), DefId(17), DefId(18)]
+        pub trait StorageAt (TypeId(20))
+            Body: [DefId(6), DefId(7)]
+            Unchecked Body: [DefId(20), DefId(21)]
+            Generic Parameters: [TypeId(103), TypeId(104)]
+        pub struct StorageRef (TypeId(22))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(19))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(19))
-            Generic Parameters: [TypeId(124), TypeId(125)]
-        pub struct ArrayRef (TypeId(20))
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(22))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(22))
+            Generic Parameters: [TypeId(105), TypeId(106)]
+        pub struct ArrayRef (TypeId(23))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3465, end: 3471 } }, TypeId(20))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3487, end: 3495 } }, TypeId(20))
-            Generic Parameters: [TypeId(126), TypeId(127)]
-        pub struct ContractMetadata (TypeId(21))
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 838, end: 844 } }, TypeId(23))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 860, end: 868 } }, TypeId(23))
+            Generic Parameters: [TypeId(107), TypeId(108)]
+        pub struct ContractMetadata (TypeId(24))
             Fields:
-                pub Felt contract_state_tree_height (Identifier { id: IdentId(44), location: Location { file_id: FileId(4), start: 5134, end: 5160 } }, TypeId(21))
-                pub Felt contract_id (Identifier { id: IdentId(46), location: Location { file_id: FileId(4), start: 5176, end: 5187 } }, TypeId(21))
-                pub Felt user_id (Identifier { id: IdentId(45), location: Location { file_id: FileId(4), start: 5203, end: 5210 } }, TypeId(21))
-        pub trait EqAssign (TypeId(23))
-            Body: [DefId(10)]
-            Unchecked Body: [DefId(58)]
-            Generic Parameters: [TypeId(150)]
-        pub trait AddAssign (TypeId(26))
+                pub Felt contract_state_tree_height (Identifier { id: IdentId(49), location: Location { file_id: FileId(4), start: 5490, end: 5516 } }, TypeId(24))
+                pub Felt contract_id (Identifier { id: IdentId(51), location: Location { file_id: FileId(4), start: 5532, end: 5543 } }, TypeId(24))
+                pub Felt user_id (Identifier { id: IdentId(50), location: Location { file_id: FileId(4), start: 5559, end: 5566 } }, TypeId(24))
+        pub trait EqAssign (TypeId(26))
             Body: [DefId(12)]
-            Unchecked Body: [DefId(60)]
-            Generic Parameters: [TypeId(151)]
-        pub trait SubAssign (TypeId(29))
+            Unchecked Body: [DefId(64)]
+            Generic Parameters: [TypeId(164)]
+        pub trait AddAssign (TypeId(29))
             Body: [DefId(14)]
-            Unchecked Body: [DefId(62)]
-            Generic Parameters: [TypeId(152)]
-        pub trait MulAssign (TypeId(32))
+            Unchecked Body: [DefId(66)]
+            Generic Parameters: [TypeId(165)]
+        pub trait SubAssign (TypeId(32))
             Body: [DefId(16)]
-            Unchecked Body: [DefId(64)]
-            Generic Parameters: [TypeId(153)]
-        pub trait DivAssign (TypeId(35))
+            Unchecked Body: [DefId(68)]
+            Generic Parameters: [TypeId(166)]
+        pub trait MulAssign (TypeId(35))
             Body: [DefId(18)]
-            Unchecked Body: [DefId(66)]
-            Generic Parameters: [TypeId(154)]
-        pub trait RemAssign (TypeId(38))
-            Body: [DefId(20)]
-            Unchecked Body: [DefId(68)]
-            Generic Parameters: [TypeId(155)]
-        pub trait BitAndAssign (TypeId(41))
-            Body: [DefId(22)]
             Unchecked Body: [DefId(70)]
-            Generic Parameters: [TypeId(156)]
-        pub trait BitOrAssign (TypeId(44))
-            Body: [DefId(24)]
+            Generic Parameters: [TypeId(167)]
+        pub trait DivAssign (TypeId(38))
+            Body: [DefId(20)]
             Unchecked Body: [DefId(72)]
-            Generic Parameters: [TypeId(157)]
-        pub trait BitXorAssign (TypeId(47))
-            Body: [DefId(26)]
+            Generic Parameters: [TypeId(168)]
+        pub trait RemAssign (TypeId(41))
+            Body: [DefId(22)]
             Unchecked Body: [DefId(74)]
-            Generic Parameters: [TypeId(158)]
-        pub trait ShlAssign (TypeId(50))
-            Body: [DefId(28)]
+            Generic Parameters: [TypeId(169)]
+        pub trait BitAndAssign (TypeId(44))
+            Body: [DefId(24)]
             Unchecked Body: [DefId(76)]
-            Generic Parameters: [TypeId(159)]
-        pub trait ShrAssign (TypeId(53))
-            Body: [DefId(30)]
+            Generic Parameters: [TypeId(170)]
+        pub trait BitOrAssign (TypeId(47))
+            Body: [DefId(26)]
             Unchecked Body: [DefId(78)]
-            Generic Parameters: [TypeId(160)]
-        pub trait StorageAt (TypeId(120))
-            Body: [DefId(93), DefId(94)]
-            Unchecked Body: [DefId(18), DefId(19)]
-            Generic Parameters: [TypeId(116), TypeId(117)]
-        pub struct StorageRef (TypeId(130))
+            Generic Parameters: [TypeId(171)]
+        pub trait BitXorAssign (TypeId(50))
+            Body: [DefId(28)]
+            Unchecked Body: [DefId(80)]
+            Generic Parameters: [TypeId(172)]
+        pub trait ShlAssign (TypeId(53))
+            Body: [DefId(30)]
+            Unchecked Body: [DefId(82)]
+            Generic Parameters: [TypeId(173)]
+        pub trait ShrAssign (TypeId(56))
+            Body: [DefId(32)]
+            Unchecked Body: [DefId(84)]
+            Generic Parameters: [TypeId(174)]
+        pub struct StorageRef (TypeId(111))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(130))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(130))
-            Generic Parameters: [TypeId(128), TypeId(129)]
-        pub struct StorageRef (TypeId(136))
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(111))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(111))
+            Generic Parameters: [TypeId(109), TypeId(110)]
+        pub struct ArrayRef (TypeId(115))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(136))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(136))
-            Generic Parameters: [TypeId(128), TypeId(135)]
-        pub struct ArrayRef (TypeId(139))
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 838, end: 844 } }, TypeId(115))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 860, end: 868 } }, TypeId(115))
+            Generic Parameters: [TypeId(113), TypeId(114)]
+        pub struct StorageRef (TypeId(118))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3465, end: 3471 } }, TypeId(139))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3487, end: 3495 } }, TypeId(139))
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(118))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(118))
+            Generic Parameters: [TypeId(3), TypeId(117)]
+        pub struct StorageRef (TypeId(122))
+            Fields:
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(122))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(122))
+            Generic Parameters: [TypeId(2), TypeId(117)]
+        pub struct StorageRef (TypeId(126))
+            Fields:
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(126))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(126))
+            Generic Parameters: [TypeId(4), TypeId(117)]
+        pub struct ArrayRef (TypeId(133))
+            Fields:
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 838, end: 844 } }, TypeId(133))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 860, end: 868 } }, TypeId(133))
+            Generic Parameters: [TypeId(130), TypeId(131)]
+        pub trait StorageAt (TypeId(141))
+            Body: [DefId(99), DefId(100)]
+            Unchecked Body: [DefId(20), DefId(21)]
             Generic Parameters: [TypeId(137), TypeId(138)]
-        pub struct StorageRef (TypeId(145))
+        pub struct StorageRef (TypeId(147))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(145))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(145))
-            Generic Parameters: [TypeId(137), TypeId(135)]
-        pub trait EqAssign (TypeId(163))
-            Body: [DefId(114)]
-            Unchecked Body: [DefId(58)]
-            Generic Parameters: [TypeId(3)]
-        pub struct StorageRef (TypeId(164))
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(147))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(147))
+            Generic Parameters: [TypeId(145), TypeId(146)]
+        pub struct ArrayRef (TypeId(154))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(164))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(164))
-            Generic Parameters: [TypeId(3), TypeId(161)]
-        pub trait AddAssign (TypeId(168))
-            Body: [DefId(118)]
-            Unchecked Body: [DefId(60)]
-            Generic Parameters: [TypeId(3)]
-        pub struct StorageRef (TypeId(169))
-            Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(169))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(169))
-            Generic Parameters: [TypeId(3), TypeId(166)]
-        pub trait SubAssign (TypeId(173))
-            Body: [DefId(122)]
-            Unchecked Body: [DefId(62)]
-            Generic Parameters: [TypeId(3)]
-        pub struct StorageRef (TypeId(174))
-            Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(174))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(174))
-            Generic Parameters: [TypeId(3), TypeId(171)]
-        pub trait MulAssign (TypeId(178))
-            Body: [DefId(126)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 838, end: 844 } }, TypeId(154))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 860, end: 868 } }, TypeId(154))
+            Generic Parameters: [TypeId(152), TypeId(153)]
+        pub trait EqAssign (TypeId(177))
+            Body: [DefId(120)]
             Unchecked Body: [DefId(64)]
             Generic Parameters: [TypeId(3)]
-        pub struct StorageRef (TypeId(179))
+        pub struct StorageRef (TypeId(178))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(179))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(179))
-            Generic Parameters: [TypeId(3), TypeId(176)]
-        pub trait DivAssign (TypeId(183))
-            Body: [DefId(130)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(178))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(178))
+            Generic Parameters: [TypeId(3), TypeId(175)]
+        pub trait AddAssign (TypeId(182))
+            Body: [DefId(124)]
             Unchecked Body: [DefId(66)]
             Generic Parameters: [TypeId(3)]
-        pub struct StorageRef (TypeId(184))
+        pub struct StorageRef (TypeId(183))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(184))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(184))
-            Generic Parameters: [TypeId(3), TypeId(181)]
-        pub trait RemAssign (TypeId(188))
-            Body: [DefId(134)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(183))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(183))
+            Generic Parameters: [TypeId(3), TypeId(180)]
+        pub trait SubAssign (TypeId(187))
+            Body: [DefId(128)]
             Unchecked Body: [DefId(68)]
             Generic Parameters: [TypeId(3)]
-        pub struct StorageRef (TypeId(189))
+        pub struct StorageRef (TypeId(188))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(189))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(189))
-            Generic Parameters: [TypeId(3), TypeId(186)]
-        pub trait BitAndAssign (TypeId(193))
-            Body: [DefId(138)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(188))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(188))
+            Generic Parameters: [TypeId(3), TypeId(185)]
+        pub trait MulAssign (TypeId(192))
+            Body: [DefId(132)]
             Unchecked Body: [DefId(70)]
             Generic Parameters: [TypeId(3)]
-        pub struct StorageRef (TypeId(194))
+        pub struct StorageRef (TypeId(193))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(194))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(194))
-            Generic Parameters: [TypeId(3), TypeId(191)]
-        pub trait BitOrAssign (TypeId(198))
-            Body: [DefId(142)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(193))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(193))
+            Generic Parameters: [TypeId(3), TypeId(190)]
+        pub trait DivAssign (TypeId(197))
+            Body: [DefId(136)]
             Unchecked Body: [DefId(72)]
             Generic Parameters: [TypeId(3)]
-        pub struct StorageRef (TypeId(199))
+        pub struct StorageRef (TypeId(198))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(199))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(199))
-            Generic Parameters: [TypeId(3), TypeId(196)]
-        pub trait BitXorAssign (TypeId(203))
-            Body: [DefId(146)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(198))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(198))
+            Generic Parameters: [TypeId(3), TypeId(195)]
+        pub trait RemAssign (TypeId(202))
+            Body: [DefId(140)]
             Unchecked Body: [DefId(74)]
             Generic Parameters: [TypeId(3)]
-        pub struct StorageRef (TypeId(204))
+        pub struct StorageRef (TypeId(203))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(204))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(204))
-            Generic Parameters: [TypeId(3), TypeId(201)]
-        pub trait ShlAssign (TypeId(208))
-            Body: [DefId(150)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(203))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(203))
+            Generic Parameters: [TypeId(3), TypeId(200)]
+        pub trait BitAndAssign (TypeId(207))
+            Body: [DefId(144)]
             Unchecked Body: [DefId(76)]
             Generic Parameters: [TypeId(3)]
-        pub struct StorageRef (TypeId(209))
+        pub struct StorageRef (TypeId(208))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(209))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(209))
-            Generic Parameters: [TypeId(3), TypeId(206)]
-        pub trait ShrAssign (TypeId(213))
-            Body: [DefId(154)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(208))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(208))
+            Generic Parameters: [TypeId(3), TypeId(205)]
+        pub trait BitOrAssign (TypeId(212))
+            Body: [DefId(148)]
             Unchecked Body: [DefId(78)]
             Generic Parameters: [TypeId(3)]
-        pub struct StorageRef (TypeId(214))
+        pub struct StorageRef (TypeId(213))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(214))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(214))
-            Generic Parameters: [TypeId(3), TypeId(211)]
-        pub trait EqAssign (TypeId(218))
-            Body: [DefId(158)]
-            Unchecked Body: [DefId(58)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(213))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(213))
+            Generic Parameters: [TypeId(3), TypeId(210)]
+        pub trait BitXorAssign (TypeId(217))
+            Body: [DefId(152)]
+            Unchecked Body: [DefId(80)]
+            Generic Parameters: [TypeId(3)]
+        pub struct StorageRef (TypeId(218))
+            Fields:
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(218))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(218))
+            Generic Parameters: [TypeId(3), TypeId(215)]
+        pub trait ShlAssign (TypeId(222))
+            Body: [DefId(156)]
+            Unchecked Body: [DefId(82)]
+            Generic Parameters: [TypeId(3)]
+        pub struct StorageRef (TypeId(223))
+            Fields:
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(223))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(223))
+            Generic Parameters: [TypeId(3), TypeId(220)]
+        pub trait ShrAssign (TypeId(227))
+            Body: [DefId(160)]
+            Unchecked Body: [DefId(84)]
+            Generic Parameters: [TypeId(3)]
+        pub struct StorageRef (TypeId(228))
+            Fields:
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(228))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(228))
+            Generic Parameters: [TypeId(3), TypeId(225)]
+        pub trait EqAssign (TypeId(232))
+            Body: [DefId(164)]
+            Unchecked Body: [DefId(64)]
             Generic Parameters: [TypeId(4)]
-        pub struct StorageRef (TypeId(219))
+        pub struct StorageRef (TypeId(233))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(219))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(219))
-            Generic Parameters: [TypeId(4), TypeId(216)]
-        pub trait EqAssign (TypeId(224))
-            Body: [DefId(162)]
-            Unchecked Body: [DefId(58)]
-            Generic Parameters: [TypeId(222)]
-        pub struct StorageRef (TypeId(225))
-            Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(225))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(225))
-            Generic Parameters: [TypeId(3), TypeId(135)]
-        pub trait EqAssign (TypeId(231))
-            Body: [DefId(166)]
-            Unchecked Body: [DefId(58)]
-            Generic Parameters: [TypeId(229)]
-        pub struct StorageRef (TypeId(232))
-            Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(232))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(232))
-            Generic Parameters: [TypeId(4), TypeId(135)]
-        pub trait EqAssign (TypeId(239))
-            Body: [DefId(170)]
-            Unchecked Body: [DefId(58)]
-            Generic Parameters: [TypeId(237)]
-        pub struct ArrayRef (TypeId(240))
-            Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3465, end: 3471 } }, TypeId(240))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3487, end: 3495 } }, TypeId(240))
-            Generic Parameters: [TypeId(235), TypeId(236)]
-        pub trait EqAssign (TypeId(245))
-            Body: [DefId(174)]
-            Unchecked Body: [DefId(58)]
-            Generic Parameters: [TypeId(243)]
-        pub struct ArrayRef (TypeId(246))
-            Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3465, end: 3471 } }, TypeId(246))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3487, end: 3495 } }, TypeId(246))
-            Generic Parameters: [TypeId(3), TypeId(242)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(233))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(233))
+            Generic Parameters: [TypeId(4), TypeId(230)]
+        pub trait EqAssign (TypeId(238))
+            Body: [DefId(168)]
+            Unchecked Body: [DefId(64)]
+            Generic Parameters: [TypeId(236)]
+        pub trait EqAssign (TypeId(244))
+            Body: [DefId(172)]
+            Unchecked Body: [DefId(64)]
+            Generic Parameters: [TypeId(242)]
         pub trait EqAssign (TypeId(251))
-            Body: [DefId(178)]
-            Unchecked Body: [DefId(58)]
+            Body: [DefId(176)]
+            Unchecked Body: [DefId(64)]
             Generic Parameters: [TypeId(249)]
         pub struct ArrayRef (TypeId(252))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3465, end: 3471 } }, TypeId(252))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3487, end: 3495 } }, TypeId(252))
-            Generic Parameters: [TypeId(4), TypeId(248)]
-        pub trait AddAssign (TypeId(256))
-            Body: [DefId(182)]
-            Unchecked Body: [DefId(60)]
-            Generic Parameters: [TypeId(4)]
-        pub struct StorageRef (TypeId(257))
-            Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(257))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(257))
-            Generic Parameters: [TypeId(4), TypeId(254)]
-        pub trait SubAssign (TypeId(261))
-            Body: [DefId(186)]
-            Unchecked Body: [DefId(62)]
-            Generic Parameters: [TypeId(4)]
-        pub struct StorageRef (TypeId(262))
-            Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(262))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(262))
-            Generic Parameters: [TypeId(4), TypeId(259)]
-        pub trait MulAssign (TypeId(266))
-            Body: [DefId(190)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 838, end: 844 } }, TypeId(252))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 860, end: 868 } }, TypeId(252))
+            Generic Parameters: [TypeId(247), TypeId(248)]
+        pub trait EqAssign (TypeId(257))
+            Body: [DefId(180)]
             Unchecked Body: [DefId(64)]
-            Generic Parameters: [TypeId(4)]
-        pub struct StorageRef (TypeId(267))
+            Generic Parameters: [TypeId(255)]
+        pub struct ArrayRef (TypeId(258))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(267))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(267))
-            Generic Parameters: [TypeId(4), TypeId(264)]
-        pub trait DivAssign (TypeId(271))
-            Body: [DefId(194)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 838, end: 844 } }, TypeId(258))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 860, end: 868 } }, TypeId(258))
+            Generic Parameters: [TypeId(3), TypeId(254)]
+        pub trait EqAssign (TypeId(263))
+            Body: [DefId(184)]
+            Unchecked Body: [DefId(64)]
+            Generic Parameters: [TypeId(261)]
+        pub struct ArrayRef (TypeId(264))
+            Fields:
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 838, end: 844 } }, TypeId(264))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 860, end: 868 } }, TypeId(264))
+            Generic Parameters: [TypeId(4), TypeId(260)]
+        pub trait AddAssign (TypeId(268))
+            Body: [DefId(188)]
             Unchecked Body: [DefId(66)]
             Generic Parameters: [TypeId(4)]
-        pub struct StorageRef (TypeId(272))
+        pub struct StorageRef (TypeId(269))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(272))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(272))
-            Generic Parameters: [TypeId(4), TypeId(269)]
-        pub trait RemAssign (TypeId(276))
-            Body: [DefId(198)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(269))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(269))
+            Generic Parameters: [TypeId(4), TypeId(266)]
+        pub trait SubAssign (TypeId(273))
+            Body: [DefId(192)]
             Unchecked Body: [DefId(68)]
             Generic Parameters: [TypeId(4)]
-        pub struct StorageRef (TypeId(277))
+        pub struct StorageRef (TypeId(274))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(277))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(277))
-            Generic Parameters: [TypeId(4), TypeId(274)]
-        pub trait BitAndAssign (TypeId(281))
-            Body: [DefId(202)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(274))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(274))
+            Generic Parameters: [TypeId(4), TypeId(271)]
+        pub trait MulAssign (TypeId(278))
+            Body: [DefId(196)]
             Unchecked Body: [DefId(70)]
             Generic Parameters: [TypeId(4)]
-        pub struct StorageRef (TypeId(282))
+        pub struct StorageRef (TypeId(279))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(282))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(282))
-            Generic Parameters: [TypeId(4), TypeId(279)]
-        pub trait BitOrAssign (TypeId(286))
-            Body: [DefId(206)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(279))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(279))
+            Generic Parameters: [TypeId(4), TypeId(276)]
+        pub trait DivAssign (TypeId(283))
+            Body: [DefId(200)]
             Unchecked Body: [DefId(72)]
             Generic Parameters: [TypeId(4)]
-        pub struct StorageRef (TypeId(287))
+        pub struct StorageRef (TypeId(284))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(287))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(287))
-            Generic Parameters: [TypeId(4), TypeId(284)]
-        pub trait BitXorAssign (TypeId(291))
-            Body: [DefId(210)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(284))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(284))
+            Generic Parameters: [TypeId(4), TypeId(281)]
+        pub trait RemAssign (TypeId(288))
+            Body: [DefId(204)]
             Unchecked Body: [DefId(74)]
             Generic Parameters: [TypeId(4)]
-        pub struct StorageRef (TypeId(292))
+        pub struct StorageRef (TypeId(289))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(292))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(292))
-            Generic Parameters: [TypeId(4), TypeId(289)]
-        pub trait ShlAssign (TypeId(296))
-            Body: [DefId(214)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(289))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(289))
+            Generic Parameters: [TypeId(4), TypeId(286)]
+        pub trait BitAndAssign (TypeId(293))
+            Body: [DefId(208)]
             Unchecked Body: [DefId(76)]
             Generic Parameters: [TypeId(4)]
-        pub struct StorageRef (TypeId(297))
+        pub struct StorageRef (TypeId(294))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(297))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(297))
-            Generic Parameters: [TypeId(4), TypeId(294)]
-        pub trait ShrAssign (TypeId(301))
-            Body: [DefId(218)]
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(294))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(294))
+            Generic Parameters: [TypeId(4), TypeId(291)]
+        pub trait BitOrAssign (TypeId(298))
+            Body: [DefId(212)]
             Unchecked Body: [DefId(78)]
             Generic Parameters: [TypeId(4)]
-        pub struct StorageRef (TypeId(302))
+        pub struct StorageRef (TypeId(299))
             Fields:
-                pub Felt offset (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 3362, end: 3368 } }, TypeId(302))
-                pub ContractMetadata metadata (Identifier { id: IdentId(56), location: Location { file_id: FileId(4), start: 3384, end: 3392 } }, TypeId(302))
-            Generic Parameters: [TypeId(4), TypeId(299)]
-        pub fn get_user_id (TypeId(55))
-            Return Type: Felt (TypeId(3))
-            Body: ExprId(1586)
-        pub fn get_contract_id (TypeId(56))
-            Return Type: Felt (TypeId(3))
-            Body: ExprId(1588)
-        pub fn get_contract_deployer (TypeId(57))
-            Parameters:
-                Felt contract_id (Identifier { id: IdentId(46), location: Location { file_id: FileId(5), start: 179, end: 190 } }, TypeId(57))
-            Return Type: Array (TypeId(9))
-            Body: ExprId(1591)
-        pub fn get_caller_contract_id (TypeId(58))
-            Return Type: Felt (TypeId(3))
-            Body: ExprId(1593)
-        pub fn get_checkpoint_id (TypeId(59))
-            Return Type: Felt (TypeId(3))
-            Body: ExprId(1595)
-        pub fn get_register_users_root (TypeId(60))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 437, end: 450 } }, TypeId(60))
-            Return Type: Array (TypeId(9))
-            Body: ExprId(1598)
-        pub fn get_gutas_root (TypeId(61))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 542, end: 555 } }, TypeId(61))
-            Return Type: Array (TypeId(9))
-            Body: ExprId(1601)
-        pub fn get_checkpoint_user_tree_root (TypeId(62))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 653, end: 666 } }, TypeId(62))
-            Return Type: Array (TypeId(9))
-            Body: ExprId(1604)
-        pub fn get_checkpoint_contract_tree_root (TypeId(63))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 783, end: 796 } }, TypeId(63))
-            Return Type: Array (TypeId(9))
-            Body: ExprId(1607)
-        pub fn get_checkpoint_deposit_tree_root (TypeId(64))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 916, end: 929 } }, TypeId(64))
-            Return Type: Array (TypeId(9))
-            Body: ExprId(1610)
-        pub fn get_checkpoint_withdrawal_tree_root (TypeId(65))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 1051, end: 1064 } }, TypeId(65))
-            Return Type: Array (TypeId(9))
-            Body: ExprId(1613)
-        pub fn get_checkpoint_user_registration_tree_root (TypeId(66))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 1196, end: 1209 } }, TypeId(66))
-            Return Type: Array (TypeId(9))
-            Body: ExprId(1616)
-        pub fn get_deploy_contracts_root (TypeId(67))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 1331, end: 1344 } }, TypeId(67))
-            Return Type: Array (TypeId(9))
-            Body: ExprId(1619)
-        pub fn get_guta_fees_collected (TypeId(68))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 1447, end: 1460 } }, TypeId(68))
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(299))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(299))
+            Generic Parameters: [TypeId(4), TypeId(296)]
+        pub trait BitXorAssign (TypeId(303))
+            Body: [DefId(216)]
+            Unchecked Body: [DefId(80)]
+            Generic Parameters: [TypeId(4)]
+        pub struct StorageRef (TypeId(304))
+            Fields:
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(304))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(304))
+            Generic Parameters: [TypeId(4), TypeId(301)]
+        pub trait ShlAssign (TypeId(308))
+            Body: [DefId(220)]
+            Unchecked Body: [DefId(82)]
+            Generic Parameters: [TypeId(4)]
+        pub struct StorageRef (TypeId(309))
+            Fields:
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(309))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(309))
+            Generic Parameters: [TypeId(4), TypeId(306)]
+        pub trait ShrAssign (TypeId(313))
+            Body: [DefId(224)]
+            Unchecked Body: [DefId(84)]
+            Generic Parameters: [TypeId(4)]
+        pub struct StorageRef (TypeId(314))
+            Fields:
+                pub Felt offset (Identifier { id: IdentId(42), location: Location { file_id: FileId(4), start: 744, end: 750 } }, TypeId(314))
+                pub ContractMetadata metadata (Identifier { id: IdentId(43), location: Location { file_id: FileId(4), start: 766, end: 774 } }, TypeId(314))
+            Generic Parameters: [TypeId(4), TypeId(311)]
+        pub fn get_user_id (TypeId(58))
             Return Type: Felt (TypeId(3))
             Body: ExprId(1622)
-        pub fn get_da_fees_collected (TypeId(69))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 1559, end: 1572 } }, TypeId(69))
+        pub fn get_contract_id (TypeId(59))
             Return Type: Felt (TypeId(3))
-            Body: ExprId(1625)
-        pub fn get_user_ops_processed (TypeId(70))
+            Body: ExprId(1624)
+        pub fn get_contract_deployer (TypeId(60))
             Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 1670, end: 1683 } }, TypeId(70))
+                Felt contract_id (Identifier { id: IdentId(51), location: Location { file_id: FileId(5), start: 179, end: 190 } }, TypeId(60))
+            Return Type: Array (TypeId(9))
+            Body: ExprId(1627)
+        pub fn get_caller_contract_id (TypeId(61))
             Return Type: Felt (TypeId(3))
-            Body: ExprId(1628)
-        pub fn get_total_transactions (TypeId(71))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 1782, end: 1795 } }, TypeId(71))
+            Body: ExprId(1629)
+        pub fn get_checkpoint_id (TypeId(62))
             Return Type: Felt (TypeId(3))
             Body: ExprId(1631)
-        pub fn get_slots_modified (TypeId(72))
+        pub fn get_register_users_root (TypeId(63))
             Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 1890, end: 1903 } }, TypeId(72))
-            Return Type: Felt (TypeId(3))
-            Body: ExprId(1634)
-        pub fn get_deploy_contracts_completed (TypeId(73))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 2006, end: 2019 } }, TypeId(73))
-            Return Type: Felt (TypeId(3))
-            Body: ExprId(1637)
-        pub fn get_register_users_completed (TypeId(74))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 2132, end: 2145 } }, TypeId(74))
-            Return Type: Felt (TypeId(3))
-            Body: ExprId(1640)
-        pub fn get_gutas_completed (TypeId(75))
-            Parameters:
-                Felt checkpoint_id (Identifier { id: IdentId(92), location: Location { file_id: FileId(5), start: 2247, end: 2260 } }, TypeId(75))
-            Return Type: Felt (TypeId(3))
-            Body: ExprId(1643)
-        pub fn get_last_nonce (TypeId(76))
-            Return Type: Felt (TypeId(3))
-            Body: ExprId(1645)
-        pub fn get_user_public_key_hash (TypeId(77))
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 437, end: 450 } }, TypeId(63))
             Return Type: Array (TypeId(9))
-            Body: ExprId(1647)
-        pub fn get_session_proof_tree_root (TypeId(78))
+            Body: ExprId(1634)
+        pub fn get_gutas_root (TypeId(64))
+            Parameters:
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 542, end: 555 } }, TypeId(64))
+            Return Type: Array (TypeId(9))
+            Body: ExprId(1637)
+        pub fn get_checkpoint_user_tree_root (TypeId(65))
+            Parameters:
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 653, end: 666 } }, TypeId(65))
+            Return Type: Array (TypeId(9))
+            Body: ExprId(1640)
+        pub fn get_checkpoint_contract_tree_root (TypeId(66))
+            Parameters:
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 783, end: 796 } }, TypeId(66))
+            Return Type: Array (TypeId(9))
+            Body: ExprId(1643)
+        pub fn get_checkpoint_deposit_tree_root (TypeId(67))
+            Parameters:
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 916, end: 929 } }, TypeId(67))
+            Return Type: Array (TypeId(9))
+            Body: ExprId(1646)
+        pub fn get_checkpoint_withdrawal_tree_root (TypeId(68))
+            Parameters:
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 1051, end: 1064 } }, TypeId(68))
             Return Type: Array (TypeId(9))
             Body: ExprId(1649)
-        pub fn get_state_hash_at (TypeId(79))
+        pub fn get_checkpoint_user_registration_tree_root (TypeId(69))
             Parameters:
-                Felt slot_index (Identifier { id: IdentId(112), location: Location { file_id: FileId(5), start: 2589, end: 2599 } }, TypeId(79))
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 1196, end: 1209 } }, TypeId(69))
             Return Type: Array (TypeId(9))
             Body: ExprId(1652)
-        pub fn get_other_contract_state_hash_at (TypeId(80))
+        pub fn get_deploy_contracts_root (TypeId(70))
             Parameters:
-                Felt contract_state_tree_height (Identifier { id: IdentId(44), location: Location { file_id: FileId(5), start: 2700, end: 2726 } }, TypeId(80))
-                Felt contract_id (Identifier { id: IdentId(46), location: Location { file_id: FileId(5), start: 2734, end: 2745 } }, TypeId(80))
-                Felt slot_index (Identifier { id: IdentId(112), location: Location { file_id: FileId(5), start: 2753, end: 2763 } }, TypeId(80))
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 1331, end: 1344 } }, TypeId(70))
             Return Type: Array (TypeId(9))
-            Body: ExprId(1657)
-        pub fn get_other_user_contract_state_hash_at (TypeId(81))
+            Body: ExprId(1655)
+        pub fn get_guta_fees_collected (TypeId(71))
             Parameters:
-                Felt contract_state_tree_height (Identifier { id: IdentId(44), location: Location { file_id: FileId(5), start: 2925, end: 2951 } }, TypeId(81))
-                Felt user_id (Identifier { id: IdentId(45), location: Location { file_id: FileId(5), start: 2959, end: 2966 } }, TypeId(81))
-                Felt contract_id (Identifier { id: IdentId(46), location: Location { file_id: FileId(5), start: 2974, end: 2985 } }, TypeId(81))
-                Felt slot_index (Identifier { id: IdentId(112), location: Location { file_id: FileId(5), start: 2993, end: 3003 } }, TypeId(81))
-            Return Type: Array (TypeId(9))
-            Body: ExprId(1663)
-        pub fn cset_state_hash_at (TypeId(82))
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 1447, end: 1460 } }, TypeId(71))
+            Return Type: Felt (TypeId(3))
+            Body: ExprId(1658)
+        pub fn get_da_fees_collected (TypeId(72))
             Parameters:
-                Felt slot_index (Identifier { id: IdentId(112), location: Location { file_id: FileId(5), start: 3160, end: 3170 } }, TypeId(82))
-                Array new_value (Identifier { id: IdentId(116), location: Location { file_id: FileId(5), start: 3178, end: 3187 } }, TypeId(82))
-            Return Type: Array (TypeId(9))
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 1559, end: 1572 } }, TypeId(72))
+            Return Type: Felt (TypeId(3))
+            Body: ExprId(1661)
+        pub fn get_user_ops_processed (TypeId(73))
+            Parameters:
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 1670, end: 1683 } }, TypeId(73))
+            Return Type: Felt (TypeId(3))
+            Body: ExprId(1664)
+        pub fn get_total_transactions (TypeId(74))
+            Parameters:
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 1782, end: 1795 } }, TypeId(74))
+            Return Type: Felt (TypeId(3))
             Body: ExprId(1667)
-        pub fn invoke_sync (TypeId(83))
+        pub fn get_slots_modified (TypeId(75))
             Parameters:
-                Felt contract_id (Identifier { id: IdentId(46), location: Location { file_id: FileId(5), start: 3284, end: 3295 } }, TypeId(83))
-                Felt method_id (Identifier { id: IdentId(119), location: Location { file_id: FileId(5), start: 3303, end: 3312 } }, TypeId(83))
-                U inputs (Identifier { id: IdentId(120), location: Location { file_id: FileId(5), start: 3320, end: 3326 } }, TypeId(83))
-            Return Type: T (TypeId(304))
-            Body: ExprId(1672)
-            Generic Parameters: [TypeId(304), TypeId(305)]
-        pub fn invoke_deferred (TypeId(84))
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 1890, end: 1903 } }, TypeId(75))
+            Return Type: Felt (TypeId(3))
+            Body: ExprId(1670)
+        pub fn get_deploy_contracts_completed (TypeId(76))
             Parameters:
-                Felt contract_id (Identifier { id: IdentId(46), location: Location { file_id: FileId(5), start: 3424, end: 3435 } }, TypeId(84))
-                Felt method_id (Identifier { id: IdentId(119), location: Location { file_id: FileId(5), start: 3443, end: 3452 } }, TypeId(84))
-                U inputs (Identifier { id: IdentId(120), location: Location { file_id: FileId(5), start: 3460, end: 3466 } }, TypeId(84))
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 2006, end: 2019 } }, TypeId(76))
+            Return Type: Felt (TypeId(3))
+            Body: ExprId(1673)
+        pub fn get_register_users_completed (TypeId(77))
+            Parameters:
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 2132, end: 2145 } }, TypeId(77))
+            Return Type: Felt (TypeId(3))
+            Body: ExprId(1676)
+        pub fn get_gutas_completed (TypeId(78))
+            Parameters:
+                Felt checkpoint_id (Identifier { id: IdentId(94), location: Location { file_id: FileId(5), start: 2247, end: 2260 } }, TypeId(78))
+            Return Type: Felt (TypeId(3))
+            Body: ExprId(1679)
+        pub fn get_last_nonce (TypeId(79))
+            Return Type: Felt (TypeId(3))
+            Body: ExprId(1681)
+        pub fn get_user_public_key_hash (TypeId(80))
+            Return Type: Array (TypeId(9))
+            Body: ExprId(1683)
+        pub fn get_session_proof_tree_root (TypeId(81))
+            Return Type: Array (TypeId(9))
+            Body: ExprId(1685)
+        pub fn get_state_hash_at (TypeId(82))
+            Parameters:
+                Felt slot_index (Identifier { id: IdentId(114), location: Location { file_id: FileId(5), start: 2589, end: 2599 } }, TypeId(82))
+            Return Type: Array (TypeId(9))
+            Body: ExprId(1688)
+        pub fn get_other_contract_state_hash_at (TypeId(83))
+            Parameters:
+                Felt contract_state_tree_height (Identifier { id: IdentId(49), location: Location { file_id: FileId(5), start: 2700, end: 2726 } }, TypeId(83))
+                Felt contract_id (Identifier { id: IdentId(51), location: Location { file_id: FileId(5), start: 2734, end: 2745 } }, TypeId(83))
+                Felt slot_index (Identifier { id: IdentId(114), location: Location { file_id: FileId(5), start: 2753, end: 2763 } }, TypeId(83))
+            Return Type: Array (TypeId(9))
+            Body: ExprId(1693)
+        pub fn get_other_user_contract_state_hash_at (TypeId(84))
+            Parameters:
+                Felt contract_state_tree_height (Identifier { id: IdentId(49), location: Location { file_id: FileId(5), start: 2925, end: 2951 } }, TypeId(84))
+                Felt user_id (Identifier { id: IdentId(50), location: Location { file_id: FileId(5), start: 2959, end: 2966 } }, TypeId(84))
+                Felt contract_id (Identifier { id: IdentId(51), location: Location { file_id: FileId(5), start: 2974, end: 2985 } }, TypeId(84))
+                Felt slot_index (Identifier { id: IdentId(114), location: Location { file_id: FileId(5), start: 2993, end: 3003 } }, TypeId(84))
+            Return Type: Array (TypeId(9))
+            Body: ExprId(1699)
+        pub fn cset_state_hash_at (TypeId(85))
+            Parameters:
+                Felt slot_index (Identifier { id: IdentId(114), location: Location { file_id: FileId(5), start: 3160, end: 3170 } }, TypeId(85))
+                Array new_value (Identifier { id: IdentId(118), location: Location { file_id: FileId(5), start: 3178, end: 3187 } }, TypeId(85))
+            Return Type: Array (TypeId(9))
+            Body: ExprId(1703)
+        pub fn invoke_sync (TypeId(86))
+            Parameters:
+                Felt contract_id (Identifier { id: IdentId(51), location: Location { file_id: FileId(5), start: 3284, end: 3295 } }, TypeId(86))
+                Felt method_id (Identifier { id: IdentId(121), location: Location { file_id: FileId(5), start: 3303, end: 3312 } }, TypeId(86))
+                U inputs (Identifier { id: IdentId(122), location: Location { file_id: FileId(5), start: 3320, end: 3326 } }, TypeId(86))
+            Return Type: T (TypeId(316))
+            Body: ExprId(1708)
+            Generic Parameters: [TypeId(316), TypeId(317)]
+        pub fn invoke_deferred (TypeId(87))
+            Parameters:
+                Felt contract_id (Identifier { id: IdentId(51), location: Location { file_id: FileId(5), start: 3424, end: 3435 } }, TypeId(87))
+                Felt method_id (Identifier { id: IdentId(121), location: Location { file_id: FileId(5), start: 3443, end: 3452 } }, TypeId(87))
+                U inputs (Identifier { id: IdentId(122), location: Location { file_id: FileId(5), start: 3460, end: 3466 } }, TypeId(87))
             Return Type: void (TypeId(1))
-            Body: ExprId(1677)
-            Generic Parameters: [TypeId(306), TypeId(307)]
-        pub fn clear_entire_tree (TypeId(85))
+            Body: ExprId(1713)
+            Generic Parameters: [TypeId(318), TypeId(319)]
+        pub fn clear_entire_tree (TypeId(88))
             Return Type: void (TypeId(1))
-            Body: ExprId(1678)
+            Body: ExprId(1714)
         pub Felt (TypeId(3))
         pub Array (TypeId(7))
         pub CheckedValueRef(RwLock { data: U32(4u32), poisoned: false, .. }) (TypeId(8))
         pub Array (TypeId(9))
         pub Array (TypeId(9))
-        pub Array (TypeId(112))
-        pub Array (TypeId(121))
-        pub CheckedValueRef(RwLock { data: U32(1u32), poisoned: false, .. }) (TypeId(135))
-        pub Array (TypeId(144))
-        pub Array (TypeId(222))
-        pub Array (TypeId(226))
-        pub Array (TypeId(229))
-        pub Array (TypeId(233))
-        pub Array (TypeId(237))
-        pub Array (TypeId(243))
+        pub CheckedValueRef(RwLock { data: U32(1u32), poisoned: false, .. }) (TypeId(117))
+        pub Array (TypeId(132))
+        pub Array (TypeId(142))
+        pub Array (TypeId(159))
+        pub Array (TypeId(236))
+        pub Array (TypeId(239))
+        pub Array (TypeId(242))
+        pub Array (TypeId(245))
         pub Array (TypeId(249))
-        pub trait Default (TypeId(87))
-            Body: [DefId(63)]
-            Unchecked Body: [DefId(166)]
-        pub fn transmute (TypeId(89))
+        pub Array (TypeId(255))
+        pub Array (TypeId(261))
+        pub trait Default (TypeId(90))
+            Body: [DefId(65)]
+            Unchecked Body: [DefId(172)]
+        pub fn transmute (TypeId(92))
             Parameters:
-                T x (Identifier { id: IdentId(124), location: Location { file_id: FileId(7), start: 23, end: 24 } }, TypeId(89))
-            Return Type: U (TypeId(311))
-            Body: ExprId(1687)
-            Generic Parameters: [TypeId(311), TypeId(312)]
-        pub fn size_of (TypeId(90))
+                T x (Identifier { id: IdentId(126), location: Location { file_id: FileId(7), start: 23, end: 24 } }, TypeId(92))
+            Return Type: U (TypeId(323))
+            Body: ExprId(1723)
+            Generic Parameters: [TypeId(323), TypeId(324)]
+        pub fn size_of (TypeId(93))
             Return Type: Felt (TypeId(3))
-            Body: ExprId(1689)
-            Generic Parameters: [TypeId(313)]
-        pub trait Event (TypeId(92))
-            Body: [DefId(67)]
-            Unchecked Body: [DefId(176)]
-    ScopeId(79) (Function)
-        Variables:
-            a: Felt
-            b: Felt
-        ScopeId(274) (Block)
-            Variables:
-                mut c: Felt
-    ScopeId(80) (Function)
-        Variables:
-            a: Felt
-            b: Felt
-        ScopeId(275) (Block)
-            Variables:
-                mut c: Felt
+            Body: ExprId(1725)
+            Generic Parameters: [TypeId(325)]
+        pub trait Event (TypeId(95))
+            Body: [DefId(69)]
+            Unchecked Body: [DefId(182)]
     ScopeId(81) (Function)
         Variables:
             a: Felt
             b: Felt
-        ScopeId(276) (Block)
+        ScopeId(467) (Block)
             Variables:
                 mut c: Felt
     ScopeId(82) (Function)
         Variables:
-            i: Felt
-        ScopeId(277) (Block)
+            a: Felt
+            b: Felt
+        ScopeId(468) (Block)
             Variables:
                 mut c: Felt
     ScopeId(83) (Function)
-        ScopeId(278) (Block)
+        Variables:
+            a: Felt
+            b: Felt
+        ScopeId(469) (Block)
+            Variables:
+                mut c: Felt
+    ScopeId(84) (Function)
+        Variables:
+            i: Felt
+        ScopeId(470) (Block)
+            Variables:
+                mut c: Felt
+    ScopeId(85) (Function)
+        ScopeId(471) (Block)
             Variables:
                 mut a: Felt
                 mut b: Felt

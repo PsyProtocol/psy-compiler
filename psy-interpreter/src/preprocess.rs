@@ -13,6 +13,17 @@ impl<'a> StorageProcessor<'a> {
         Self { _marker: PhantomData }
     }
 
+    fn has_ref_type_attr<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
+        &self,
+        attrs: &[AttrNode],
+        ctx: &mut V,
+    ) -> bool {
+        attrs.iter().any(|a| {
+            let id = a.name.id;
+            id == ctx.intern("RefType") || id == ctx.intern("ref")
+        })
+    }
+
     fn generate_event_impl<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
         &self,
         struct_node: &StructNode,
@@ -96,13 +107,40 @@ impl<'a> StorageProcessor<'a> {
         ctx: &mut V,
     ) -> TraitImplNode {
         let mut methods = Vec::new();
+        let mut associated_types = IndexMap::new();
 
         methods.push(self.generate_storage_size_method(struct_node, attr, ctx));
         methods.push(self.generate_storage_read_method(struct_node, attr, ctx));
         methods.push(self.generate_storage_write_method(struct_node, attr, ctx));
 
+        let has_storage_ref_derive = struct_node.attrs.iter().any(|a| {
+            a.is_derive() && a.properties.iter().any(|p| p.id == ctx.intern("StorageRef"))
+        });
+        let ref_type = if has_storage_ref_derive {
+            let ref_struct_name = format!("{}Ref", ctx.ident(struct_node.name.id));
+            UncheckedType::Basic(Identifier::new(ctx.intern(ref_struct_name), attr.location))
+        } else {
+            UncheckedType::Generic(
+                Identifier::new(ctx.intern("StorageRef"), attr.location),
+                vec![
+                    UncheckedType::Basic(struct_node.name),
+                    UncheckedType::Const(ConstValue::U32(1), attr.location),
+                ],
+                attr.location,
+            )
+        };
+        associated_types.insert(
+            Identifier::new(ctx.intern("RefType"), attr.location),
+            AssociatedTypeValue {
+                ty: ref_type,
+                visibility: Visibility::Public,
+                comments: vec![],
+                location: attr.location,
+            },
+        );
+
         TraitImplNode {
-            associated_types: IndexMap::new(),
+            associated_types,
             generic_parameters: vec![],
             trait_ty: UncheckedType::Basic(Identifier::new(ctx.intern("Storage"), attr.location)),
             ty: UncheckedType::Basic(struct_node.name),
@@ -163,10 +201,10 @@ impl<'a> StorageProcessor<'a> {
     ) -> StructNode {
         let mut new_fields = IndexMap::new();
         for (field_name, field) in &struct_node.fields {
-            let transformed_type = if field.attrs.iter().any(|a| a.name.id == ctx.intern("ref")) {
+            let transformed_type = if self.has_ref_type_attr(&field.attrs, ctx) {
                 let base_type = match &field.ty {
                     UncheckedType::Basic(ident) => ident,
-                    _ => panic!("#[ref] attribute only supported on basic struct types"),
+                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
                 };
                 let ref_type_name = format!("{}Ref", ctx.ident(base_type.id));
                 UncheckedType::Basic(Identifier::new(ctx.intern(ref_type_name.as_str()), attr.location))
@@ -248,14 +286,14 @@ impl<'a> StorageProcessor<'a> {
         let mut field_inits = IndexMap::new();
 
         for (field_name, field) in &struct_node.fields {
-            let (inner_ty, size, target_type) = if field.attrs.iter().any(|a| a.name.id == ctx.intern("ref")) {
+            let (inner_ty, size, target_type) = if self.has_ref_type_attr(&field.attrs, ctx) {
                 let base_type = match &field.ty {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
                         let base_name = type_name.trim_end_matches("Ref");
                         UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
                     }
-                    _ => panic!("#[ref] attribute only supported on basic struct types"),
+                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
                 };
                 (base_type.clone(), 1, field.ty.clone())
             } else {
@@ -393,14 +431,14 @@ impl<'a> StorageProcessor<'a> {
         // Add per-field accessors for #[storage] structs or array fields
         let mut offset = ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(0), attr.location)));
         for (field_name, field) in &struct_node.fields {
-            let (inner_ty, size) = if field.attrs.iter().any(|a| a.name.id == ctx.intern("ref")) {
+            let (inner_ty, size) = if self.has_ref_type_attr(&field.attrs, ctx) {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
                         let base_name = type_name.trim_end_matches("Ref");
                         (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), 1)
                     }
-                    _ => panic!("#[ref] attribute only supported on basic struct types"),
+                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
                 }
             } else {
                 match &field.ty {
@@ -513,14 +551,14 @@ impl<'a> StorageProcessor<'a> {
     ) -> DefId {
         let mut sum = self.generate_field_size(attr, &struct_node.fields.iter().next().unwrap().1.ty, ctx);
         for (_, field) in struct_node.fields.iter().skip(1) {
-            let inner_ty = if field.attrs.iter().any(|a| a.name.id == ctx.intern("ref")) {
+            let inner_ty = if self.has_ref_type_attr(&field.attrs, ctx) {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
                         let base_name = type_name.trim_end_matches("Ref");
                         UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
                     }
-                    _ => panic!("#[ref] attribute only supported on basic struct types"),
+                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
                 }
             } else {
                 match &field.ty {
@@ -614,14 +652,14 @@ impl<'a> StorageProcessor<'a> {
         let mut field_reads = IndexMap::new();
         let mut offset = offset_expr;
         for (field_name, field) in &struct_node.fields {
-            let inner_ty = if field.attrs.iter().any(|a| a.name.id == ctx.intern("ref")) {
+            let inner_ty = if self.has_ref_type_attr(&field.attrs, ctx) {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
                         let base_name = type_name.trim_end_matches("Ref");
                         UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
                     }
-                    _ => panic!("#[ref] attribute only supported on basic struct types"),
+                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
                 }
             } else {
                 match &field.ty {
@@ -729,14 +767,14 @@ impl<'a> StorageProcessor<'a> {
         let mut field_writes = Vec::new();
         let mut offset = offset_expr;
         for (field_name, field) in &struct_node.fields {
-            let inner_ty = if field.attrs.iter().any(|a| a.name.id == ctx.intern("ref")) {
+            let inner_ty = if self.has_ref_type_attr(&field.attrs, ctx) {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
                         let base_name = type_name.trim_end_matches("Ref");
                         UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
                     }
-                    _ => panic!("#[ref] attribute only supported on basic struct types"),
+                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
                 }
             } else {
                 match &field.ty {
@@ -818,14 +856,14 @@ impl<'a> StorageProcessor<'a> {
         let mut field_reads = IndexMap::new();
         let mut offset = ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(0), attr.location)));
         for (field_name, field) in &struct_node.fields {
-            let (inner_ty, size) = if field.attrs.iter().any(|a| a.name.id == ctx.intern("ref")) {
+            let (inner_ty, size) = if self.has_ref_type_attr(&field.attrs, ctx) {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
                         let base_name = type_name.trim_end_matches("Ref");
                         (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), 1)
                     }
-                    _ => panic!("#[ref] attribute only supported on basic struct types"),
+                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
                 }
             } else {
                 match &field.ty {
@@ -993,14 +1031,14 @@ impl<'a> StorageProcessor<'a> {
         let mut stmts = Vec::new();
         let mut offset = ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(0), attr.location)));
         for (field_name, field) in &struct_node.fields {
-            let (inner_ty, size) = if field.attrs.iter().any(|a| a.name.id == ctx.intern("ref")) {
+            let (inner_ty, size) = if self.has_ref_type_attr(&field.attrs, ctx) {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
                         let base_name = type_name.trim_end_matches("Ref");
                         (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), 1)
                     }
-                    _ => panic!("#[ref] attribute only supported on basic struct types"),
+                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
                 }
             } else {
                 match &field.ty {
@@ -1936,11 +1974,6 @@ impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcesso
         let event_trait_id = ctx.intern("Event");
 
         for attr in &s.attrs {
-            if attr.is_derive() && attr.properties.iter().any(|p| p == &storage_trait_id) {
-                let impl_node = self.generate_storage_impl(&s, attr, ctx);
-                ctx.insert_definition(DefinitionNode::TraitImpl(impl_node), InsertPosition::End);
-            }
-
             if attr.is_derive() && attr.properties.iter().any(|p| p == &event_trait_id) {
                 let impl_node = self.generate_event_impl(&s, attr, ctx);
                 ctx.insert_definition(DefinitionNode::TraitImpl(impl_node), InsertPosition::End);
@@ -1957,7 +1990,8 @@ impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcesso
 
                 let include_offset = !s.attrs.iter().any(|a| a.name == contract_attribute_id);
                 let mut methods = Vec::new();
-                methods.push(self.generate_new_method(&ref_struct, attr, ctx, include_offset));
+                let new_method = self.generate_new_method(&ref_struct, attr, ctx, include_offset);
+                methods.push(new_method);
                 let impl_node = ImplNode {
                     associated_types: IndexMap::new(),
                     generic_parameters: ref_struct.generic_parameters.clone(),
@@ -1969,6 +2003,18 @@ impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcesso
                 };
                 ctx.insert_definition(DefinitionNode::Impl(impl_node), InsertPosition::End);
 
+                let storage_new_impl = TraitImplNode {
+                    associated_types: IndexMap::new(),
+                    generic_parameters: ref_struct.generic_parameters.clone(),
+                    trait_ty: UncheckedType::Basic(Identifier::new(ctx.intern("StorageNew"), attr.location)),
+                    ty: UncheckedType::Basic(ref_struct.name),
+                    body: vec![self.generate_new_method(&ref_struct, attr, ctx, include_offset)],
+                    comments: vec![],
+                    location: attr.location,
+                    is_generated: true,
+                };
+                ctx.insert_definition(DefinitionNode::TraitImpl(storage_new_impl), InsertPosition::End);
+
                 let accessor_impl = self.generate_accessor_impl(&ref_struct, attr, ctx, true);
                 ctx.insert_definition(DefinitionNode::Impl(accessor_impl), InsertPosition::End);
 
@@ -1977,6 +2023,11 @@ impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcesso
                         ctx.insert_definition(DefinitionNode::TraitImpl(impl_node), InsertPosition::End);
                     }
                 }
+            }
+
+            if attr.is_derive() && attr.properties.iter().any(|p| p == &storage_trait_id) {
+                let impl_node = self.generate_storage_impl(&s, attr, ctx);
+                ctx.insert_definition(DefinitionNode::TraitImpl(impl_node), InsertPosition::End);
             }
         }
 

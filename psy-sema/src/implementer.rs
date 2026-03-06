@@ -167,6 +167,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
         expected_parameters: Option<&[TypeId]>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<TypeId> {
+        let ty = self.substitute_all(ty, ctx)?;
         let generic_parameters = ctx.symbols[ty].generic_parameters();
         let member = member.into();
 
@@ -341,6 +342,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
         member: impl Into<IdentId>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<TypeId> {
+        let ty = self.substitute_all(ty, ctx)?;
         let poly_ty = self.poly_of(ty, ctx).unwrap();
         let generic_parameters = ctx.symbols[ty].generic_parameters();
         let member = member.into();
