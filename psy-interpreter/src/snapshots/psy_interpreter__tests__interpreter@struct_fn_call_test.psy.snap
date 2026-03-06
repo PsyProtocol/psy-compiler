@@ -25,9 +25,9 @@ ScopeId(0) (Module)
             Generic Parameters: [TypeId(88), TypeId(89)]
         pub struct ContractMetadata (TypeId(20))
             Fields:
-                pub Felt contract_state_tree_height (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 4234, end: 4260 } }, TypeId(20))
-                pub Felt contract_id (Identifier { id: IdentId(49), location: Location { file_id: FileId(4), start: 4276, end: 4287 } }, TypeId(20))
-                pub Felt user_id (Identifier { id: IdentId(48), location: Location { file_id: FileId(4), start: 4303, end: 4310 } }, TypeId(20))
+                pub Felt contract_state_tree_height (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 4232, end: 4258 } }, TypeId(20))
+                pub Felt contract_id (Identifier { id: IdentId(49), location: Location { file_id: FileId(4), start: 4274, end: 4285 } }, TypeId(20))
+                pub Felt user_id (Identifier { id: IdentId(48), location: Location { file_id: FileId(4), start: 4301, end: 4308 } }, TypeId(20))
         pub trait StorageAt (TypeId(84))
             Body: [DefId(68), DefId(69)]
             Unchecked Body: [DefId(21), DefId(22)]
@@ -239,9 +239,9 @@ ScopeId(0) (Module)
                 Generic Parameters: [TypeId(88), TypeId(89)]
             pub struct ContractMetadata (TypeId(20))
                 Fields:
-                    pub Felt contract_state_tree_height (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 4234, end: 4260 } }, TypeId(20))
-                    pub Felt contract_id (Identifier { id: IdentId(49), location: Location { file_id: FileId(4), start: 4276, end: 4287 } }, TypeId(20))
-                    pub Felt user_id (Identifier { id: IdentId(48), location: Location { file_id: FileId(4), start: 4303, end: 4310 } }, TypeId(20))
+                    pub Felt contract_state_tree_height (Identifier { id: IdentId(47), location: Location { file_id: FileId(4), start: 4232, end: 4258 } }, TypeId(20))
+                    pub Felt contract_id (Identifier { id: IdentId(49), location: Location { file_id: FileId(4), start: 4274, end: 4285 } }, TypeId(20))
+                    pub Felt user_id (Identifier { id: IdentId(48), location: Location { file_id: FileId(4), start: 4301, end: 4308 } }, TypeId(20))
             pub trait StorageAt (TypeId(84))
                 Body: [DefId(68), DefId(69)]
                 Unchecked Body: [DefId(21), DefId(22)]

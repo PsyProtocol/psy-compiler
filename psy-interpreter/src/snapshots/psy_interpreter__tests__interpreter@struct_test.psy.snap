@@ -1,6 +1,5 @@
 ---
 source: psy-interpreter/src/lib.rs
-assertion_line: 1725
 expression: "ctx.debug_scope(ScopeId::root())"
 input_file: tests/struct_test.psy
 ---
@@ -40,9 +39,9 @@ ScopeId(0) (Module)
             Generic Parameters: [TypeId(94), TypeId(95)]
         pub struct ContractMetadata (TypeId(20))
             Fields:
-                pub Felt contract_state_tree_height (Identifier { id: IdentId(71), location: Location { file_id: FileId(4), start: 4234, end: 4260 } }, TypeId(20))
-                pub Felt contract_id (Identifier { id: IdentId(73), location: Location { file_id: FileId(4), start: 4276, end: 4287 } }, TypeId(20))
-                pub Felt user_id (Identifier { id: IdentId(72), location: Location { file_id: FileId(4), start: 4303, end: 4310 } }, TypeId(20))
+                pub Felt contract_state_tree_height (Identifier { id: IdentId(71), location: Location { file_id: FileId(4), start: 4232, end: 4258 } }, TypeId(20))
+                pub Felt contract_id (Identifier { id: IdentId(73), location: Location { file_id: FileId(4), start: 4274, end: 4285 } }, TypeId(20))
+                pub Felt user_id (Identifier { id: IdentId(72), location: Location { file_id: FileId(4), start: 4301, end: 4308 } }, TypeId(20))
         pub trait StorageAt (TypeId(90))
             Body: [DefId(73), DefId(74)]
             Unchecked Body: [DefId(32), DefId(33)]
@@ -272,9 +271,9 @@ ScopeId(0) (Module)
                 Generic Parameters: [TypeId(94), TypeId(95)]
             pub struct ContractMetadata (TypeId(20))
                 Fields:
-                    pub Felt contract_state_tree_height (Identifier { id: IdentId(71), location: Location { file_id: FileId(4), start: 4234, end: 4260 } }, TypeId(20))
-                    pub Felt contract_id (Identifier { id: IdentId(73), location: Location { file_id: FileId(4), start: 4276, end: 4287 } }, TypeId(20))
-                    pub Felt user_id (Identifier { id: IdentId(72), location: Location { file_id: FileId(4), start: 4303, end: 4310 } }, TypeId(20))
+                    pub Felt contract_state_tree_height (Identifier { id: IdentId(71), location: Location { file_id: FileId(4), start: 4232, end: 4258 } }, TypeId(20))
+                    pub Felt contract_id (Identifier { id: IdentId(73), location: Location { file_id: FileId(4), start: 4274, end: 4285 } }, TypeId(20))
+                    pub Felt user_id (Identifier { id: IdentId(72), location: Location { file_id: FileId(4), start: 4301, end: 4308 } }, TypeId(20))
             pub trait StorageAt (TypeId(90))
                 Body: [DefId(73), DefId(74)]
                 Unchecked Body: [DefId(32), DefId(33)]
