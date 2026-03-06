@@ -43,6 +43,7 @@ pub trait Implementer<F: Clone + From<u32> + ContextFelt, C> {
         trait_ty: Option<TypeId>,
         location: Option<Location>,
         method: impl Into<IdentId>,
+        expected_parameters: Option<&[TypeId]>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<TypeId>;
     fn find_associated_type(
@@ -163,11 +164,33 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
         trait_ty: Option<TypeId>,
         location: Option<Location>,
         member: impl Into<IdentId>,
+        expected_parameters: Option<&[TypeId]>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<TypeId> {
-        let poly_ty = self.poly_of(ty, ctx).unwrap();
         let generic_parameters = ctx.symbols[ty].generic_parameters();
         let member = member.into();
+
+        macro_rules! candidate_matches {
+            ($candidate:expr) => {{
+                if let Some(expected) = expected_parameters {
+                    let signature = ctx.symbols[$candidate].signature();
+                    if signature.parameters.len() != expected.len() {
+                        false
+                    } else {
+                        self.infcx.enter_scope();
+                        let ok = signature
+                            .parameters
+                            .iter()
+                            .zip(expected.iter())
+                            .all(|(parameter_ty, expected_ty)| self.unify(*parameter_ty, *expected_ty, ctx));
+                        self.infcx.exit_scope();
+                        ok
+                    }
+                } else {
+                    true
+                }
+            }};
+        }
 
         let get_trait_member = |trait_type_id: TypeId, ctx: &mut TypeCheckerVisitorContext<F, C>| -> Option<_> {
             let trait_scope_id = ctx.symbols[trait_type_id].scope_id();
@@ -189,15 +212,27 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
         ) {
             if generic_parameters == constraint.constraints {
                 let function_id = self.program[impl_id].as_impl().unwrap().body[function_idx];
-                return Ok(self.program[function_id].as_function().unwrap().type_id);
+                let candidate = self.program[function_id].as_function().unwrap().type_id;
+                if candidate_matches!(candidate) {
+                    return Ok(candidate);
+                }
             }
 
             if self.satisfies_constraints(generic_parameters.clone(), &constraint, ctx) {
-                let instance = self.instantiate_impl(impl_id, generic_parameters.clone(), ctx)?;
-                let function_id = self.program[instance].as_impl().unwrap().body[function_idx];
-                return Ok(self.program[function_id].as_function().unwrap().type_id);
+                let poly_function_id = self.program[impl_id].as_impl().unwrap().body[function_idx];
+                let poly_candidate = self.program[poly_function_id].as_function().unwrap().type_id;
+                if candidate_matches!(poly_candidate) {
+                    let instance = self.instantiate_impl(impl_id, generic_parameters.clone(), ctx)?;
+                    let function_id = self.program[instance].as_impl().unwrap().body[function_idx];
+                    let candidate = self.program[function_id].as_function().unwrap().type_id;
+                    if candidate_matches!(candidate) {
+                        return Ok(candidate);
+                    }
+                }
             }
-        } else if let Some(results) = self.get_trait_impl_ids(
+        }
+
+        if let Some(results) = self.get_trait_impl_ids(
             ty,
             |trait_impl_node: &CheckedTraitImplNode| {
                 trait_impl_node
@@ -218,16 +253,32 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
 
                     if generic_parameters == constraint.constraints {
                         let function_id = self.program[impl_id].as_trait_impl().unwrap().body[function_idx];
-                        return Ok(self.program[function_id].as_function().unwrap().type_id);
+                        let candidate = self.program[function_id].as_function().unwrap().type_id;
+                        if candidate_matches!(candidate) {
+                            return Ok(candidate);
+                        }
                     }
 
                     if self.satisfies_constraints(generic_parameters.clone(), &constraint, ctx) {
-                        let instance = self.instantiate_trait_impl(impl_id, trait_constraint.constraints, generic_parameters.clone(), ctx)?;
+                        let poly_function_id = self.program[impl_id].as_trait_impl().unwrap().body[function_idx];
+                        let poly_candidate = self.program[poly_function_id].as_function().unwrap().type_id;
+                        if !candidate_matches!(poly_candidate) {
+                            continue;
+                        }
+                        let instance = self.instantiate_trait_impl(impl_id, trait_constraint.constraints.clone(), generic_parameters.clone(), ctx)?;
                         let function_id = self.program[instance].as_trait_impl().unwrap().body[function_idx];
-                        return Ok(self.program[function_id].as_function().unwrap().type_id);
+                        let candidate = self.program[function_id].as_function().unwrap().type_id;
+                        if candidate_matches!(candidate) {
+                            return Ok(candidate);
+                        }
                     }
 
                     if ctx.symbols[ty].is_array() {
+                        let poly_function_id = self.program[impl_id].as_trait_impl().unwrap().body[function_idx];
+                        let poly_candidate = self.program[poly_function_id].as_function().unwrap().type_id;
+                        if !candidate_matches!(poly_candidate) {
+                            continue;
+                        }
                         let mut inner_ty = ty;
                         let mut array_stack = vec![];
                         let mut instance = None;
@@ -250,28 +301,36 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                             )?);
                         }
 
-                        let Some(instance) = instance else {
-                            continue;
-                        };
-                        let function_id = self.program[instance].as_trait_impl().unwrap().body[function_idx];
-                        return Ok(self.program[function_id].as_function().unwrap().type_id);
+                        if let Some(instance) = instance {
+                            let function_id = self.program[instance].as_trait_impl().unwrap().body[function_idx];
+                            let candidate = self.program[function_id].as_function().unwrap().type_id;
+                            if candidate_matches!(candidate) {
+                                return Ok(candidate);
+                            }
+                        }
                     }
                 }
             }
-        } else if let Some(constraints) = ctx.symbols[ty].as_type_variable().map(|x| x.constraints.clone()) {
+        }
+
+        if let Some(constraints) = ctx.symbols[ty].as_type_variable().map(|x| x.constraints.clone()) {
             for trait_type_id in constraints.into_iter() {
                 if let Some(method_type_id) = get_trait_member(trait_type_id, ctx) {
-                    return Ok(method_type_id);
+                    if candidate_matches!(method_type_id) {
+                        return Ok(method_type_id);
+                    }
                 }
             }
         } else if let Ok(associated_type) = self.find_associated_type(ty, trait_ty, location, member, ctx) {
-            return Ok(associated_type);
+            if candidate_matches!(associated_type) {
+                return Ok(associated_type);
+            }
         }
 
-        return Err(Error::UnresolvedMember {
+        Err(Error::UnresolvedMember {
             location: location.unwrap_or_default(),
             member_name: member,
-        });
+        })
     }
 
     fn find_associated_type(

@@ -1,5 +1,6 @@
 ---
 source: psy-interpreter/src/lib.rs
+assertion_line: 1725
 expression: "ctx.debug_scope(ScopeId::root())"
 input_file: tests/struct_test.psy
 ---
@@ -24,7 +25,7 @@ ScopeId(0) (Module)
                 Person c (Identifier { id: IdentId(46), location: Location { file_id: FileId(0), start: 1294, end: 1295 } }, TypeId(67))
         fn main (TypeId(68))
             Return Type: void (TypeId(1))
-            Body: ExprId(446)
+            Body: ExprId(443)
         pub trait Storage (TypeId(13))
             Body: [DefId(0), DefId(1), DefId(2)]
             Unchecked Body: [DefId(28), DefId(29), DefId(30)]

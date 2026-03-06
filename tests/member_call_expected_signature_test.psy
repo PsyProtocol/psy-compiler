@@ -1,0 +1,32 @@
+trait FooFelt {
+    pub fn foo(self: Self, x: Felt) -> Felt;
+}
+
+trait FooBool {
+    pub fn foo(self: Self, x: bool) -> Felt;
+}
+
+struct Person {
+    pub v: Felt,
+}
+
+impl FooFelt for Person {
+    pub fn foo(self: Person, x: Felt) -> Felt {
+        return self.v + x;
+    }
+}
+
+impl FooBool for Person {
+    pub fn foo(self: Person, x: bool) -> Felt {
+        return self.v + (x as Felt);
+    }
+}
+
+fn main() -> Felt {
+    let p: Person = new Person {
+        v: 1,
+    };
+    let a: Felt = p.foo(2);
+    let b: Felt = p.foo(true);
+    return a + b;
+}

@@ -1,5 +1,6 @@
 ---
 source: psy-interpreter/src/lib.rs
+assertion_line: 1725
 expression: "ctx.debug_scope(ScopeId::root())"
 input_file: tests/struct_field_fn_test.psy
 ---
@@ -16,7 +17,7 @@ ScopeId(0) (Module)
                 pub Array children (Identifier { id: IdentId(31), location: Location { file_id: FileId(0), start: 301, end: 309 } }, TypeId(61))
         fn main (TypeId(62))
             Return Type: Felt (TypeId(3))
-            Body: ExprId(300)
+            Body: ExprId(297)
         pub trait Storage (TypeId(13))
             Body: [DefId(0), DefId(1), DefId(2)]
             Unchecked Body: [DefId(15), DefId(16), DefId(17)]

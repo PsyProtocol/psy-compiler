@@ -54,6 +54,10 @@ ci:
 	@$(DARGO_CLI_EXECUTE) self_test.psy
 	@$(DARGO_CLI_EXECUTE) storage_test.psy
 	@$(DARGO_CLI_EXECUTE) trait_test.psy --parameters 2,3
+	@$(DARGO_CLI_EXECUTE) member_call_expected_signature_test.psy
+	@$(DARGO_CLI_EXECUTE) member_call_expected_signature_array_arg_test.psy
+	@$(DARGO_CLI_EXECUTE) member_call_expected_signature_arity_test.psy
+	@$(DARGO_CLI_EXECUTE) nested_array_trait_impl_test.psy
 	@$(DARGO_CLI_EXECUTE) hash_test.psy
 	@$(DARGO_CLI_EXECUTE) hash_two_to_one_test.psy
 	@$(DARGO_CLI_EXECUTE) verify_proof_test.psy

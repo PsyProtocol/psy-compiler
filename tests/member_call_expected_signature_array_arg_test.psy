@@ -1,0 +1,32 @@
+trait ScoreScalar {
+    pub fn score(self: Self, x: Felt) -> Felt;
+}
+
+trait ScoreArray {
+    pub fn score(self: Self, x: [[Felt; 2]; 2]) -> Felt;
+}
+
+struct Meter {
+    pub bias: Felt,
+}
+
+impl ScoreScalar for Meter {
+    pub fn score(self: Meter, x: Felt) -> Felt {
+        return self.bias + x;
+    }
+}
+
+impl ScoreArray for Meter {
+    pub fn score(self: Meter, x: [[Felt; 2]; 2]) -> Felt {
+        return self.bias + x[0][0] + x[0][1] + x[1][0] + x[1][1];
+    }
+}
+
+fn main() -> Felt {
+    let m: Meter = new Meter {
+        bias: 3,
+    };
+    let a: Felt = m.score(4);
+    let b: Felt = m.score([[1, 2], [3, 4]]);
+    return a + b;
+}

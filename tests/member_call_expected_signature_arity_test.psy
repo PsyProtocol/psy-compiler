@@ -1,0 +1,32 @@
+trait FoldOne {
+    pub fn fold(self: Self, x: Felt) -> Felt;
+}
+
+trait FoldTwo {
+    pub fn fold(self: Self, x: Felt, y: Felt) -> Felt;
+}
+
+struct Acc {
+    pub seed: Felt,
+}
+
+impl FoldOne for Acc {
+    pub fn fold(self: Acc, x: Felt) -> Felt {
+        return self.seed + x;
+    }
+}
+
+impl FoldTwo for Acc {
+    pub fn fold(self: Acc, x: Felt, y: Felt) -> Felt {
+        return self.seed + x + y;
+    }
+}
+
+fn main() -> Felt {
+    let a: Acc = new Acc {
+        seed: 2,
+    };
+    let one: Felt = a.fold(3);
+    let two: Felt = a.fold(3, 4);
+    return one + two;
+}

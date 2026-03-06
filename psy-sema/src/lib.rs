@@ -151,6 +151,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 None,
                 Some(member_access_node.field.location),
                 member_access_node.field,
+                None,
                 ctx,
             ) {
                 ctx.add_type_reference(type_id, member_access_node.field.location, false);
@@ -1124,9 +1125,29 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
     fn visit_member_call(&mut self, node: ExprId, ctx: &mut Self::Context) -> StdResult<Self::ExprResult, Self::Error> {
         // TODO: remove clone
         let call_node = ctx.expression(node).as_member_call().cloned().unwrap();
-        let callee = self.visit_expr(call_node.callee, ctx)?;
-        let ty = callee.ty();
-        let generic_parameters = ctx.symbols[ty].generic_parameters();
+        let receiver = self.visit_expr(call_node.receiver, ctx)?;
+        let receiver_ty = receiver.ty();
+
+        let mut args = Vec::new();
+        for arg in call_node.args.iter() {
+            args.push(self.visit_expr(*arg, ctx)?);
+        }
+
+        let expected_parameters: Vec<TypeId> = std::iter::once(receiver_ty).chain(args.iter().map(|arg| arg.ty())).collect();
+        let callee_ty = if let Some(member_access_node) = ctx.expression(call_node.callee).as_member_access() {
+            self.find_member(
+                receiver_ty,
+                None,
+                Some(member_access_node.field.location),
+                member_access_node.field,
+                Some(expected_parameters.as_slice()),
+                ctx,
+            )?
+        } else {
+            self.visit_expr(call_node.callee, ctx)?.ty()
+        };
+
+        let generic_parameters = ctx.symbols[callee_ty].generic_parameters();
 
         for (generic_param, generic_arg) in generic_parameters.iter().zip(call_node.generic_parameters.iter()) {
             let generic_arg = self.typecheck(generic_arg, ctx)?;
@@ -1139,37 +1160,44 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
         }
 
-        let signature = ctx.symbols[ty].signature();
+        let signature = ctx.symbols[callee_ty].signature();
+        if signature.parameters.len() != expected_parameters.len() {
+            return Err(Error::InvalidFunctionArguments {
+                location: call_node.location,
+                method_name: callee_ty,
+                expected: format!("{} parameters", signature.parameters.len()),
+                found: format!("{}", expected_parameters.len()),
+            });
+        }
 
-        let mut args = Vec::new();
-        let receiver = {
-            let receiver = self.visit_expr(call_node.receiver, ctx)?;
-            if !self.unify(signature.parameters[0], receiver.ty(), ctx) {
-                return Err(Error::TypeMismatch {
-                    location: call_node.location,
-                    expected: vec![signature.parameters[0]],
-                    found: receiver.ty(),
-                });
-            }
+        if !self.unify(signature.parameters[0], receiver_ty, ctx) {
+            return Err(Error::TypeMismatch {
+                location: call_node.location,
+                expected: vec![signature.parameters[0]],
+                found: receiver_ty,
+            });
+        }
 
-            self.program.exprs.alloc_item(receiver)
-        };
-
-        for (i, arg) in call_node.args.iter().enumerate() {
-            let type_arg = self.visit_expr(arg.clone(), ctx)?;
-            if !self.unify(signature.parameters[i + 1], type_arg.ty(), ctx) {
+        for (i, arg) in args.iter().enumerate() {
+            if !self.unify(signature.parameters[i + 1], arg.ty(), ctx) {
                 return Err(Error::TypeMismatch {
                     location: call_node.location,
                     expected: vec![signature.parameters[i + 1]],
-                    found: type_arg.ty(),
+                    found: arg.ty(),
                 });
             }
-            args.push(type_arg);
         }
+
+        let callee = CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
+            target: self.program.exprs.alloc_item(receiver.clone()),
+            field: ctx.expression(call_node.callee).as_member_access().unwrap().field,
+            type_id: callee_ty,
+            location: call_node.location,
+        });
 
         let checked_expr = CheckedExprNode::MemberCall(CheckedMemberCallNode {
             callee: self.program.exprs.alloc_item(callee),
-            receiver,
+            receiver: self.program.exprs.alloc_item(receiver),
             generic_parameters: generic_parameters
                 .into_iter()
                 .map(|generic_param| self.substitute_all(generic_param, ctx))

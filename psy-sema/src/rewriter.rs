@@ -383,7 +383,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
 
                 if let Some((ref mut root, target)) = checked_path_node.root.zip(checked_path_node.target) {
                     *root = self.substitute_all(*root, ctx)?;
-                    checked_path_node.type_id = self.find_member(*root, None, Some(checked_path_node.location), target, ctx)?;
+                    checked_path_node.type_id = self.find_member(*root, None, Some(checked_path_node.location), target, None, ctx)?;
                 } else {
                     checked_path_node.type_id = self.substitute_all(checked_path_node.type_id, ctx)?;
                 }
