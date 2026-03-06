@@ -1360,151 +1360,70 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let checked_lhs = self.visit_expr(assignment_node.target, ctx)?;
 
         let lhs_ty = checked_lhs.ty();
+        let rhs_ty = checked_rhs.ty();
 
-        let storage_ref_ident = ctx.intern("StorageRef");
-        let lhs_poly_ty = self.poly_of(lhs_ty, ctx).unwrap_or(lhs_ty);
-        if ctx.symbols[lhs_poly_ty].name() == storage_ref_ident {
-            let generic_parameters = ctx.symbols[lhs_ty].generic_parameters();
-            let value_ty = *generic_parameters.first().ok_or(Error::TypeMismatch {
-                location: assignment_node.location,
-                expected: vec![lhs_ty],
-                found: checked_rhs.ty(),
-            })?;
-
-            if !self.unify(value_ty, checked_rhs.ty(), ctx) {
-                return Err(Error::TypeMismatch {
-                    location: assignment_node.location,
-                    expected: vec![value_ty],
-                    found: checked_rhs.ty(),
-                });
-            }
-
-            let lhs_expr_for_get = self.program.exprs.alloc_item(checked_lhs.clone());
-            let lhs_expr_for_set = self.program.exprs.alloc_item(checked_lhs.clone());
-            let rhs_expr = self.program.exprs.alloc_item(checked_rhs);
-
-            let get_ident = Identifier::new(ctx.intern("get"), assignment_node.location);
-            let get_ty = self.find_member(
-                lhs_ty,
-                None,
-                Some(assignment_node.location),
-                get_ident,
-                Some(&[lhs_ty]),
-                ctx,
-            )?;
-            let get_signature = ctx.symbols[get_ty].signature();
-
-            let get_callee = self.program.exprs.alloc_item(CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
-                target: lhs_expr_for_get,
-                field: get_ident,
-                type_id: get_ty,
+        if self.unify(lhs_ty, rhs_ty, ctx) {
+            return Ok(CheckedStmtNode::Assignment(CheckedAssignmentNode {
+                target: self.program.exprs.alloc_item(checked_lhs),
+                operator: assignment_node.operator,
+                value: self.program.exprs.alloc_item(checked_rhs),
+                type_id: self.substitute_all(lhs_ty, ctx)?,
+                comments: assignment_node.comments,
                 location: assignment_node.location,
             }));
-
-            let get_generic_parameters = ctx.symbols[get_ty]
-                .generic_parameters()
-                .into_iter()
-                .map(|generic_param| self.substitute_all(generic_param, ctx))
-                .collect::<Result<Vec<TypeId>>>()?;
-            let get_return_ty = self.substitute_all(get_signature.return_type, ctx)?;
-            let get_expr = self.program.exprs.alloc_item(CheckedExprNode::MemberCall(CheckedMemberCallNode {
-                callee: get_callee,
-                receiver: lhs_expr_for_get,
-                generic_parameters: get_generic_parameters,
-                args: vec![],
-                type_id: get_return_ty,
-                location: assignment_node.location,
-            }));
-
-            let set_arg = match assignment_node.operator {
-                AssignmentOperator::Eq => rhs_expr,
-                AssignmentOperator::AddAssign
-                | AssignmentOperator::SubAssign
-                | AssignmentOperator::MulAssign
-                | AssignmentOperator::DivAssign
-                | AssignmentOperator::ModAssign
-                | AssignmentOperator::BitAndAssign
-                | AssignmentOperator::BitOrAssign
-                | AssignmentOperator::BitXorAssign
-                | AssignmentOperator::BitShlAssign
-                | AssignmentOperator::BitShrAssign => {
-                    let binary_op = match assignment_node.operator {
-                        AssignmentOperator::AddAssign => BinaryOperator::Add,
-                        AssignmentOperator::SubAssign => BinaryOperator::Sub,
-                        AssignmentOperator::MulAssign => BinaryOperator::Mul,
-                        AssignmentOperator::DivAssign => BinaryOperator::Div,
-                        AssignmentOperator::ModAssign => BinaryOperator::Mod,
-                        AssignmentOperator::BitAndAssign => BinaryOperator::BitAnd,
-                        AssignmentOperator::BitOrAssign => BinaryOperator::BitOr,
-                        AssignmentOperator::BitXorAssign => BinaryOperator::BitXor,
-                        AssignmentOperator::BitShlAssign => BinaryOperator::BitShl,
-                        AssignmentOperator::BitShrAssign => BinaryOperator::BitShr,
-                        AssignmentOperator::Eq => unreachable!(),
-                    };
-
-                    let binary_ty = self.substitute_all(value_ty, ctx)?;
-                    self.program.exprs.alloc_item(CheckedExprNode::Binary(CheckedBinaryNode {
-                        lhs: get_expr,
-                        operator: binary_op,
-                        rhs: rhs_expr,
-                        type_id: binary_ty,
-                        location: assignment_node.location,
-                    }))
-                }
-            };
-
-            let set_ident = Identifier::new(ctx.intern("set"), assignment_node.location);
-            let set_ty = self.find_member(
-                lhs_ty,
-                None,
-                Some(assignment_node.location),
-                set_ident,
-                Some(&[lhs_ty, value_ty]),
-                ctx,
-            )?;
-            let set_signature = ctx.symbols[set_ty].signature();
-
-            let set_callee = self.program.exprs.alloc_item(CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
-                target: lhs_expr_for_set,
-                field: set_ident,
-                type_id: set_ty,
-                location: assignment_node.location,
-            }));
-
-            let set_generic_parameters = ctx.symbols[set_ty]
-                .generic_parameters()
-                .into_iter()
-                .map(|generic_param| self.substitute_all(generic_param, ctx))
-                .collect::<Result<Vec<TypeId>>>()?;
-            let set_return_ty = self.substitute_all(set_signature.return_type, ctx)?;
-            let set_call = CheckedExprNode::MemberCall(CheckedMemberCallNode {
-                callee: set_callee,
-                receiver: lhs_expr_for_set,
-                generic_parameters: set_generic_parameters,
-                args: vec![set_arg],
-                type_id: set_return_ty,
-                location: assignment_node.location,
-            });
-
-            return Ok(CheckedStmtNode::Expression(self.program.exprs.alloc_item(set_call)));
         }
 
-        if !self.unify(lhs_ty, checked_rhs.ty(), ctx) {
-            return Err(Error::TypeMismatch {
-                location: assignment_node.location,
-                expected: vec![lhs_ty],
-                found: checked_rhs.ty(),
-            });
-        }
+        let assign_method = match assignment_node.operator {
+            AssignmentOperator::Eq => "eq_assign",
+            AssignmentOperator::AddAssign => "add_assign",
+            AssignmentOperator::SubAssign => "sub_assign",
+            AssignmentOperator::MulAssign => "mul_assign",
+            AssignmentOperator::DivAssign => "div_assign",
+            AssignmentOperator::ModAssign => "rem_assign",
+            AssignmentOperator::BitAndAssign => "bitand_assign",
+            AssignmentOperator::BitOrAssign => "bitor_assign",
+            AssignmentOperator::BitXorAssign => "bitxor_assign",
+            AssignmentOperator::BitShlAssign => "shl_assign",
+            AssignmentOperator::BitShrAssign => "shr_assign",
+        };
 
-        Ok(CheckedStmtNode::Assignment(CheckedAssignmentNode {
-            target: self.program.exprs.alloc_item(checked_lhs),
-            operator: assignment_node.operator,
-            value: self.program.exprs.alloc_item(checked_rhs),
-            type_id: self.substitute_all(lhs_ty, ctx)?,
-            comments: assignment_node.comments,
+        let method_ident = Identifier::new(ctx.intern(assign_method), assignment_node.location);
+        let method_ty = self.find_member(
+            lhs_ty,
+            None,
+            Some(assignment_node.location),
+            method_ident,
+            Some(&[lhs_ty, rhs_ty]),
+            ctx,
+        )?;
+        let signature = ctx.symbols[method_ty].signature();
+
+        let callee_target = self.program.exprs.alloc_item(checked_lhs.clone());
+        let callee = self.program.exprs.alloc_item(CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
+            target: callee_target,
+            field: method_ident,
+            type_id: method_ty,
             location: assignment_node.location,
-        }))
+        }));
+        let receiver = self.program.exprs.alloc_item(checked_lhs);
+        let arg = self.program.exprs.alloc_item(checked_rhs);
+        let generic_parameters = ctx.symbols[method_ty]
+            .generic_parameters()
+            .into_iter()
+            .map(|generic_param| self.substitute_all(generic_param, ctx))
+            .collect::<Result<Vec<TypeId>>>()?;
+        let return_ty = self.substitute_all(signature.return_type, ctx)?;
+
+        Ok(CheckedStmtNode::Expression(self.program.exprs.alloc_item(CheckedExprNode::MemberCall(
+            CheckedMemberCallNode {
+                callee,
+                receiver,
+                generic_parameters,
+                args: vec![arg],
+                type_id: return_ty,
+                location: assignment_node.location,
+            },
+        ))))
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -1651,15 +1570,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
         let implementor_type_id = self.typecheck(&impl_node.ty, ctx)?;
         let implementor_poly_type_id = self.poly_of(implementor_type_id, ctx).unwrap();
-        if ctx.symbols[implementor_type_id]
-            .generic_parameters()
-            .iter()
-            .any(|&p| !ctx.symbols[p].is_type_variable())
-        {
-            return Err(Error::SpecializationNotAllowed {
-                location: impl_node.location,
-            });
-        }
+        // Allow specialized impl headers such as `impl StorageRef<Felt, N> { ... }`.
+        // Ambiguous overlaps are validated during impl lookup/registration.
 
         ctx.symbols.add_type_id(None, IdentId::TYPE_SELF, implementor_type_id)?;
 
@@ -2377,19 +2289,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let implementor_type_id = self.typecheck(&trait_impl_node.ty, ctx)?;
         let implementor_poly_type_id = self.poly_of(implementor_type_id, ctx).unwrap();
 
-        if ctx.symbols[implementor_type_id]
-            .generic_parameters()
-            .iter()
-            .any(|&p| !ctx.symbols[p].is_type_variable())
-            || ctx.symbols[trait_type_id]
-                .generic_parameters()
-                .iter()
-                .any(|&p| !ctx.symbols[p].is_type_variable())
-        {
-            return Err(Error::SpecializationNotAllowed {
-                location: trait_impl_node.location,
-            });
-        }
+        // Allow specialized trait impl headers such as
+        // `impl EqAssign<Felt> for StorageRef<Felt, N>`.
 
         for (generic_parameter, generic_arg) in ctx.symbols[implementor_poly_type_id]
             .generic_parameters()

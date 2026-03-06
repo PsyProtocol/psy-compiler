@@ -51,4 +51,11 @@ fn main() {
     cd1 = 3;
     cd1 += 9;
     assert_eq(cd1.get(), 12, "c.d[1] == 12 after = and +=");
+    let mut refs = [c.d.index(0), c.d.index(1)];
+    refs = [31, 32];
+    assert_eq(c.d.index(0).get(), 31, "c.d[0] == 31 after array eq_assign");
+    assert_eq(c.d.index(1).get(), 32, "c.d[1] == 32 after array eq_assign");
+    c.d.index(2).set(43);
+    c.d.index(2) += 7;
+    assert_eq(c.d.index(2).get(), 50, "c.d[2] == 50 after index +=");
 }
