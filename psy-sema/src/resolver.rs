@@ -49,6 +49,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                                 None,
                                 ctx,
                             )?;
+                            let root_ty_id_clone = root_ty_id;
                             for segment in path.segments.iter().skip(1) {
                                 let segment = segment.basic_target().ok_or(Error::InvalidPathSegment {
                                     location: segment.location(),
@@ -66,7 +67,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
 
                             return Ok(CheckedPathNode::new(
                                 None,
-                                Some(root_ty_id),
+                                Some(root_ty_id_clone),
                                 Some(path_target.id),
                                 path.clone(),
                                 self.substitute_all(member_ty_id, ctx)?,
@@ -207,7 +208,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                         None,
                         Some(root_type_id),
                         Some(target_id),
-                        path.clone(),
+                        PathNode {
+                            root: Some(segment.clone()),
+                            segments: vec![],
+                            target: path.target.clone(),
+                            location: path.location,
+                        },
                         self.substitute_all(type_id, ctx)?,
                         None,
                         path.location,
@@ -221,7 +227,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
             None,
             None,
             path.target.as_basic().map(|t| t.id),
-            path.clone(),
+            PathNode {
+                root: None,
+                segments: vec![],
+                target: path.target.clone(),
+                location: path.location,
+            },
             self.substitute_all(type_id, ctx)?,
             None,
             path.location,
