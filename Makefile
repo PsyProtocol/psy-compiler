@@ -53,6 +53,7 @@ ci:
 	@$(DARGO_CLI_EXECUTE) return_test.psy --parameters 2,3
 	@$(DARGO_CLI_EXECUTE) self_test.psy
 	@$(DARGO_CLI_EXECUTE) storage_test.psy
+	@$(DARGO_CLI_EXECUTE) storage_ref_test.psy
 	@$(DARGO_CLI_EXECUTE) trait_test.psy --parameters 2,3
 	@$(DARGO_CLI_EXECUTE) member_call_expected_signature_test.psy
 	@$(DARGO_CLI_EXECUTE) member_call_expected_signature_array_arg_test.psy

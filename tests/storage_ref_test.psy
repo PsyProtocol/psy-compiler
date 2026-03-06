@@ -38,7 +38,17 @@ fn main() {
     assert_eq(p.year_of_birth, 2000, "c.b.year_of_birth == 2000");
     c.a.set(1);
     assert_eq(c.a.get(), 1, "c.a == 1");
+    c.a += 4;
+    assert_eq(c.a.get(), 5, "c.a == 5 after +=");
+    c.a *= 2;
+    assert_eq(c.a.get(), 10, "c.a == 10 after *=");
+    c.a = 7;
+    assert_eq(c.a.get(), 7, "c.a == 7 after =");
     let cd0 = c.d.index(0);
     cd0.set(23);
     assert_eq(cd0.get(), 23, "c.d[0] == 23");
+    let cd1 = c.d.index(1);
+    cd1 = 3;
+    cd1 += 9;
+    assert_eq(cd1.get(), 12, "c.d[1] == 12 after = and +=");
 }

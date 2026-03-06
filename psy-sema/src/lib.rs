@@ -1361,6 +1361,134 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
         let lhs_ty = checked_lhs.ty();
 
+        let storage_ref_ident = ctx.intern("StorageRef");
+        let lhs_poly_ty = self.poly_of(lhs_ty, ctx).unwrap_or(lhs_ty);
+        if ctx.symbols[lhs_poly_ty].name() == storage_ref_ident {
+            let generic_parameters = ctx.symbols[lhs_ty].generic_parameters();
+            let value_ty = *generic_parameters.first().ok_or(Error::TypeMismatch {
+                location: assignment_node.location,
+                expected: vec![lhs_ty],
+                found: checked_rhs.ty(),
+            })?;
+
+            if !self.unify(value_ty, checked_rhs.ty(), ctx) {
+                return Err(Error::TypeMismatch {
+                    location: assignment_node.location,
+                    expected: vec![value_ty],
+                    found: checked_rhs.ty(),
+                });
+            }
+
+            let lhs_expr_for_get = self.program.exprs.alloc_item(checked_lhs.clone());
+            let lhs_expr_for_set = self.program.exprs.alloc_item(checked_lhs.clone());
+            let rhs_expr = self.program.exprs.alloc_item(checked_rhs);
+
+            let get_ident = Identifier::new(ctx.intern("get"), assignment_node.location);
+            let get_ty = self.find_member(
+                lhs_ty,
+                None,
+                Some(assignment_node.location),
+                get_ident,
+                Some(&[lhs_ty]),
+                ctx,
+            )?;
+            let get_signature = ctx.symbols[get_ty].signature();
+
+            let get_callee = self.program.exprs.alloc_item(CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
+                target: lhs_expr_for_get,
+                field: get_ident,
+                type_id: get_ty,
+                location: assignment_node.location,
+            }));
+
+            let get_generic_parameters = ctx.symbols[get_ty]
+                .generic_parameters()
+                .into_iter()
+                .map(|generic_param| self.substitute_all(generic_param, ctx))
+                .collect::<Result<Vec<TypeId>>>()?;
+            let get_return_ty = self.substitute_all(get_signature.return_type, ctx)?;
+            let get_expr = self.program.exprs.alloc_item(CheckedExprNode::MemberCall(CheckedMemberCallNode {
+                callee: get_callee,
+                receiver: lhs_expr_for_get,
+                generic_parameters: get_generic_parameters,
+                args: vec![],
+                type_id: get_return_ty,
+                location: assignment_node.location,
+            }));
+
+            let set_arg = match assignment_node.operator {
+                AssignmentOperator::Eq => rhs_expr,
+                AssignmentOperator::AddAssign
+                | AssignmentOperator::SubAssign
+                | AssignmentOperator::MulAssign
+                | AssignmentOperator::DivAssign
+                | AssignmentOperator::ModAssign
+                | AssignmentOperator::BitAndAssign
+                | AssignmentOperator::BitOrAssign
+                | AssignmentOperator::BitXorAssign
+                | AssignmentOperator::BitShlAssign
+                | AssignmentOperator::BitShrAssign => {
+                    let binary_op = match assignment_node.operator {
+                        AssignmentOperator::AddAssign => BinaryOperator::Add,
+                        AssignmentOperator::SubAssign => BinaryOperator::Sub,
+                        AssignmentOperator::MulAssign => BinaryOperator::Mul,
+                        AssignmentOperator::DivAssign => BinaryOperator::Div,
+                        AssignmentOperator::ModAssign => BinaryOperator::Mod,
+                        AssignmentOperator::BitAndAssign => BinaryOperator::BitAnd,
+                        AssignmentOperator::BitOrAssign => BinaryOperator::BitOr,
+                        AssignmentOperator::BitXorAssign => BinaryOperator::BitXor,
+                        AssignmentOperator::BitShlAssign => BinaryOperator::BitShl,
+                        AssignmentOperator::BitShrAssign => BinaryOperator::BitShr,
+                        AssignmentOperator::Eq => unreachable!(),
+                    };
+
+                    let binary_ty = self.substitute_all(value_ty, ctx)?;
+                    self.program.exprs.alloc_item(CheckedExprNode::Binary(CheckedBinaryNode {
+                        lhs: get_expr,
+                        operator: binary_op,
+                        rhs: rhs_expr,
+                        type_id: binary_ty,
+                        location: assignment_node.location,
+                    }))
+                }
+            };
+
+            let set_ident = Identifier::new(ctx.intern("set"), assignment_node.location);
+            let set_ty = self.find_member(
+                lhs_ty,
+                None,
+                Some(assignment_node.location),
+                set_ident,
+                Some(&[lhs_ty, value_ty]),
+                ctx,
+            )?;
+            let set_signature = ctx.symbols[set_ty].signature();
+
+            let set_callee = self.program.exprs.alloc_item(CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
+                target: lhs_expr_for_set,
+                field: set_ident,
+                type_id: set_ty,
+                location: assignment_node.location,
+            }));
+
+            let set_generic_parameters = ctx.symbols[set_ty]
+                .generic_parameters()
+                .into_iter()
+                .map(|generic_param| self.substitute_all(generic_param, ctx))
+                .collect::<Result<Vec<TypeId>>>()?;
+            let set_return_ty = self.substitute_all(set_signature.return_type, ctx)?;
+            let set_call = CheckedExprNode::MemberCall(CheckedMemberCallNode {
+                callee: set_callee,
+                receiver: lhs_expr_for_set,
+                generic_parameters: set_generic_parameters,
+                args: vec![set_arg],
+                type_id: set_return_ty,
+                location: assignment_node.location,
+            });
+
+            return Ok(CheckedStmtNode::Expression(self.program.exprs.alloc_item(set_call)));
+        }
+
         if !self.unify(lhs_ty, checked_rhs.ty(), ctx) {
             return Err(Error::TypeMismatch {
                 location: assignment_node.location,
