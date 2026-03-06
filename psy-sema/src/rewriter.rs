@@ -543,8 +543,27 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                 checked_tuple_access_node.target = self.rewrite_expr(checked_tuple_access_node.target, ctx)?;
             }
             CheckedExprNode::MemberAccess(checked_member_access_node) => {
-                checked_member_access_node.type_id = self.substitute_all(checked_member_access_node.type_id, ctx)?;
                 checked_member_access_node.target = self.rewrite_expr(checked_member_access_node.target, ctx)?;
+                let type_id = self.program[checked_member_access_node.target].ty();
+
+                if ctx.symbols[checked_member_access_node.type_id].is_function() {
+                    checked_member_access_node.type_id = self.find_member(
+                        type_id,
+                        None,
+                        Some(checked_member_access_node.location),
+                        checked_member_access_node.field,
+                        None,
+                        ctx,
+                    )?;
+                } else {
+                    checked_member_access_node.type_id = ctx.symbols[type_id]
+                        .as_struct()
+                        .unwrap()
+                        .fields
+                        .get(&checked_member_access_node.field)
+                        .unwrap()
+                        .ty;
+                }
             }
             CheckedExprNode::Intrinsic(checked_intrinsic_expr_node) => match checked_intrinsic_expr_node {
                 CheckedIntrinsicExprNode::GetUserId { type_id, .. } => {
