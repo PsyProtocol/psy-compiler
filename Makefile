@@ -27,6 +27,7 @@ DARGO_CLI_TEST    = RUST_LOG=${LOG_LEVEL} ./target/${PROFILE}/dargo test --file
 
 DARGO = RUST_LOG=$(LOG_LEVEL) $(PWD)/target/${PROFILE}/dargo
 TOKEN_CONTRACT_PATH := $(PWD)/psy-precompiles/token
+MINING_REWARDS_CONTRACT_PATH := $(PWD)/psy-precompiles/mining_rewards
 
 ci:
 	@$(DARGO_CLI_TEST) tests/in_mod_attr_test.psy
@@ -107,7 +108,18 @@ interpret:
 	@RUST_LOG=${LOG_LEVEL} ./target/${PROFILE}/dargo execute --program-dir $(dir ${FILE}) --debug --entry-path $(notdir ${FILE}) --parameters ${PARAMETERS}
 
 compile-token-contract:
-	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names simple_mint simple_transfer simple_claim batch_simple_transfer simple_burn simple_claim_pow_rewards
+	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names simple_mint simple_transfer simple_claim batch_simple_transfer simple_burn simple_claim_pow_rewards private_transfer private_claim
+
+compile-mining-rewards-contract:
+	@cd $(MINING_REWARDS_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyPOWMiningRewardsClaimContractRef --method-names start_session end_session claim_guta_rewards_1 claim_guta_rewards_2 claim_guta_rewards_5
 
 compile-token-abi:
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c token.abi
+
+PARTH_GENERIC_V1 ?= $(PWD)/../parth-generic-v1
+
+gen-deploy-json:
+	@cargo run --release --package dargo --example gen_deploy_json -- \
+		$(PARTH_GENERIC_V1)/genesis_contracts.json \
+		$(TOKEN_CONTRACT_PATH)/target/token.json \
+		$(MINING_REWARDS_CONTRACT_PATH)/target/mining_rewards.json

@@ -25,19 +25,19 @@ repository = "https://github.com/PsyProtocol/psy-compiler"
 [workspace.lints]
 
 [workspace.dependencies]
-# Reference the main qedlang-rust repo at specific commit
-psy_vm = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false }
-psy_crypto = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60" }
-psy_data = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false}
-psy_common_core = { package = "psy_common", git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60" }
-psy_common = { path = "./psy-common" }
-psy_config = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60" }
-psy_prover = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false }
-psy_common_circuit = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false}
-psy_dpn_circuit = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false}
-psy_ups_circuit = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false}
-psy_network_circuit = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false}
-kvq = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60" }
+# Reference qedlang-rust locally for development
+psy_vm = { path = "/home/cj/Projects/qedlang-rust/psy_vm", default-features = false }
+psy_crypto = { path = "/home/cj/Projects/qedlang-rust/psy_core/psy_crypto" }
+psy_data = { path = "/home/cj/Projects/qedlang-rust/psy_core/psy_data", default-features = false}
+psy_common_core = { package = "psy_common", path = "/home/cj/Projects/qedlang-rust/psy_core/psy_common" }
+psy_common = { package = "psy_compiler_common", path = "./psy-common" }
+psy_config = { path = "/home/cj/Projects/qedlang-rust/psy_core/psy_config" }
+psy_prover = { path = "/home/cj/Projects/qedlang-rust/psy_prover", default-features = false }
+psy_common_circuit = { path = "/home/cj/Projects/qedlang-rust/psy_circuit/psy_common_circuit", default-features = false}
+psy_dpn_circuit = { path = "/home/cj/Projects/qedlang-rust/psy_circuit/psy_dpn_circuit", default-features = false}
+psy_ups_circuit = { path = "/home/cj/Projects/qedlang-rust/psy_circuit/psy_ups_circuit", default-features = false}
+psy_network_circuit = { path = "/home/cj/Projects/qedlang-rust/psy_circuit/psy_network_circuit", default-features = false}
+kvq = { path = "/home/cj/Projects/qedlang-rust/psy_core/kvq" }
 
 # Local compiler packages
 psy-ast = { path = "./psy-ast" }

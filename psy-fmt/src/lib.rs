@@ -861,6 +861,7 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
             IntrinsicExprNode::GetLastNonce { .. } => Ok("__ctx_get_last_nonce()".to_string()),
             IntrinsicExprNode::GetCheckpointId { .. } => Ok("__ctx_get_checkpoint_id()".to_string()),
             IntrinsicExprNode::GetUserPublicKeyHash { .. } => Ok("__ctx_get_user_public_key_hash()".to_string()),
+            IntrinsicExprNode::GetSessionProofTreeRoot { .. } => Ok("__ctx_get_session_proof_tree_root()".to_string()),
             IntrinsicExprNode::GetStateHashAt { slot_index, .. } => {
                 Ok(format!("__ctx_get_state_hash_at({})", self.visit_expr(slot_index.clone(), ctx)?))
             }
@@ -980,6 +981,21 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
                 Ok(format!("__ctx_get_register_users_root({})", self.visit_expr(checkpoint_id, ctx)?))
             }
             IntrinsicExprNode::GetGutasRoot { checkpoint_id, .. } => Ok(format!("__ctx_get_gutas_root({})", self.visit_expr(checkpoint_id, ctx)?)),
+            IntrinsicExprNode::GetCheckpointUserTreeRoot { checkpoint_id, .. } => {
+                Ok(format!("__ctx_get_checkpoint_user_tree_root({})", self.visit_expr(checkpoint_id, ctx)?))
+            }
+            IntrinsicExprNode::GetCheckpointContractTreeRoot { checkpoint_id, .. } => {
+                Ok(format!("__ctx_get_checkpoint_contract_tree_root({})", self.visit_expr(checkpoint_id, ctx)?))
+            }
+            IntrinsicExprNode::GetCheckpointDepositTreeRoot { checkpoint_id, .. } => {
+                Ok(format!("__ctx_get_checkpoint_deposit_tree_root({})", self.visit_expr(checkpoint_id, ctx)?))
+            }
+            IntrinsicExprNode::GetCheckpointWithdrawalTreeRoot { checkpoint_id, .. } => {
+                Ok(format!("__ctx_get_checkpoint_withdrawal_tree_root({})", self.visit_expr(checkpoint_id, ctx)?))
+            }
+            IntrinsicExprNode::GetCheckpointUserRegistrationTreeRoot { checkpoint_id, .. } => {
+                Ok(format!("__ctx_get_checkpoint_user_registration_tree_root({})", self.visit_expr(checkpoint_id, ctx)?))
+            }
             IntrinsicExprNode::GetDeployContractsRoot { checkpoint_id, .. } => {
                 Ok(format!("__ctx_get_deploy_contracts_root({})", self.visit_expr(checkpoint_id, ctx)?))
             }

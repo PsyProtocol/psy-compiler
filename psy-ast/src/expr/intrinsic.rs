@@ -30,6 +30,26 @@ pub enum IntrinsicExprNode {
         checkpoint_id: ExprId,
         location: Location,
     },
+    GetCheckpointUserTreeRoot {
+        checkpoint_id: ExprId,
+        location: Location,
+    },
+    GetCheckpointContractTreeRoot {
+        checkpoint_id: ExprId,
+        location: Location,
+    },
+    GetCheckpointDepositTreeRoot {
+        checkpoint_id: ExprId,
+        location: Location,
+    },
+    GetCheckpointWithdrawalTreeRoot {
+        checkpoint_id: ExprId,
+        location: Location,
+    },
+    GetCheckpointUserRegistrationTreeRoot {
+        checkpoint_id: ExprId,
+        location: Location,
+    },
     GetDeployContractsRoot {
         checkpoint_id: ExprId,
         location: Location,
@@ -70,6 +90,9 @@ pub enum IntrinsicExprNode {
         location: Location,
     },
     GetUserPublicKeyHash {
+        location: Location,
+    },
+    GetSessionProofTreeRoot {
         location: Location,
     },
     GetStateHashAt {

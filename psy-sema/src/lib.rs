@@ -279,6 +279,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                     location,
                 }));
             }
+            IntrinsicExprNode::GetSessionProofTreeRoot { location } => {
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::GetSessionProofTreeRoot {
+                    type_id: HASH_TYPE,
+                    location,
+                }));
+            }
             IntrinsicExprNode::GetStateHashAt { slot_index, location } => {
                 let slot_index = self.visit_expr(slot_index, ctx)?;
                 if !self.unify(slot_index.ty(), FELT_TYPE, ctx) {
@@ -669,6 +675,46 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             IntrinsicExprNode::GetGutasRoot { checkpoint_id, location } => {
                 let checkpoint_id = self.visit_expr(checkpoint_id, ctx)?;
                 return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::GetGutasRoot {
+                    checkpoint_id: self.program.exprs.alloc_item(checkpoint_id),
+                    type_id: UNKOWN_TYPE,
+                    location,
+                }));
+            }
+            IntrinsicExprNode::GetCheckpointUserTreeRoot { checkpoint_id, location } => {
+                let checkpoint_id = self.visit_expr(checkpoint_id, ctx)?;
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::GetCheckpointUserTreeRoot {
+                    checkpoint_id: self.program.exprs.alloc_item(checkpoint_id),
+                    type_id: UNKOWN_TYPE,
+                    location,
+                }));
+            }
+            IntrinsicExprNode::GetCheckpointContractTreeRoot { checkpoint_id, location } => {
+                let checkpoint_id = self.visit_expr(checkpoint_id, ctx)?;
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::GetCheckpointContractTreeRoot {
+                    checkpoint_id: self.program.exprs.alloc_item(checkpoint_id),
+                    type_id: UNKOWN_TYPE,
+                    location,
+                }));
+            }
+            IntrinsicExprNode::GetCheckpointDepositTreeRoot { checkpoint_id, location } => {
+                let checkpoint_id = self.visit_expr(checkpoint_id, ctx)?;
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::GetCheckpointDepositTreeRoot {
+                    checkpoint_id: self.program.exprs.alloc_item(checkpoint_id),
+                    type_id: UNKOWN_TYPE,
+                    location,
+                }));
+            }
+            IntrinsicExprNode::GetCheckpointWithdrawalTreeRoot { checkpoint_id, location } => {
+                let checkpoint_id = self.visit_expr(checkpoint_id, ctx)?;
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::GetCheckpointWithdrawalTreeRoot {
+                    checkpoint_id: self.program.exprs.alloc_item(checkpoint_id),
+                    type_id: UNKOWN_TYPE,
+                    location,
+                }));
+            }
+            IntrinsicExprNode::GetCheckpointUserRegistrationTreeRoot { checkpoint_id, location } => {
+                let checkpoint_id = self.visit_expr(checkpoint_id, ctx)?;
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::GetCheckpointUserRegistrationTreeRoot {
                     checkpoint_id: self.program.exprs.alloc_item(checkpoint_id),
                     type_id: UNKOWN_TYPE,
                     location,

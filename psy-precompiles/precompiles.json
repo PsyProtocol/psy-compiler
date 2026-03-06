@@ -4,13 +4,28 @@
       "name": "token",
       "path": "token",
       "contract_name": "PsyTokenContractRef",
-      "method_names": ["simple_mint", "simple_burn", "simple_transfer", "batch_simple_transfer", "simple_claim", "simple_claim_pow_rewards"]
+      "method_names": [
+          "simple_mint",
+          "simple_burn",
+          "simple_transfer",
+          "batch_simple_transfer",
+          "simple_claim",
+          "simple_claim_pow_rewards",
+          "private_transfer",
+          "private_claim"
+      ]
     },
     {
       "name": "mining_rewards",
       "path": "mining_rewards",
       "contract_name": "PsyPOWMiningRewardsClaimContractRef",
-      "method_names": ["start_session", "end_session", "claim_guta_rewards_1", "claim_guta_rewards_2", "claim_guta_rewards_5"]
+      "method_names": [
+          "start_session",
+          "end_session",
+          "claim_guta_rewards_1",
+          "claim_guta_rewards_2",
+          "claim_guta_rewards_5"
+      ]
     }
   ]
 }

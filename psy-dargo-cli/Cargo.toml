@@ -28,6 +28,7 @@ psy-abi = { workspace = true }
 num-bigint = { workspace = true }
 kvq = { workspace = true }
 psy_prover = { workspace = true, default-features = false }
+serde_cbor = { workspace = true }
 
 [features]
 # default = ["is_sync"]

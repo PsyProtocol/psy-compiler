@@ -83,6 +83,16 @@ pub enum Token<'input> {
     IntrinsicCtxGetRegisterUsersRoot,
     #[token("__ctx_get_gutas_root")]
     IntrinsicCtxGetGutasRoot,
+    #[token("__ctx_get_checkpoint_user_tree_root")]
+    IntrinsicCtxGetCheckpointUserTreeRoot,
+    #[token("__ctx_get_checkpoint_contract_tree_root")]
+    IntrinsicCtxGetCheckpointContractTreeRoot,
+    #[token("__ctx_get_checkpoint_deposit_tree_root")]
+    IntrinsicCtxGetCheckpointDepositTreeRoot,
+    #[token("__ctx_get_checkpoint_withdrawal_tree_root")]
+    IntrinsicCtxGetCheckpointWithdrawalTreeRoot,
+    #[token("__ctx_get_checkpoint_user_registration_tree_root")]
+    IntrinsicCtxGetCheckpointUserRegistrationTreeRoot,
     #[token("__ctx_get_deploy_contracts_root")]
     IntrinsicCtxGetDeployContractsRoot,
     #[token("__ctx_get_last_nonce")]
@@ -113,6 +123,8 @@ pub enum Token<'input> {
     IntrinsicCtxGetRegisterUsersCompleted,
     #[token("__ctx_get_gutas_completed")]
     IntrinsicCtxGetGutasCompleted,
+    #[token("__ctx_get_session_proof_tree_root")]
+    IntrinsicCtxGetSessionProofTreeRoot,
     #[token("__ctx_clear_entire_tree")]
     IntrinsicCtxClearEntireTree,
 

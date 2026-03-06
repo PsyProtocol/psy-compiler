@@ -28,6 +28,26 @@ pub fn get_gutas_root(checkpoint_id: Felt) -> Hash {
     __ctx_get_gutas_root(checkpoint_id)
 }
 
+pub fn get_checkpoint_user_tree_root(checkpoint_id: Felt) -> Hash {
+    __ctx_get_checkpoint_user_tree_root(checkpoint_id)
+}
+
+pub fn get_checkpoint_contract_tree_root(checkpoint_id: Felt) -> Hash {
+    __ctx_get_checkpoint_contract_tree_root(checkpoint_id)
+}
+
+pub fn get_checkpoint_deposit_tree_root(checkpoint_id: Felt) -> Hash {
+    __ctx_get_checkpoint_deposit_tree_root(checkpoint_id)
+}
+
+pub fn get_checkpoint_withdrawal_tree_root(checkpoint_id: Felt) -> Hash {
+    __ctx_get_checkpoint_withdrawal_tree_root(checkpoint_id)
+}
+
+pub fn get_checkpoint_user_registration_tree_root(checkpoint_id: Felt) -> Hash {
+    __ctx_get_checkpoint_user_registration_tree_root(checkpoint_id)
+}
+
 pub fn get_deploy_contracts_root(checkpoint_id: Felt) -> Hash {
     __ctx_get_deploy_contracts_root(checkpoint_id)
 }
@@ -70,6 +90,10 @@ pub fn get_last_nonce() -> Felt {
 
 pub fn get_user_public_key_hash() -> Hash {
     __ctx_get_user_public_key_hash()
+}
+
+pub fn get_session_proof_tree_root() -> Hash {
+    __ctx_get_session_proof_tree_root()
 }
 
 pub fn get_state_hash_at(slot_index: Felt) -> Hash {

@@ -862,6 +862,46 @@ IntrinsicExpression: ExprNode<F> = {
             }
         )
     },
+    <l:@L> <variable:CTX_GET_CHECKPOINT_USER_TREE_ROOT> "(" <checkpoint_id:Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::GetCheckpointUserTreeRoot {
+                checkpoint_id: expr_nodes.alloc_item(checkpoint_id),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
+    <l:@L> <variable:CTX_GET_CHECKPOINT_CONTRACT_TREE_ROOT> "(" <checkpoint_id:Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::GetCheckpointContractTreeRoot {
+                checkpoint_id: expr_nodes.alloc_item(checkpoint_id),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
+    <l:@L> <variable:CTX_GET_CHECKPOINT_DEPOSIT_TREE_ROOT> "(" <checkpoint_id:Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::GetCheckpointDepositTreeRoot {
+                checkpoint_id: expr_nodes.alloc_item(checkpoint_id),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
+    <l:@L> <variable:CTX_GET_CHECKPOINT_WITHDRAWAL_TREE_ROOT> "(" <checkpoint_id:Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::GetCheckpointWithdrawalTreeRoot {
+                checkpoint_id: expr_nodes.alloc_item(checkpoint_id),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
+    <l:@L> <variable:CTX_GET_CHECKPOINT_USER_REGISTRATION_TREE_ROOT> "(" <checkpoint_id:Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::GetCheckpointUserRegistrationTreeRoot {
+                checkpoint_id: expr_nodes.alloc_item(checkpoint_id),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
     <l:@L> <variable:CTX_GET_DEPLOY_CONTRACTS_ROOT> "(" <checkpoint_id:Expression> ")" <r:@R> => {
         ExprNode::Intrinsic(
             IntrinsicExprNode::GetDeployContractsRoot {
@@ -944,6 +984,13 @@ IntrinsicExpression: ExprNode<F> = {
     <l:@L> <variable:CTX_GET_USER_PUBLIC_KEY_HASH> "(" ")" <r:@R> => {
         ExprNode::Intrinsic(
             IntrinsicExprNode::GetUserPublicKeyHash {
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
+    <l:@L> <variable:CTX_GET_SESSION_PROOF_TREE_ROOT> "(" ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::GetSessionProofTreeRoot {
                 location: Location::new(file_id, l, r)
             }
         )
@@ -1287,6 +1334,11 @@ extern {
         CTX_GET_CHECKPOINT_STATS => Token::IntrinsicCtxGetCheckpointStats,
         CTX_GET_REGISTER_USERS_ROOT => Token::IntrinsicCtxGetRegisterUsersRoot,
         CTX_GET_GUTAS_ROOT => Token::IntrinsicCtxGetGutasRoot,
+        CTX_GET_CHECKPOINT_USER_TREE_ROOT => Token::IntrinsicCtxGetCheckpointUserTreeRoot,
+        CTX_GET_CHECKPOINT_CONTRACT_TREE_ROOT => Token::IntrinsicCtxGetCheckpointContractTreeRoot,
+        CTX_GET_CHECKPOINT_DEPOSIT_TREE_ROOT => Token::IntrinsicCtxGetCheckpointDepositTreeRoot,
+        CTX_GET_CHECKPOINT_WITHDRAWAL_TREE_ROOT => Token::IntrinsicCtxGetCheckpointWithdrawalTreeRoot,
+        CTX_GET_CHECKPOINT_USER_REGISTRATION_TREE_ROOT => Token::IntrinsicCtxGetCheckpointUserRegistrationTreeRoot,
         CTX_GET_DEPLOY_CONTRACTS_ROOT => Token::IntrinsicCtxGetDeployContractsRoot,
         CTX_GET_GUTA_FEES_COLLECTED => Token::IntrinsicCtxGetGutaFeesCollected,
         CTX_GET_DA_FEES_COLLECTED => Token::IntrinsicCtxGetDAFeesCollected,
@@ -1299,6 +1351,7 @@ extern {
         CTX_CLEAR_ENTIRE_TREE => Token::IntrinsicCtxClearEntireTree,
         CTX_GET_LAST_NONCE => Token::IntrinsicCtxGetLastNonce,
         CTX_GET_USER_PUBLIC_KEY_HASH => Token::IntrinsicCtxGetUserPublicKeyHash,
+        CTX_GET_SESSION_PROOF_TREE_ROOT => Token::IntrinsicCtxGetSessionProofTreeRoot,
         CTX_GET_STATE_HASH_AT => Token::IntrinsicCtxGetStateHashAt,
         CTX_GET_OTHER_CONTRACT_STATE_HASH_AT => Token::IntrinsicCtxGetOtherContractStateHashAt,
         CTX_GET_OTHER_USER_CONTRACT_STATE_HASH_AT => Token::IntrinsicCtxGetOtherUserContractStateHashAt,

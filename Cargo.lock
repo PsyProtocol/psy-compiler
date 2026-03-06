@@ -1507,14 +1507,15 @@ dependencies = [
  "psy-interpreter",
  "psy-package",
  "psy-sema",
- "psy_common 0.1.0",
  "psy_common_circuit",
+ "psy_compiler_common",
  "psy_config",
  "psy_crypto",
  "psy_data",
  "psy_prover",
  "psy_vm",
  "serde",
+ "serde_cbor",
  "serde_json",
  "thiserror 2.0.17",
  "tokio",
@@ -3002,7 +3003,6 @@ dependencies = [
 [[package]]
 name = "kvq"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60#621a33a75c031fbe06f4ce84ea8da00eb595aa60"
 dependencies = [
  "ambassador",
  "anyhow",
@@ -3778,7 +3778,7 @@ version = "0.1.0"
 dependencies = [
  "pretty_assertions",
  "psy-ast",
- "psy_common 0.1.0",
+ "psy_compiler_common",
  "serde",
  "serde_json",
 ]
@@ -3790,7 +3790,7 @@ dependencies = [
  "ariadne",
  "enum-as-inner",
  "indexmap 2.12.0",
- "psy_common 0.1.0",
+ "psy_compiler_common",
  "smol_str",
 ]
 
@@ -3799,7 +3799,7 @@ name = "psy-fmt"
 version = "0.1.0"
 dependencies = [
  "psy-ast",
- "psy_common 0.1.0",
+ "psy_compiler_common",
  "psy_vm",
 ]
 
@@ -3818,8 +3818,8 @@ dependencies = [
  "psy-fmt",
  "psy-parser",
  "psy-sema",
- "psy_common 0.1.0",
  "psy_common_circuit",
+ "psy_compiler_common",
  "psy_config",
  "psy_crypto",
  "psy_data",
@@ -3849,7 +3849,7 @@ dependencies = [
  "psy-interpreter",
  "psy-package",
  "psy-sema",
- "psy_common 0.1.0",
+ "psy_compiler_common",
  "psy_vm",
  "thiserror 2.0.17",
  "tokio",
@@ -3882,7 +3882,7 @@ dependencies = [
  "lalrpop-util",
  "psy-ast",
  "psy-lexer",
- "psy_common 0.1.0",
+ "psy_compiler_common",
  "psy_vm",
  "thiserror 2.0.17",
 ]
@@ -3915,7 +3915,7 @@ dependencies = [
  "petgraph",
  "psy-ast",
  "psy-fmt",
- "psy_common 0.1.0",
+ "psy_compiler_common",
  "psy_vm",
  "rangemap",
  "thiserror 2.0.17",
@@ -3925,15 +3925,6 @@ dependencies = [
 [[package]]
 name = "psy_common"
 version = "0.1.0"
-dependencies = [
- "indexmap 2.12.0",
- "psy_common 0.1.0 (git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60)",
-]
-
-[[package]]
-name = "psy_common"
-version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60#621a33a75c031fbe06f4ce84ea8da00eb595aa60"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3964,7 +3955,6 @@ dependencies = [
 [[package]]
 name = "psy_common_circuit"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60#621a33a75c031fbe06f4ce84ea8da00eb595aa60"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3979,7 +3969,7 @@ dependencies = [
  "num",
  "plonky2",
  "plonky2_maybe_rayon",
- "psy_common 0.1.0 (git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60)",
+ "psy_common",
  "psy_config",
  "psy_crypto",
  "psy_data",
@@ -3992,14 +3982,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "psy_compiler_common"
+version = "0.1.0"
+dependencies = [
+ "indexmap 2.12.0",
+ "psy_common",
+]
+
+[[package]]
 name = "psy_config"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60#621a33a75c031fbe06f4ce84ea8da00eb595aa60"
 dependencies = [
  "anyhow",
  "indexmap 2.12.0",
  "plonky2",
- "psy_common 0.1.0 (git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60)",
+ "psy_common",
  "serde",
  "serde_json",
  "thiserror 2.0.17",
@@ -4008,7 +4005,6 @@ dependencies = [
 [[package]]
 name = "psy_crypto"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60#621a33a75c031fbe06f4ce84ea8da00eb595aa60"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4022,7 +4018,7 @@ dependencies = [
  "num",
  "plonky2",
  "plonky2_maybe_rayon",
- "psy_common 0.1.0 (git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60)",
+ "psy_common",
  "psy_config",
  "rand 0.8.5",
  "ripemd",
@@ -4038,7 +4034,6 @@ dependencies = [
 [[package]]
 name = "psy_data"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60#621a33a75c031fbe06f4ce84ea8da00eb595aa60"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4050,7 +4045,7 @@ dependencies = [
  "kvq",
  "maybe-async",
  "plonky2",
- "psy_common 0.1.0 (git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60)",
+ "psy_common",
  "psy_config",
  "psy_crypto",
  "serde",
@@ -4065,7 +4060,6 @@ dependencies = [
 [[package]]
 name = "psy_dpn_circuit"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60#621a33a75c031fbe06f4ce84ea8da00eb595aa60"
 dependencies = [
  "alloy-primitives",
  "alloy-signer",
@@ -4087,7 +4081,7 @@ dependencies = [
  "maybe-async",
  "parking_lot",
  "plonky2",
- "psy_common 0.1.0 (git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60)",
+ "psy_common",
  "psy_common_circuit",
  "psy_config",
  "psy_crypto",
@@ -4117,13 +4111,12 @@ dependencies = [
 [[package]]
 name = "psy_network_circuit"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60#621a33a75c031fbe06f4ce84ea8da00eb595aa60"
 dependencies = [
  "anyhow",
  "async-trait",
  "bincode",
  "plonky2",
- "psy_common 0.1.0 (git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60)",
+ "psy_common",
  "psy_common_circuit",
  "psy_config",
  "psy_crypto",
@@ -4135,7 +4128,6 @@ dependencies = [
 [[package]]
 name = "psy_prover"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60#621a33a75c031fbe06f4ce84ea8da00eb595aa60"
 dependencies = [
  "alloy-primitives",
  "alloy-signer",
@@ -4159,7 +4151,7 @@ dependencies = [
  "maybe-async",
  "parking_lot",
  "plonky2",
- "psy_common 0.1.0 (git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60)",
+ "psy_common",
  "psy_common_circuit",
  "psy_config",
  "psy_crypto",
@@ -4195,7 +4187,6 @@ dependencies = [
 [[package]]
 name = "psy_provider"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60#621a33a75c031fbe06f4ce84ea8da00eb595aa60"
 dependencies = [
  "alloy-primitives",
  "alloy-signer",
@@ -4217,7 +4208,7 @@ dependencies = [
  "maybe-async",
  "parking_lot",
  "plonky2",
- "psy_common 0.1.0 (git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60)",
+ "psy_common",
  "psy_common_circuit",
  "psy_config",
  "psy_crypto",
@@ -4247,7 +4238,6 @@ dependencies = [
 [[package]]
 name = "psy_ups_circuit"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60#621a33a75c031fbe06f4ce84ea8da00eb595aa60"
 dependencies = [
  "alloy-primitives",
  "alloy-signer",
@@ -4269,7 +4259,7 @@ dependencies = [
  "maybe-async",
  "parking_lot",
  "plonky2",
- "psy_common 0.1.0 (git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60)",
+ "psy_common",
  "psy_common_circuit",
  "psy_config",
  "psy_crypto",
@@ -4301,7 +4291,6 @@ dependencies = [
 [[package]]
 name = "psy_vm"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60#621a33a75c031fbe06f4ce84ea8da00eb595aa60"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4311,7 +4300,7 @@ dependencies = [
  "kvq",
  "maybe-async",
  "plonky2",
- "psy_common 0.1.0 (git+https://github.com/PsyProtocol/psy-prover?rev=621a33a75c031fbe06f4ce84ea8da00eb595aa60)",
+ "psy_common",
  "psy_config",
  "psy_crypto",
  "psy_data",

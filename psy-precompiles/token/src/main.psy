@@ -18,6 +18,19 @@ pub struct UserInfoEvent {
     pub balance: Felt,
 }
 
+#[derive(Storage, StorageRef)]
+struct NullifierNode {
+    pub value: Hash,
+    pub prev_index: Felt,
+    pub next_index: Felt,
+}
+
+struct PrivateClaimProof {
+    pub fingerprint: Hash,
+    pub siblings: [Hash; 16],
+    pub index: Felt,
+}
+
 #[contract]
 #[derive(Storage, StorageRef)]
 struct PsyTokenContract {
@@ -25,9 +38,24 @@ struct PsyTokenContract {
     pub last_claimed_pow_rewards_checkpoint_id: Felt,
     pub claimed_rewards: Felt,
     pub other_user_info: [OtherUserInfo; 16777216],
+
+    pub note_count: Felt,
+    // Append-only private note tree state (height=20, capacity=2^20 notes)
+    pub note_root: Hash,
+    pub last_path: [Hash; 20],
+    // Nullifier sorted linked list (node 0 = sentinel with value [0,0,0,0])
+    pub nullifier_nodes: [NullifierNode; 1048576],
+    pub nullifier_count: Felt,
 }
 
 impl PsyTokenContractRef {
+    pub fn hash_lt(a: Hash, b: Hash) -> bool {
+        a[0] < b[0]
+            || (a[0] == b[0] && a[1] < b[1])
+            || (a[0] == b[0] && a[1] == b[1] && a[2] < b[2])
+            || (a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] < b[3])
+    }
+
     pub fn simple_mint(amount: Felt) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         c.balance.set(c.balance.get() + amount);
@@ -157,4 +185,173 @@ impl PsyTokenContractRef {
     //
     //     c.balance.set(c.balance.get() + pow_rewards_persistant_state.claimed_rewards);
     // }
+
+    pub fn private_transfer(owner: Hash, value: Felt, randomness: Hash) {
+        let c = PsyTokenContractRef::new(ContractMetadata::current());
+        let current_balance = c.balance.get();
+        assert(value > 0, "value must be positive");
+        assert(current_balance >= value, "insufficient balance");
+        c.balance.set(current_balance - value);
+
+        // commitment = hash(hash(owner, [value, 0, 0, 0]), randomness)
+        let value_hash: Hash = [value, 0, 0, 0];
+        let commitment: Hash = hash_two_to_one(hash_two_to_one(owner, value_hash), randomness);
+        let idx = c.note_count.get();
+        assert(idx < 1048576, "note tree is full");
+
+        let mut current: Hash = commitment;
+        let mut zero: Hash = [0, 0, 0, 0];
+        let mut path_index: Felt = idx;
+
+        for level in 0u32..20u32 {
+            let level_index = level as Felt;
+            let is_right: Felt = path_index & 1;
+            if is_right == 0 {
+                c.last_path.index(level_index).set(current);
+                current = hash_two_to_one(current, zero);
+            } else {
+                let left = c.last_path.index(level_index).get();
+                current = hash_two_to_one(left, current);
+            };
+            zero = hash_two_to_one(zero, zero);
+            path_index = path_index >> 1;
+        }
+
+        c.note_root.set(current);
+        c.note_count.set(idx + 1);
+    }
+
+    pub fn private_claim(nullifier: Hash, owner: Hash, amount: Felt,randomness: Hash, user_tree_root: Hash, checkpoint_id: Felt, note_root_slot: Felt, low_index: Felt, proof: PrivateClaimProof) {
+        let c = PsyTokenContractRef::new(ContractMetadata::current());
+
+        let public_inputs_hash: Hash = hash([
+            nullifier[0], nullifier[1], nullifier[2], nullifier[3],
+            owner[0], owner[1], owner[2], owner[3],
+            amount,
+            randomness[0], randomness[1], randomness[2], randomness[3],
+            user_tree_root[0], user_tree_root[1], user_tree_root[2], user_tree_root[3],
+            checkpoint_id,
+            note_root_slot
+        ]);
+        let leaf: Hash = hash_two_to_one(proof.fingerprint, public_inputs_hash);
+
+        // 1. Verify proof exists in UPS proof tree
+        let mut current: Hash = leaf;
+        for i in 0u32..16u32 {
+            let level_index = i as Felt;
+            let sibling: Hash = proof.siblings[level_index];
+            let index_bit: Felt = (proof.index >> level_index) & 1;
+
+            if index_bit == 0 {
+                current = hash_two_to_one(current, sibling);
+            } else {
+                current = hash_two_to_one(sibling, current);
+            };
+        }
+
+        let expected_root: Hash = get_session_proof_tree_root();
+        assert(
+            current[0] == expected_root[0]
+            && current[1] == expected_root[1]
+            && current[2] == expected_root[2]
+            && current[3] == expected_root[3],
+            "proof tree root mismatch"
+        );
+
+        // 2. Verify user_tree_root matches the actual global state at checkpoint_id
+        let expected_user_tree_root: Hash = get_checkpoint_user_tree_root(checkpoint_id);
+        assert(
+            user_tree_root[0] == expected_user_tree_root[0]
+            && user_tree_root[1] == expected_user_tree_root[1]
+            && user_tree_root[2] == expected_user_tree_root[2]
+            && user_tree_root[3] == expected_user_tree_root[3],
+            "user tree root does not match checkpoint state"
+        );
+
+        // 3. Note_root slot id must match token storage layout
+        assert(note_root_slot == 8388609, "invalid note root slot id");
+
+        // 4. Verify owner binds claiming user's public key hash and user id
+        let expected_public_key_hash: Hash = get_user_public_key_hash();
+        let user_id_hash: Hash = [get_user_id(), 0, 0, 0];
+        let expected_owner: Hash = hash_two_to_one(expected_public_key_hash, user_id_hash);
+        assert(
+            owner[0] == expected_owner[0]
+            && owner[1] == expected_owner[1]
+            && owner[2] == expected_owner[2]
+            && owner[3] == expected_owner[3],
+            "owner does not match claiming user"
+        );
+
+
+        // 5. Nullifier sorted linked list insertion (non-membership + insert)
+        let nullifier_count = c.nullifier_count.get();
+        assert(low_index <= nullifier_count, "invalid low index");
+        let low = c.nullifier_nodes.index(low_index).get();
+        let low_value: Hash = low.value;
+        let low_prev: Felt = low.prev_index;
+        let low_next: Felt = low.next_index;
+
+        // Strict linked-list consistency checks for low node.
+        if low_index == 0 {
+            assert(low_prev == 0, "broken sentinel node");
+            // Empty list is represented by sentinel.next == 0.
+            if low_next != 0 {
+                assert(low_next <= nullifier_count, "broken linked list");
+                let low_next_node = c.nullifier_nodes.index(low_next).get();
+                assert(low_next_node.prev_index == 0, "broken linked list");
+            } else {};
+        } else {
+            assert(low_next != low_index, "broken linked list");
+            assert(low_prev <= nullifier_count, "broken linked list");
+            assert(low_prev != low_index, "broken linked list");
+            let low_prev_node = c.nullifier_nodes.index(low_prev).get();
+            assert(low_prev_node.next_index == low_index, "broken linked list");
+        };
+
+        // Verify low.value < nullifier (lexicographic comparison)
+        assert(Self::hash_lt(low_value, nullifier), "nullifier must be greater than low node");
+
+        // Verify nullifier < next.value if not end of list
+        if low_next != 0 {
+            assert(low_next <= nullifier_count, "broken linked list");
+            let high = c.nullifier_nodes.index(low_next).get();
+            let high_value: Hash = high.value;
+            let high_prev: Felt = high.prev_index;
+            assert(high.next_index != low_next, "broken linked list");
+            assert(high_prev == low_index, "broken linked list");
+            assert(Self::hash_lt(nullifier, high_value), "nullifier must be less than next node");
+        } else {};
+
+        // insert new node at next available index
+        let new_index: Felt = nullifier_count + 1;
+        assert(new_index < 1048576, "nullifier list is full");
+        c.nullifier_nodes.index(new_index).set(new NullifierNode {
+            value: nullifier,
+            prev_index: low_index,
+            next_index: low_next
+        });
+
+        // update low node's next pointer
+        c.nullifier_nodes.index(low_index).set(new NullifierNode {
+            value: low_value,
+            prev_index: low_prev,
+            next_index: new_index
+        });
+
+        // update high node's prev pointer when inserting in the middle
+        if low_next != 0 {
+            let high = c.nullifier_nodes.index(low_next).get();
+            c.nullifier_nodes.index(low_next).set(new NullifierNode {
+                value: high.value,
+                prev_index: new_index,
+                next_index: high.next_index
+            });
+        } else {};
+
+        c.nullifier_count.set(new_index);
+
+        // 6. Mint to own balance
+        c.balance.set(c.balance.get() + amount);
+    }
 }
