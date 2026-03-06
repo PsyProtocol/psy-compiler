@@ -2170,7 +2170,13 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let mut parameters = Vec::with_capacity(function.parameters.len());
 
         for parameter in &function.parameters {
-            let parameter_type = self.typecheck(&parameter.ty, ctx)?;
+            let (parameter_type, parameter_type_path) = match parameter.ty {
+                UncheckedType::Path(ref path_node) => {
+                    let checked_path_node = self.resolve_path(path_node, ctx)?;
+                    (checked_path_node.type_id, Some(checked_path_node))
+                }
+                _ => (self.typecheck(&parameter.ty, ctx)?, None),
+            };
             let variable = CheckedVariable::new(parameter.name, parameter_type, parameter.qualifier, current_scope_id, parameter.location);
             let var_id = ctx.symbols.declare_variable(variable).ok_or(error::Error::VariableAlreadyDefined {
                 location: function.location,
@@ -2181,7 +2187,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 parameter.name,
                 parameter.qualifier,
                 parameter_type,
-                parameter.ty.as_path().map(|path| *path.clone()),
+                parameter_type_path,
                 parameter.location,
             ));
         }

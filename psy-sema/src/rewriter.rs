@@ -236,14 +236,40 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
             *generic_parameter = self.substitute_all(*generic_parameter, ctx)?;
         }
         for parameter in &mut checked_function.parameters {
-            if let Some(ref type_path) = parameter.path {
-                parameter.ty = self.substitute_all(parameter.ty, ctx)?;
+            if let Some(type_path) = &mut parameter.path {
+                let path = type_path.origin_path.clone();
+                let path_target = path.target.as_basic().unwrap();
+                let mut root_type_id = self.substitute_all(type_path.root.unwrap(), ctx)?;
+
+                type_path.root = Some(root_type_id);
+                for segment in path.segments.iter() {
+                    let segment = segment.basic_target().ok_or(Error::InvalidPathSegment {
+                        location: segment.location(),
+                        segment: format!("{:?}", segment),
+                    })?;
+                    root_type_id = self.find_member(root_type_id, None, Some(segment.location), segment, None, ctx)?;
+                }
+                type_path.type_id = self.resolve_member_type(&path, root_type_id, path_target.id, ctx)?;
+                parameter.ty = type_path.type_id;
             } else {
                 parameter.ty = self.substitute_all(parameter.ty, ctx)?;
             }
         }
-        if let Some(ref type_path) = checked_function.return_type_path {
-            checked_function.return_type = self.substitute_all(checked_function.return_type, ctx)?;
+        if let Some(type_path) = &mut checked_function.return_type_path {
+            let path = type_path.origin_path.clone();
+            let path_target = path.target.as_basic().unwrap();
+            let mut root_type_id = self.substitute_all(type_path.root.unwrap(), ctx)?;
+
+            type_path.root = Some(root_type_id);
+            for segment in path.segments.iter() {
+                let segment = segment.basic_target().ok_or(Error::InvalidPathSegment {
+                    location: segment.location(),
+                    segment: format!("{:?}", segment),
+                })?;
+                root_type_id = self.find_member(root_type_id, None, Some(segment.location), segment, None, ctx)?;
+            }
+            type_path.type_id = self.resolve_member_type(&path, root_type_id, path_target.id, ctx)?;
+            checked_function.return_type = type_path.type_id;
         } else {
             checked_function.return_type = self.substitute_all(checked_function.return_type, ctx)?;
         }
@@ -288,14 +314,40 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
             *generic_parameter = self.substitute_all(*generic_parameter, ctx)?;
         }
         for parameter in &mut checked_function.parameters {
-            if let Some(ref type_path) = parameter.path {
-                parameter.ty = self.substitute_all(parameter.ty, ctx)?;
+            if let Some(type_path) = &mut parameter.path {
+                let path = type_path.origin_path.clone();
+                let path_target = path.target.as_basic().unwrap();
+                let mut root_type_id = self.substitute_all(type_path.root.unwrap(), ctx)?;
+
+                type_path.root = Some(root_type_id);
+                for segment in path.segments.iter() {
+                    let segment = segment.basic_target().ok_or(Error::InvalidPathSegment {
+                        location: segment.location(),
+                        segment: format!("{:?}", segment),
+                    })?;
+                    root_type_id = self.find_member(root_type_id, None, Some(segment.location), segment, None, ctx)?;
+                }
+                type_path.type_id = self.resolve_member_type(&path, root_type_id, path_target.id, ctx)?;
+                parameter.ty = type_path.type_id;
             } else {
                 parameter.ty = self.substitute_all(parameter.ty, ctx)?;
             }
         }
-        if let Some(ref type_path) = checked_function.return_type_path {
-            checked_function.return_type = self.substitute_all(checked_function.return_type, ctx)?;
+        if let Some(type_path) = &mut checked_function.return_type_path {
+            let path = type_path.origin_path.clone();
+            let path_target = path.target.as_basic().unwrap();
+            let mut root_type_id = self.substitute_all(type_path.root.unwrap(), ctx)?;
+
+            type_path.root = Some(root_type_id);
+            for segment in path.segments.iter() {
+                let segment = segment.basic_target().ok_or(Error::InvalidPathSegment {
+                    location: segment.location(),
+                    segment: format!("{:?}", segment),
+                })?;
+                root_type_id = self.find_member(root_type_id, None, Some(segment.location), segment, None, ctx)?;
+            }
+            type_path.type_id = self.resolve_member_type(&path, root_type_id, path_target.id, ctx)?;
+            checked_function.return_type = type_path.type_id;
         } else {
             checked_function.return_type = self.substitute_all(checked_function.return_type, ctx)?;
         }
