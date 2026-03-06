@@ -146,7 +146,13 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let type_id = checked_expr.ty();
 
         if ctx.ancestor_node_type(1).is_member_call_expr() {
-            if let Ok(type_id) = self.find_member(type_id, None, member_access_node.field, ctx) {
+            if let Ok(type_id) = self.find_member(
+                type_id,
+                None,
+                Some(member_access_node.field.location),
+                member_access_node.field,
+                ctx,
+            ) {
                 ctx.add_type_reference(type_id, member_access_node.field.location, false);
 
                 let visibility = ctx.symbols[type_id].visibility();

@@ -41,20 +41,27 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                                 location: path.segments[0].location(),
                                 segment: format!("{:?}", path.segments[0]),
                             })?;
-                            let mut root_ty_id = self.find_member(impl_ty_id, Some(trait_type_id), segment, ctx)?;
+                            let mut root_ty_id = self.find_member(
+                                impl_ty_id,
+                                Some(trait_type_id),
+                                Some(segment.location),
+                                segment,
+                                ctx,
+                            )?;
                             for segment in path.segments.iter().skip(1) {
                                 let segment = segment.basic_target().ok_or(Error::InvalidPathSegment {
                                     location: segment.location(),
                                     segment: format!("{:?}", segment),
                                 })?;
-                                root_ty_id = self.find_member(root_ty_id, None, segment, ctx)?;
+                                root_ty_id = self.find_member(root_ty_id, None, Some(segment.location), segment, ctx)?;
                             }
 
                             let path_target = path.target.basic_target().ok_or(Error::InvalidPathSegment {
                                 location: path.segments[0].location(),
                                 segment: format!("{:?}", path.segments[0]),
                             })?;
-                            let member_ty_id = self.find_member(root_ty_id, None, path_target, ctx)?;
+                            let member_ty_id =
+                                self.find_member(root_ty_id, None, Some(path_target.location), path_target, ctx)?;
 
                             return Ok(CheckedPathNode::new(
                                 None,
@@ -66,7 +73,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                             ));
                         } else {
                             let path_target = path.target.as_basic().unwrap();
-                            let member_ty_id = self.find_member(impl_ty_id, Some(trait_type_id), path_target, ctx)?;
+                            let member_ty_id =
+                                self.find_member(impl_ty_id, Some(trait_type_id), Some(path_target.location), path_target, ctx)?;
                             return Ok(CheckedPathNode::new(
                                 None,
                                 Some(impl_ty_id),
@@ -328,7 +336,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
         //     return Ok(type_id);
         // }
 
-        let method_type_id = self.find_member(root, None, target, ctx)?;
+        let method_type_id = self.find_member(root, None, Some(path.location), target, ctx)?;
         if !ctx.symbols[method_type_id].visibility().is_public() {
             return Err(Error::MemberNotPublic {
                 location: path.location,

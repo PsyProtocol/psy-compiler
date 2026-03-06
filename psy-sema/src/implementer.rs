@@ -1,12 +1,11 @@
-use anyhow::anyhow;
 use indexmap::{IndexMap, IndexSet};
-use psy_ast::{DefId, IdentId, VisitorContext};
+use psy_ast::{DefId, IdentId, Location, VisitorContext};
 use psy_vm::dpn::ops::context_trait::ContextFelt;
 use tracing::instrument;
 
 use crate::{
-    rewriter::Rewriter, AstVisualizer, CheckedImplNode, CheckedTraitImplNode, Constraint, Result, ScopeKind, TypeChecker, TypeCheckerVisitorContext,
-    TypeId, TypeKey,
+    rewriter::Rewriter, AstVisualizer, CheckedImplNode, CheckedTraitImplNode, Constraint, Error, Result, ScopeKind, TypeChecker,
+    TypeCheckerVisitorContext, TypeId, TypeKey,
 };
 
 #[derive(Debug)]
@@ -42,6 +41,7 @@ pub trait Implementer<F: Clone + From<u32> + ContextFelt, C> {
         &mut self,
         ty: TypeId,
         trait_ty: Option<TypeId>,
+        location: Option<Location>,
         method: impl Into<IdentId>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<TypeId>;
@@ -49,6 +49,7 @@ pub trait Implementer<F: Clone + From<u32> + ContextFelt, C> {
         &mut self,
         ty: TypeId,
         trait_ty: Option<TypeId>,
+        location: Option<Location>,
         method: impl Into<IdentId>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<TypeId>;
@@ -160,6 +161,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
         &mut self,
         ty: TypeId, // mono OR poly
         trait_ty: Option<TypeId>,
+        location: Option<Location>,
         member: impl Into<IdentId>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<TypeId> {
@@ -224,6 +226,36 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                         let function_id = self.program[instance].as_trait_impl().unwrap().body[function_idx];
                         return Ok(self.program[function_id].as_function().unwrap().type_id);
                     }
+
+                    if ctx.symbols[ty].is_array() {
+                        let mut inner_ty = ty;
+                        let mut array_stack = vec![];
+                        let mut instance = None;
+
+                        loop {
+                            if ctx.symbols[inner_ty].is_array() {
+                                array_stack.push(ctx.symbols[inner_ty].generic_parameters());
+                                inner_ty = ctx.symbols[inner_ty].as_array().unwrap().inner_ty;
+                            } else {
+                                break;
+                            }
+                        }
+
+                        for array_generic_parameters in array_stack.iter().rev() {
+                            instance = Some(self.instantiate_trait_impl(
+                                impl_id,
+                                trait_constraint.constraints.clone(),
+                                array_generic_parameters.clone(),
+                                ctx,
+                            )?);
+                        }
+
+                        let Some(instance) = instance else {
+                            continue;
+                        };
+                        let function_id = self.program[instance].as_trait_impl().unwrap().body[function_idx];
+                        return Ok(self.program[function_id].as_function().unwrap().type_id);
+                    }
                 }
             }
         } else if let Some(constraints) = ctx.symbols[ty].as_type_variable().map(|x| x.constraints.clone()) {
@@ -232,17 +264,21 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                     return Ok(method_type_id);
                 }
             }
-        } else if let Ok(associated_type) = self.find_associated_type(ty, trait_ty, member, ctx) {
+        } else if let Ok(associated_type) = self.find_associated_type(ty, trait_ty, location, member, ctx) {
             return Ok(associated_type);
         }
 
-        return Err(anyhow!("{} not found", ctx.ident(member)).into());
+        return Err(Error::UnresolvedMember {
+            location: location.unwrap_or_default(),
+            member_name: member,
+        });
     }
 
     fn find_associated_type(
         &mut self,
         ty: TypeId, // mono OR poly
         trait_ty: Option<TypeId>,
+        location: Option<Location>,
         member: impl Into<IdentId>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<TypeId> {
@@ -317,7 +353,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
             }
         }
 
-        return Err(anyhow!("associated type not found").into());
+        return Err(Error::UnresolvedMember {
+            location: location.unwrap_or_default(),
+            member_name: member,
+        });
     }
 
     fn implements_trait(

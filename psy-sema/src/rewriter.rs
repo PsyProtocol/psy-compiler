@@ -55,7 +55,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
         for (_name, associated_type) in &mut checked_impl.associated_types {
             associated_type.type_id = if let Some((ref mut root, target)) = associated_type.root.zip(associated_type.target) {
                 *root = self.substitute_all(*root, ctx)?;
-                self.find_associated_type(*root, None, target, ctx)?
+                self.find_associated_type(*root, None, Some(associated_type.location), target, ctx)?
             } else {
                 self.substitute_all(associated_type.type_id, ctx)?
             };
@@ -120,7 +120,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
         for (name, associated_type) in &mut checked_impl.associated_types {
             let type_id = if let Some((ref mut root, target)) = associated_type.root.zip(associated_type.target) {
                 *root = self.substitute_all(*root, ctx)?;
-                self.find_associated_type(*root, None, target, ctx)?
+                self.find_associated_type(*root, None, Some(associated_type.location), target, ctx)?
             } else {
                 self.substitute_all(associated_type.type_id, ctx)?
             };
@@ -383,7 +383,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
 
                 if let Some((ref mut root, target)) = checked_path_node.root.zip(checked_path_node.target) {
                     *root = self.substitute_all(*root, ctx)?;
-                    checked_path_node.type_id = self.find_member(*root, None, target, ctx)?;
+                    checked_path_node.type_id = self.find_member(*root, None, Some(checked_path_node.location), target, ctx)?;
                 } else {
                     checked_path_node.type_id = self.substitute_all(checked_path_node.type_id, ctx)?;
                 }
