@@ -1,0 +1,17 @@
+pub struct FeltNumber {
+    pub value: Felt,
+}
+
+pub trait HasValueType {
+    pub type ValueType;
+
+}
+
+impl HasValueType for FeltNumber {
+    pub type ValueType = Felt;
+}
+
+fn main() {
+    let v: FeltNumber::ValueType = 123;
+    assert_eq(v, 123, "associated type path should resolve");
+}

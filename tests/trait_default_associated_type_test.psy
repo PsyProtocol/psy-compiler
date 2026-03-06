@@ -1,0 +1,35 @@
+pub struct FeltNumber {
+    pub value: Felt,
+}
+
+pub trait NewTrait {
+    pub fn new() -> Self;
+}
+
+impl NewTrait for FeltNumber {
+    pub fn new() -> Self {
+        new FeltNumber {
+            value: 777,
+        }
+    }
+}
+
+pub trait Factory {
+    pub type Item: NewTrait;
+
+    pub fn make() -> Self::Item {
+        Self::Item::new()
+    }
+}
+
+impl Factory for FeltNumber {
+    pub type Item = FeltNumber;
+    pub fn make() -> Self::Item {
+        Self::Item::new()
+    }
+}
+
+fn main() {
+    let x: FeltNumber = <FeltNumber as Factory>::make();
+    assert_eq(x.value, 777, "default associated type factory should work");
+}

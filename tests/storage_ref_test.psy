@@ -19,16 +19,16 @@ pub struct SimpleContract {
 // output:
 fn main() {
     let c = SimpleContractRef::new(ContractMetadata::current());
-    c.c.set(2);
+    c.c = 2;
     assert_eq(c.c.get(), 2, "c.c == 2");
-    c.b.age.set(11);
-    c.b.height.set(21);
-    c.b.year_of_birth.set(2001);
-    c.b.set(new Person {
+    c.b.age = 11;
+    c.b.height = 21;
+    c.b.year_of_birth = 2001;
+    c.b = new Person {
         age: 10,
         height: 20,
         year_of_birth: 2000,
-    });
+    };
     assert_eq(c.b.age.get(), 10, "c.b.age == 10");
     assert_eq(c.b.height.get(), 20, "c.b.height == 20");
     assert_eq(c.b.year_of_birth.get(), 2000, "c.b.year_of_birth == 2000");
@@ -36,7 +36,7 @@ fn main() {
     assert_eq(p.age, 10, "c.b.age == 10");
     assert_eq(p.height, 20, "c.b.height == 20");
     assert_eq(p.year_of_birth, 2000, "c.b.year_of_birth == 2000");
-    c.a.set(1);
+    c.a = 1;
     assert_eq(c.a.get(), 1, "c.a == 1");
     c.a += 4;
     assert_eq(c.a.get(), 5, "c.a == 5 after +=");
@@ -45,7 +45,7 @@ fn main() {
     c.a = 7;
     assert_eq(c.a.get(), 7, "c.a == 7 after =");
     let cd0 = c.d.index(0);
-    cd0.set(23);
+    cd0 = 23;
     assert_eq(cd0.get(), 23, "c.d[0] == 23");
     let cd1 = c.d.index(1);
     cd1 = 3;
@@ -55,7 +55,7 @@ fn main() {
     refs = [31, 32];
     assert_eq(c.d.index(0).get(), 31, "c.d[0] == 31 after array eq_assign");
     assert_eq(c.d.index(1).get(), 32, "c.d[1] == 32 after array eq_assign");
-    c.d.index(2).set(43);
+    c.d.index(2) = 43;
     c.d.index(2) += 7;
     assert_eq(c.d.index(2).get(), 50, "c.d[2] == 50 after index +=");
 }

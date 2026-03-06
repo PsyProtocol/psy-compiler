@@ -7,7 +7,7 @@ struct TestContract {
 
 fn main() -> Felt {
     let contract = TestContractRef::new(ContractMetadata::current());
-    contract.single_value.set(42);
+    contract.single_value = 42;
     // Verify it was set
     let value_before = contract.single_value.get();
     assert_eq(value_before, 42, "Value should be 42 before clear");
@@ -15,7 +15,7 @@ fn main() -> Felt {
     // After clearing, value should be reset to 0
     let value_after = contract.single_value.get();
     assert_eq(value_after, 0, "Value should be 0 after clear");
-    contract.single_value.set(100);
+    contract.single_value = 100;
     let final_value = contract.single_value.get();
     assert_eq(final_value, 100, "Should be able to set new value after clear");
     return final_value;

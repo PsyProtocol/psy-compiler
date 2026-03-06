@@ -56,6 +56,9 @@ ci:
 	@$(DARGO_CLI_EXECUTE) storage_ref_test.psy
 	@$(DARGO_CLI_EXECUTE) ref_type_attr_test.psy
 	@$(DARGO_CLI_EXECUTE) ref_type_generic_test.psy
+	@$(DARGO_CLI_EXECUTE) associated_type_path_test.psy
+	@$(DARGO_CLI_EXECUTE) trait_default_associated_type_test.psy
+	@$(DARGO_CLI_EXECUTE) storage_ref_type_annotation_test.psy
 	@$(DARGO_CLI_EXECUTE) trait_test.psy --parameters 2,3
 	@$(DARGO_CLI_EXECUTE) member_call_expected_signature_test.psy
 	@$(DARGO_CLI_EXECUTE) member_call_expected_signature_array_arg_test.psy

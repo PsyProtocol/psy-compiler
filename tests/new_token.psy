@@ -14,7 +14,7 @@ struct Contract {
 impl ContractRef {
     pub fn simple_mint(amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
-        c.balance.set(c.balance.get() + amount);
+        c.balance += amount;
         // invoke_deferred(0, 354447671, [999, 1]);
     }
 
@@ -22,7 +22,7 @@ impl ContractRef {
         let c = ContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
         assert(current_balance >= amount, "insufficient balance");
-        c.balance.set(current_balance - amount);
+        c.balance -= amount;
     }
 
     pub fn simple_transfer(recipient: Felt, amount: Felt) {
@@ -38,7 +38,7 @@ impl ContractRef {
             amount_claimed: recipient_info.amount_claimed
         });
 
-        c.balance.set(current_balance - amount);
+        c.balance -= amount;
     }
 
     pub fn simple_claim(sender: Felt) {
@@ -59,7 +59,7 @@ impl ContractRef {
             amount_claimed: sender_total_sent
         });
 
-        c.balance.set(c.balance.get() + claimed);
+        c.balance += claimed;
     }
 }
 
