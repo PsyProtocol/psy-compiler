@@ -41,6 +41,19 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeCheckerVisitorContext<F, C> {
         self.expected_signature_stack.last().cloned()
     }
 
+    pub fn ancestor_expected_signature(&self, offset_from_top: usize) -> Option<&ExpectedFunctionSignature> {
+        let len = self.expected_signature_stack.len();
+        if offset_from_top >= len {
+            None
+        } else {
+            self.expected_signature_stack.get(len - 1 - offset_from_top)
+        }
+    }
+
+    pub fn expected_signature_path(&self) -> &[ExpectedFunctionSignature] {
+        &self.expected_signature_stack
+    }
+
     pub fn push_expected_signature(&mut self, sig: ExpectedFunctionSignature) {
         self.expected_signature_stack.push(sig);
     }

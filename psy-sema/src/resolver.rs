@@ -15,6 +15,7 @@ impl ResolverCtxt {
 impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
     pub fn resolve_path(&mut self, path: &PathNode, ctx: &mut TypeCheckerVisitorContext<F, C>) -> Result<CheckedPathNode> {
         let _current_module_id = ctx.symbols.current_module_id().unwrap();
+        let is_function = !path.is_ty && ctx.expected_signature().is_some();
 
         let mut src_module = match path.root.as_ref() {
             Some(ty) => match ty {
@@ -62,8 +63,15 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                                 location: path.segments[0].location(),
                                 segment: format!("{:?}", path.segments[0]),
                             })?;
-                            let member_ty_id =
-                                self.find_member(root_ty_id, None, Some(path_target.location), path_target, None, ctx)?;
+                            let member_ty_id = self.find_member_with_flags(
+                                root_ty_id,
+                                None,
+                                Some(path_target.location),
+                                path_target,
+                                None,
+                                is_function,
+                                ctx,
+                            )?;
 
                             return Ok(CheckedPathNode::new(
                                 None,
@@ -76,8 +84,15 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                             ));
                         } else {
                             let path_target = path.target.as_basic().unwrap();
-                            let member_ty_id =
-                                self.find_member(impl_ty_id, Some(trait_type_id), Some(path_target.location), path_target, None, ctx)?;
+                            let member_ty_id = self.find_member_with_flags(
+                                impl_ty_id,
+                                Some(trait_type_id),
+                                Some(path_target.location),
+                                path_target,
+                                None,
+                                is_function,
+                                ctx,
+                            )?;
                             return Ok(CheckedPathNode::new(
                                 None,
                                 Some(impl_ty_id),
@@ -146,10 +161,34 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                         path.location,
                     ));
                 }
-                let type_id = ctx.symbols.get_type_id(None, path_target).ok_or_else(|| Error::UnresolvedType {
-                    location: path.location,
-                    resolved_type: path_target.id,
-                })?;
+                let type_id = if !is_function {
+                    ctx.symbols.get_type_id(None, path_target).ok_or_else(|| Error::UnresolvedType {
+                        location: path.location,
+                        resolved_type: path_target.id,
+                    })?
+                } else {
+                    let mut current_scope = ctx.symbols.current_scope_id();
+                    let name_key: TypeKey = path_target.id.into();
+                    let mut found_type_id: Option<TypeId> = None;
+
+                    while let Some(scope_id) = current_scope {
+                        let type_id_opt = ctx.symbols[scope_id].types.get(&name_key).cloned();
+                        if let Some(type_id) = type_id_opt {
+                            if let Some(func) = ctx.symbols[type_id].as_function().cloned() {
+                                if self.does_function_match_expected_signature(&func, ctx) || !func.generic_parameters.is_empty() {
+                                    found_type_id = Some(type_id);
+                                    break;
+                                }
+                            }
+                        }
+                        current_scope = ctx.symbols[scope_id].parent;
+                    }
+
+                    found_type_id.ok_or_else(|| Error::UnresolvedType {
+                        location: path.location,
+                        resolved_type: path_target.id,
+                    })?
+                };
                 return Ok(CheckedPathNode::new(
                     None,
                     None,

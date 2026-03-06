@@ -4,8 +4,8 @@ use psy_vm::dpn::ops::context_trait::ContextFelt;
 use tracing::instrument;
 
 use crate::{
-    rewriter::Rewriter, AstVisualizer, CheckedImplNode, CheckedTraitImplNode, Constraint, Error, Result, ScopeKind, TypeChecker,
-    TypeCheckerVisitorContext, TypeId, TypeKey,
+    rewriter::Rewriter, AstVisualizer, CheckedFunctionNode, CheckedImplNode, CheckedTraitImplNode, Constraint, Error, Result, ScopeKind,
+    TypeChecker, TypeCheckerVisitorContext, TypeId, TypeKey,
 };
 
 #[derive(Debug)]
@@ -46,6 +46,16 @@ pub trait Implementer<F: Clone + From<u32> + ContextFelt, C> {
         expected_parameters: Option<&[TypeId]>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<TypeId>;
+    fn find_member_with_flags(
+        &mut self,
+        ty: TypeId,
+        trait_ty: Option<TypeId>,
+        location: Option<Location>,
+        method: impl Into<IdentId>,
+        expected_parameters: Option<&[TypeId]>,
+        is_function: bool,
+        ctx: &mut TypeCheckerVisitorContext<F, C>,
+    ) -> Result<TypeId>;
     fn find_associated_type(
         &mut self,
         ty: TypeId,
@@ -80,6 +90,11 @@ pub trait Implementer<F: Clone + From<u32> + ContextFelt, C> {
     fn satisfies_constraint(&mut self, gen_ty: TypeId, constr_ty: TypeId, ctx: &mut TypeCheckerVisitorContext<F, C>) -> bool;
     fn satisfies_constraints(&mut self, generics: Vec<TypeId>, constraint: &Constraint, ctx: &mut TypeCheckerVisitorContext<F, C>) -> bool;
     fn poly_of(&self, type_id: TypeId, ctx: &TypeCheckerVisitorContext<F, C>) -> Option<TypeId>;
+    fn does_function_match_expected_signature(
+        &mut self,
+        function: &CheckedFunctionNode,
+        ctx: &mut TypeCheckerVisitorContext<F, C>,
+    ) -> bool;
 }
 
 impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F, C> {
@@ -334,6 +349,28 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
         })
     }
 
+    fn find_member_with_flags(
+        &mut self,
+        ty: TypeId,
+        trait_ty: Option<TypeId>,
+        location: Option<Location>,
+        method: impl Into<IdentId>,
+        expected_parameters: Option<&[TypeId]>,
+        is_function: bool,
+        ctx: &mut TypeCheckerVisitorContext<F, C>,
+    ) -> Result<TypeId> {
+        let method = method.into();
+        if is_function {
+            return self.find_member(ty, trait_ty, location, method, expected_parameters, ctx);
+        }
+
+        if let Ok(associated_type) = self.find_associated_type(ty, trait_ty, location, method, ctx) {
+            return Ok(associated_type);
+        }
+
+        self.find_member(ty, trait_ty, location, method, expected_parameters, ctx)
+    }
+
     fn find_associated_type(
         &mut self,
         ty: TypeId, // mono OR poly
@@ -541,6 +578,29 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
 
     fn poly_of(&self, type_id: TypeId, ctx: &TypeCheckerVisitorContext<F, C>) -> Option<TypeId> {
         self.implementer.polys.get(&type_id).cloned().or(Some(type_id))
+    }
+
+    fn does_function_match_expected_signature(
+        &mut self,
+        function: &CheckedFunctionNode,
+        ctx: &mut TypeCheckerVisitorContext<F, C>,
+    ) -> bool {
+        let Some(expected) = ctx.expected_signature() else {
+            return true;
+        };
+
+        if expected.parameters.len() != function.parameters.len() {
+            return false;
+        }
+
+        self.infcx.enter_scope();
+        let matched = function
+            .parameters
+            .iter()
+            .zip(expected.parameters.iter())
+            .all(|(parameter, expected_ty)| self.unify(parameter.ty, *expected_ty, ctx));
+        self.infcx.exit_scope();
+        matched
     }
 
     fn get_impl_id<R: Copy>(
