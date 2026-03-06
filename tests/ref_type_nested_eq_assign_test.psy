@@ -1,0 +1,41 @@
+#[derive(StorageRef, Storage)]
+pub struct Profile {
+    pub age: Felt,
+    pub level: Felt,
+}
+
+#[derive(StorageRef, Storage)]
+pub struct Person {
+    #[RefType]
+    pub profile: Profile,
+    pub score: Felt,
+}
+
+#[contract]
+#[derive(StorageRef, Storage)]
+pub struct C {
+    #[RefType]
+    pub person: Person,
+}
+
+fn main() {
+    let c = CRef::new(ContractMetadata::current());
+    c.person = new Person {
+        profile: new Profile {
+            age: 18,
+            level: 2,
+        },
+        score: 50,
+    };
+    assert_eq(c.person.profile.age.get(), 18, "nested profile age after person eq_assign");
+    assert_eq(c.person.profile.level.get(), 2, "nested profile level after person eq_assign");
+    assert_eq(c.person.score.get(), 50, "person score after person eq_assign");
+    c.person.profile = new Profile {
+        age: 21,
+        level: 4,
+    };
+    c.person.score += 5;
+    assert_eq(c.person.profile.age.get(), 21, "nested profile age after profile eq_assign");
+    assert_eq(c.person.profile.level.get(), 4, "nested profile level after profile eq_assign");
+    assert_eq(c.person.score.get(), 55, "person score after +=");
+}

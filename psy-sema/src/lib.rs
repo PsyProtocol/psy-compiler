@@ -111,16 +111,6 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let checked_expr = self.visit_expr(index_access_node.target, ctx)?;
         let checked_index = self.visit_expr(index_access_node.index, ctx)?;
         let type_id = checked_expr.ty();
-        let ty = &ctx.symbols[type_id];
-
-        let inner_ty = ty
-            .as_array()
-            .ok_or(Error::TypeMismatch {
-                location: index_access_node.location,
-                expected: vec![ARRAY_TYPE],
-                found: type_id,
-            })?
-            .inner_ty;
 
         if !self.unify(checked_index.ty(), FELT_TYPE, ctx) {
             return Err(Error::TypeMismatch {
@@ -130,10 +120,61 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             });
         }
 
-        Ok(CheckedExprNode::IndexAccess(CheckedIndexAccessNode {
-            target: self.program.exprs.alloc_item(checked_expr),
-            index: self.program.exprs.alloc_item(checked_index),
-            type_id: self.substitute_all(inner_ty, ctx)?,
+        if let Some(inner_ty) = ctx.symbols[type_id].as_array().map(|a| a.inner_ty) {
+            return Ok(CheckedExprNode::IndexAccess(CheckedIndexAccessNode {
+                target: self.program.exprs.alloc_item(checked_expr),
+                index: self.program.exprs.alloc_item(checked_index),
+                type_id: self.substitute_all(inner_ty, ctx)?,
+                location: index_access_node.location,
+            }));
+        }
+
+        // Sugar for storage-like refs: `a.b[i]` => `a.b.index(i)`.
+        let index_ident = Identifier::new(ctx.intern("index"), index_access_node.location);
+        let callee_ty = self.find_member(
+            type_id,
+            None,
+            Some(index_access_node.location),
+            index_ident,
+            Some(&[type_id, checked_index.ty()]),
+            ctx,
+        )?;
+        let signature = ctx.symbols[callee_ty].signature();
+
+        if signature.parameters.len() != 2 {
+            return Err(Error::InvalidFunctionArguments {
+                location: index_access_node.location,
+                method_name: callee_ty,
+                expected: "2 parameters".to_string(),
+                found: format!("{}", signature.parameters.len()),
+            });
+        }
+
+        if !self.unify(signature.parameters[0], type_id, ctx) || !self.unify(signature.parameters[1], checked_index.ty(), ctx) {
+            return Err(Error::TypeMismatch {
+                location: index_access_node.location,
+                expected: vec![signature.parameters[0], signature.parameters[1]],
+                found: type_id,
+            });
+        }
+
+        let callee = CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
+            target: self.program.exprs.alloc_item(checked_expr.clone()),
+            field: index_ident,
+            type_id: callee_ty,
+            location: index_access_node.location,
+        });
+
+        Ok(CheckedExprNode::MemberCall(CheckedMemberCallNode {
+            callee: self.program.exprs.alloc_item(callee),
+            receiver: self.program.exprs.alloc_item(checked_expr),
+            generic_parameters: ctx.symbols[callee_ty]
+                .generic_parameters()
+                .into_iter()
+                .map(|generic_param| self.substitute_all(generic_param, ctx))
+                .collect::<Result<Vec<TypeId>>>()?,
+            args: self.program.exprs.alloc_items(vec![checked_index]),
+            type_id: self.substitute_all(signature.return_type, ctx)?,
             location: index_access_node.location,
         }))
     }

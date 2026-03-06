@@ -1,0 +1,50 @@
+#[derive(StorageRef, Storage)]
+pub struct Profile {
+    pub age: Felt,
+    pub level: Felt,
+}
+
+#[derive(StorageRef, Storage)]
+pub struct Person {
+    #[RefType]
+    pub profile: Profile,
+    pub score: Felt,
+}
+
+#[contract]
+#[derive(StorageRef, Storage)]
+pub struct C {
+    #[RefType]
+    pub person: Person,
+    pub people: [Person; 2],
+}
+
+fn main() {
+    let c = CRef::new(ContractMetadata::current());
+    c.person = new Person {
+        profile: new Profile {
+            age: 18,
+            level: 2,
+        },
+        score: 50,
+    };
+    let p = c.person;
+    p.profile.age += 2;
+    p.profile.level += 3;
+    p.score += 5;
+    assert_eq(c.person.profile.age.get(), 20, "single ref profile.age after +=");
+    assert_eq(c.person.profile.level.get(), 5, "single ref profile.level after +=");
+    assert_eq(c.person.score.get(), 55, "single ref score after +=");
+    c.people.index(1) = new Person {
+        profile: new Profile {
+            age: 30,
+            level: 7,
+        },
+        score: 100,
+    };
+    c.people.index(1).profile.age += 1;
+    c.people.index(1).score += 9;
+    assert_eq(c.people.index(1).profile.age.get(), 31, "array ref profile.age after +=");
+    assert_eq(c.people.index(1).profile.level.get(), 7, "array ref profile.level unchanged");
+    assert_eq(c.people.index(1).score.get(), 109, "array ref score after +=");
+}

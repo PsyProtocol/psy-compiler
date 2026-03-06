@@ -1,0 +1,30 @@
+#[derive(StorageRef, Storage)]
+pub struct Person {
+    pub age: Felt,
+    pub score: Felt,
+}
+
+#[contract]
+#[derive(StorageRef, Storage)]
+pub struct C {
+    pub people: [Person; 2],
+}
+
+fn main() {
+    let c = CRef::new(ContractMetadata::current());
+    c.people[0] = new Person {
+        age: 10,
+        score: 80,
+    };
+    c.people[1] = new Person {
+        age: 20,
+        score: 90,
+    };
+    let p1: Person::RefType = c.people[1];
+    p1.age += 1;
+    p1.score += 2;
+    assert_eq(c.people[0].age.get(), 10, "people[0].age");
+    assert_eq(c.people[0].score.get(), 80, "people[0].score");
+    assert_eq(c.people[1].age.get(), 21, "people[1].age after +=");
+    assert_eq(c.people[1].score.get(), 92, "people[1].score after +=");
+}

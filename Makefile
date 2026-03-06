@@ -56,9 +56,18 @@ ci:
 	@$(DARGO_CLI_EXECUTE) storage_ref_test.psy
 	@$(DARGO_CLI_EXECUTE) ref_type_attr_test.psy
 	@$(DARGO_CLI_EXECUTE) ref_type_generic_test.psy
+	@$(DARGO_CLI_EXECUTE) ref_type_nested_eq_assign_test.psy
+	@$(DARGO_CLI_EXECUTE) ref_type_deep_chain_update_test.psy
 	@$(DARGO_CLI_EXECUTE) associated_type_path_test.psy
 	@$(DARGO_CLI_EXECUTE) trait_default_associated_type_test.psy
 	@$(DARGO_CLI_EXECUTE) storage_ref_type_annotation_test.psy
+	@$(DARGO_CLI_EXECUTE) ref_struct_eq_assign_test.psy
+	@$(DARGO_CLI_EXECUTE) storage_u32_assign_ops_test.psy
+	@$(DARGO_CLI_EXECUTE) storage_ref_index_write_sugar_test.psy
+	@$(DARGO_CLI_EXECUTE) storage_ref_bracket_sugar_test.psy
+	@$(DARGO_CLI_EXECUTE) array_ref_struct_index_test.psy
+	@$(DARGO_CLI_EXECUTE) array_ref_struct_bulk_assign_test.psy
+	@$(DARGO_CLI_EXECUTE) storage_ref_alias_consistency_test.psy
 	@$(DARGO_CLI_EXECUTE) trait_test.psy --parameters 2,3
 	@$(DARGO_CLI_EXECUTE) member_call_expected_signature_test.psy
 	@$(DARGO_CLI_EXECUTE) member_call_expected_signature_array_arg_test.psy
