@@ -31,6 +31,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
             generic_parameters: vec![],
             body: None,
             return_type: VOID_TYPE,
+            return_type_path: None,
             scope_id: ctx.symbols.current_scope_id().unwrap(),
             visibility: function_node.visibility,
             attrs: function_node.attrs,
@@ -280,20 +281,22 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                 parameter.name,
                 parameter.qualifier,
                 parameter_type,
+                parameter.ty.as_path().map(|path| *path.clone()),
                 parameter.location,
             ));
         }
 
-        let return_type = if let Some(ref ret) = function.return_type {
-            self.typecheck(ret, ctx)?
+        let (return_type, return_type_path) = if let Some(ref ret) = function.return_type {
+            (self.typecheck(ret, ctx)?, ret.as_path().map(|path| *path.clone()))
         } else {
-            VOID_TYPE
+            (VOID_TYPE, None)
         };
 
         self.program.modify_definition(checked_def_id, |def: &mut CheckedDefinitionNode| {
             let checked_function_mut = def.as_function_mut().unwrap();
             checked_function_mut.parameters = parameters.clone();
             checked_function_mut.return_type = return_type;
+            checked_function_mut.return_type_path = return_type_path;
             checked_function_mut.generic_parameters = checked_generic_parameters.clone();
             Ok(())
         })?;

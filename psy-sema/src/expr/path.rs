@@ -1,4 +1,4 @@
-use psy_ast::{IdentId, Location, NodeInfo, NodeType};
+use psy_ast::{IdentId, Location, NodeInfo, NodeType, PathNode};
 
 use crate::{TypeId, VarId};
 
@@ -7,6 +7,7 @@ pub struct CheckedPathNode {
     pub variable: Option<VarId>,
     pub root: Option<TypeId>,
     pub target: Option<IdentId>,
+    pub origin_path: PathNode,
     pub type_id: TypeId,
     pub trait_ty: Option<TypeId>,
     pub location: Location,
@@ -17,6 +18,7 @@ impl CheckedPathNode {
         variable: Option<VarId>,
         root: Option<TypeId>,
         target: Option<IdentId>,
+        origin_path: PathNode,
         type_id: TypeId,
         trait_ty: Option<TypeId>,
         location: Location,
@@ -25,6 +27,7 @@ impl CheckedPathNode {
             variable,
             root,
             target,
+            origin_path,
             type_id,
             trait_ty,
             location,

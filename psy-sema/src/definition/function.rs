@@ -1,4 +1,4 @@
-use psy_ast::{AttrNode, Comment, ExprId, Identifier, Location, NodeInfo, NodeType, Qualifier, TypeQualifier, Visibility};
+use psy_ast::{AttrNode, Comment, ExprId, Identifier, Location, NodeInfo, NodeType, PathNode, Qualifier, TypeQualifier, Visibility};
 
 use crate::{ScopeId, TypeId, UNKOWN_TYPE};
 
@@ -10,6 +10,7 @@ pub struct CheckedFunctionNode {
     pub body: Option<ExprId>,
     pub qualifier: Qualifier,
     pub return_type: TypeId,
+    pub return_type_path: Option<PathNode>,
     pub scope_id: ScopeId,
     pub visibility: Visibility,
     pub attrs: Vec<AttrNode>,
@@ -23,15 +24,17 @@ pub struct CheckedFunctionParameter {
     pub name: Identifier,
     pub qualifier: TypeQualifier,
     pub ty: TypeId,
+    pub path: Option<PathNode>,
     pub location: Location,
 }
 
 impl CheckedFunctionParameter {
-    pub fn new(name: Identifier, qualifier: TypeQualifier, ty: TypeId, location: Location) -> Self {
+    pub fn new(name: Identifier, qualifier: TypeQualifier, ty: TypeId, path: Option<PathNode>, location: Location) -> Self {
         Self {
             name,
             qualifier,
             ty,
+            path,
             location,
         }
     }

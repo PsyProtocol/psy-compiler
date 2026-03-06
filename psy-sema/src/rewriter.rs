@@ -236,9 +236,17 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
             *generic_parameter = self.substitute_all(*generic_parameter, ctx)?;
         }
         for parameter in &mut checked_function.parameters {
-            parameter.ty = self.substitute_all(parameter.ty, ctx)?;
+            if let Some(ref type_path) = parameter.path {
+                parameter.ty = self.resolve_path(type_path, ctx)?.type_id;
+            } else {
+                parameter.ty = self.substitute_all(parameter.ty, ctx)?;
+            }
         }
-        checked_function.return_type = self.substitute_all(checked_function.return_type, ctx)?;
+        if let Some(ref type_path) = checked_function.return_type_path {
+            checked_function.return_type = self.resolve_path(type_path, ctx)?.type_id;
+        } else {
+            checked_function.return_type = self.substitute_all(checked_function.return_type, ctx)?;
+        }
         checked_function.type_id = ctx.symbols.next_type_id(0);
 
         let ty = Type::Function(checked_function.clone());
@@ -280,9 +288,17 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
             *generic_parameter = self.substitute_all(*generic_parameter, ctx)?;
         }
         for parameter in &mut checked_function.parameters {
-            parameter.ty = self.substitute_all(parameter.ty, ctx)?;
+            if let Some(ref type_path) = parameter.path {
+                parameter.ty = self.resolve_path(type_path, ctx)?.type_id;
+            } else {
+                parameter.ty = self.substitute_all(parameter.ty, ctx)?;
+            }
         }
-        checked_function.return_type = self.substitute_all(checked_function.return_type, ctx)?;
+        if let Some(ref type_path) = checked_function.return_type_path {
+            checked_function.return_type = self.resolve_path(type_path, ctx)?.type_id;
+        } else {
+            checked_function.return_type = self.substitute_all(checked_function.return_type, ctx)?;
+        }
         checked_function.type_id = ctx.symbols.next_type_id(0);
 
         let ty = Type::Function(checked_function.clone());
@@ -379,6 +395,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
             CheckedExprNode::Path(checked_path_node) => {
                 if let Some(ref mut trait_ty) = checked_path_node.trait_ty {
                     *trait_ty = self.substitute_all(*trait_ty, ctx)?;
+                }
+
+                if checked_path_node.origin_path.root.is_some() {
+                    *checked_path_node = self.resolve_path(&checked_path_node.origin_path, ctx)?;
                 }
 
                 if let Some((ref mut root, target)) = checked_path_node.root.zip(checked_path_node.target) {

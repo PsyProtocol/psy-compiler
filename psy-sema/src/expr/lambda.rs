@@ -1,4 +1,4 @@
-use psy_ast::{ExprId, Location};
+use psy_ast::{ExprId, Location, PathNode};
 
 use crate::{CheckedFunctionParameter, CheckedFunctionSignature, Identifier, NodeInfo, NodeType, ScopeId, TypeId};
 
@@ -8,6 +8,7 @@ pub struct CheckedLambdaFunctionNode {
     pub parameters: Vec<CheckedFunctionParameter>,
     pub body: ExprId,
     pub return_type: TypeId,
+    pub return_type_path: Option<PathNode>,
     pub scope_id: ScopeId,
     pub type_id: TypeId,
     pub location: Location,

@@ -2181,14 +2181,15 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 parameter.name,
                 parameter.qualifier,
                 parameter_type,
+                parameter.ty.as_path().map(|path| *path.clone()),
                 parameter.location,
             ));
         }
 
-        let expected_return_type = if let Some(ref ret) = function.return_type {
-            self.typecheck(ret, ctx)?
+        let (expected_return_type, expected_return_type_path) = if let Some(ref ret) = function.return_type {
+            (self.typecheck(ret, ctx)?, ret.as_path().map(|path| *path.clone()))
         } else {
-            VOID_TYPE
+            (VOID_TYPE, None)
         };
 
         let checked_body = {
@@ -2209,6 +2210,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             parameters,
             body: self.program.exprs.alloc_item(checked_body),
             return_type: expected_return_type,
+            return_type_path: expected_return_type_path,
             scope_id: current_scope_id,
             type_id: ctx.symbols.next_type_id(0),
             location: function.location,
