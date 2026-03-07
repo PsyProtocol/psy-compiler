@@ -67,9 +67,9 @@ fn main() {
     let c = ContractRef::new(ContractMetadata::current());
     ContractRef::simple_mint(100);
 
-    assert_eq(c.balance.get(), 100, "c.balance == 100");
+    assert_eq(c.balance, 100, "c.balance == 100");
 
     ContractRef::simple_transfer(10, 50);
-    assert_eq(c.balance.get(), 50, "c.balance == 50");
+    assert_eq(c.balance, 50, "c.balance == 50");
     assert_eq(c.other_user_info.index(10).get().amount_sent, 50, "c.other_user_info[10].amount_sent == 50");
 }

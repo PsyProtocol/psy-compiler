@@ -9,6 +9,6 @@ fn main() {
     c.arr[0] = 11;
     c.arr[1] = 22;
     c.arr[0] += 3;
-    assert_eq(c.arr[0].get(), 14, "arr[0]");
-    assert_eq(c.arr[1].get(), 22, "arr[1]");
+    assert_eq(c.arr[0], 14, "arr[0]");
+    assert_eq(c.arr[1], 22, "arr[1]");
 }

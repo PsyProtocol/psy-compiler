@@ -11,15 +11,15 @@ fn main() {
     let a1 = c.a;
     a0 = 10;
     a1 += 5;
-    assert_eq(c.a.get(), 15, "same slot aliases should observe writes");
+    assert_eq(c.a, 15, "same slot aliases should observe writes");
     let x0 = c.arr.index(0);
     let x1 = c.arr.index(0);
     x0 = 2;
     x1 *= 4;
-    assert_eq(c.arr.index(0).get(), 8, "array index aliases should observe writes");
+    assert_eq(c.arr.index(0), 8, "array index aliases should observe writes");
     let y0 = c.arr.index(1);
     let y1 = c.arr.index(1);
     y0 = 9;
     y1 -= 3;
-    assert_eq(c.arr.index(1).get(), 6, "array index aliases should observe -= writes");
+    assert_eq(c.arr.index(1), 6, "array index aliases should observe -= writes");
 }

@@ -20,7 +20,7 @@ pub struct SimpleContract {
 fn main() {
     let c = SimpleContractRef::new(ContractMetadata::current());
     c.c = 2;
-    assert_eq(c.c.get(), 2, "c.c == 2");
+    assert_eq(c.c, 2, "c.c == 2");
     c.b.age = 11;
     c.b.height = 21;
     c.b.year_of_birth = 2001;
@@ -29,33 +29,33 @@ fn main() {
         height: 20,
         year_of_birth: 2000,
     };
-    assert_eq(c.b.age.get(), 10, "c.b.age == 10");
-    assert_eq(c.b.height.get(), 20, "c.b.height == 20");
-    assert_eq(c.b.year_of_birth.get(), 2000, "c.b.year_of_birth == 2000");
+    assert_eq(c.b.age, 10, "c.b.age == 10");
+    assert_eq(c.b.height, 20, "c.b.height == 20");
+    assert_eq(c.b.year_of_birth, 2000, "c.b.year_of_birth == 2000");
     let p = c.b.get();
     assert_eq(p.age, 10, "c.b.age == 10");
     assert_eq(p.height, 20, "c.b.height == 20");
     assert_eq(p.year_of_birth, 2000, "c.b.year_of_birth == 2000");
     c.a = 1;
-    assert_eq(c.a.get(), 1, "c.a == 1");
+    assert_eq(c.a, 1, "c.a == 1");
     c.a += 4;
-    assert_eq(c.a.get(), 5, "c.a == 5 after +=");
+    assert_eq(c.a, 5, "c.a == 5 after +=");
     c.a *= 2;
-    assert_eq(c.a.get(), 10, "c.a == 10 after *=");
+    assert_eq(c.a, 10, "c.a == 10 after *=");
     c.a = 7;
-    assert_eq(c.a.get(), 7, "c.a == 7 after =");
+    assert_eq(c.a, 7, "c.a == 7 after =");
     let cd0 = c.d[0];
     cd0 = 23;
-    assert_eq(cd0.get(), 23, "c.d[0] == 23");
+    assert_eq(cd0, 23, "c.d[0] == 23");
     let cd1 = c.d[1];
     cd1 = 3;
     cd1 += 9;
-    assert_eq(cd1.get(), 12, "c.d[1] == 12 after = and +=");
+    assert_eq(cd1, 12, "c.d[1] == 12 after = and +=");
     let mut refs = [c.d[0], c.d[1]];
     refs = [31, 32];
-    assert_eq(c.d[0].get(), 31, "c.d[0] == 31 after array eq_assign");
-    assert_eq(c.d[1].get(), 32, "c.d[1] == 32 after array eq_assign");
+    assert_eq(c.d[0], 31, "c.d[0] == 31 after array eq_assign");
+    assert_eq(c.d[1], 32, "c.d[1] == 32 after array eq_assign");
     c.d[2] = 43;
     c.d[2] += 7;
-    assert_eq(c.d[2].get(), 50, "c.d[2] == 50 after index +=");
+    assert_eq(c.d[2], 50, "c.d[2] == 50 after index +=");
 }

@@ -14,8 +14,8 @@ fn main() {
     c.a[1] += 2;
     c.a[2] += 3;
     c.a[3] += 4;
-    assert_eq(c.a[0].get(), 12, "index write sugar 0");
-    assert_eq(c.a[1].get(), 24, "index write sugar 1");
-    assert_eq(c.a[2].get(), 36, "index write sugar 2");
-    assert_eq(c.a[3].get(), 48, "index write sugar 3");
+    assert_eq(c.a[0], 12, "index write sugar 0");
+    assert_eq(c.a[1], 24, "index write sugar 1");
+    assert_eq(c.a[2], 36, "index write sugar 2");
+    assert_eq(c.a[3], 48, "index write sugar 3");
 }

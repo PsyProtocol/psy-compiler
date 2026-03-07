@@ -14,5 +14,5 @@ fn main() {
     let c = SimpleContractRef::new(ContractMetadata::current());
     let person_ref: Person::RefType = c.person;
     person_ref.age = 9;
-    assert_eq(c.person.age.get(), 9, "associated ref type annotation should work");
+    assert_eq(c.person.age, 9, "associated ref type annotation should work");
 }

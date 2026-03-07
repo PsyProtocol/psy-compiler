@@ -13,5 +13,5 @@ pub struct SimpleContract {
 fn main() {
     let c = SimpleContractRef::new(ContractMetadata::current());
     c.b.age = 11;
-    assert_eq(c.b.age.get(), 11, "c.b.age == 11");
+    assert_eq(c.b.age, 11, "c.b.age == 11");
 }

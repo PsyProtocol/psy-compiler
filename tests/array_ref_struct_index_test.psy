@@ -23,10 +23,10 @@ fn main() {
     let p1: Person::RefType = c.people[1];
     p1.age += 1;
     p1.score += 2;
-    assert_eq(c.people[0].age.get(), 10, "people[0].age");
-    assert_eq(c.people[0].score.get(), 80, "people[0].score");
-    assert_eq(c.people[1].age.get(), 21, "people[1].age after +=");
-    assert_eq(c.people[1].score.get(), 92, "people[1].score after +=");
+    assert_eq(c.people[0].age, 10, "people[0].age");
+    assert_eq(c.people[0].score, 80, "people[0].score");
+    assert_eq(c.people[1].age, 21, "people[1].age after +=");
+    assert_eq(c.people[1].score, 92, "people[1].score after +=");
     assert(p1 == new Person {
         age: 21,
         score: 92,

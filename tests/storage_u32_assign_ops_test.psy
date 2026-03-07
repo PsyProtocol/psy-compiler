@@ -18,10 +18,10 @@ fn main() {
     c.x ^= 3;
     c.x <<= 1;
     c.x >>= 1;
-    assert_eq(c.x.get(), 11, "felt assign ops on storage ref");
+    assert_eq(c.x, 11, "felt assign ops on storage ref");
     let mut refs = [c.arr.index(0), c.arr.index(1), c.arr.index(2)];
     refs = [5, 6, 7];
-    assert_eq(c.arr.index(0).get(), 5, "arr[0] after eq_assign array");
-    assert_eq(c.arr.index(1).get(), 6, "arr[1] after eq_assign array");
-    assert_eq(c.arr.index(2).get(), 7, "arr[2] after eq_assign array");
+    assert_eq(c.arr.index(0), 5, "arr[0] after eq_assign array");
+    assert_eq(c.arr.index(1), 6, "arr[1] after eq_assign array");
+    assert_eq(c.arr.index(2), 7, "arr[2] after eq_assign array");
 }
