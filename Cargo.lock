@@ -1106,9 +1106,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.51"
+version = "4.5.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c26d721170e0295f191a69bd9a1f93efcdb0aff38684b61ab5750468972e5f5"
+checksum = "2797f34da339ce31042b27d23607e051786132987f595b02ba4f6a6dffb7030a"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1116,9 +1116,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.51"
+version = "4.5.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75835f0c7bf681bfd05abe44e965760fea999a5286c6eb2d59883634fd02011a"
+checksum = "24a241312cea5059b13574bb9b3861cabf758b879c15190b37b6d6fd63ab6876"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1137,9 +1137,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.5.49"
+version = "4.5.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a0b5487afeab2deb2ff4e03a807ad1a03ac532ff5a2cee5d86884440c7f7671"
+checksum = "a92793da1a46a5f2a02a6f4c46c6496b28c43638adea8306fcb0caa1634f24e5"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -1149,9 +1149,9 @@ dependencies = [
 
 [[package]]
 name = "clap_lex"
-version = "0.7.6"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
+checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
 
 [[package]]
 name = "coins-bip32"
@@ -1507,11 +1507,11 @@ dependencies = [
  "psy-interpreter",
  "psy-package",
  "psy-sema",
+ "psy_client_data",
  "psy_common_circuit",
  "psy_compiler_common",
  "psy_config",
  "psy_crypto",
- "psy_data",
  "psy_prover",
  "psy_vm",
  "serde",
@@ -3818,11 +3818,11 @@ dependencies = [
  "psy-fmt",
  "psy-parser",
  "psy-sema",
+ "psy_client_data",
  "psy_common_circuit",
  "psy_compiler_common",
  "psy_config",
  "psy_crypto",
- "psy_data",
  "psy_prover",
  "psy_vm",
  "serial_test",
@@ -3896,8 +3896,8 @@ dependencies = [
  "minijinja",
  "psy-interpreter",
  "psy-package",
+ "psy_client_data",
  "psy_config",
- "psy_data",
  "psy_vm",
  "serde_json",
 ]
@@ -3923,7 +3923,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "psy_common"
+name = "psy_client_common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -3953,6 +3953,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "psy_client_data"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "fastbloom-rs",
+ "hashbrown 0.14.5",
+ "hex",
+ "indexmap 2.12.0",
+ "kvq",
+ "maybe-async",
+ "plonky2",
+ "psy_client_common",
+ "psy_config",
+ "psy_crypto",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "thiserror 2.0.17",
+ "tracing",
+ "ts-rs",
+ "zstd",
+]
+
+[[package]]
 name = "psy_common_circuit"
 version = "0.1.0"
 dependencies = [
@@ -3969,10 +3995,10 @@ dependencies = [
  "num",
  "plonky2",
  "plonky2_maybe_rayon",
- "psy_common",
+ "psy_client_common",
+ "psy_client_data",
  "psy_config",
  "psy_crypto",
- "psy_data",
  "psy_vm",
  "rand 0.8.5",
  "serde",
@@ -3982,11 +4008,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "psy_compiler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "hashbrown 0.14.5",
+ "logos",
+ "plonky2",
+ "psy_client_common",
+ "psy_client_data",
+ "psy_config",
+ "psy_crypto",
+ "psy_vm",
+ "serde",
+ "serde_cbor",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "psy_compiler_common"
 version = "0.1.0"
 dependencies = [
  "indexmap 2.12.0",
- "psy_common",
+ "psy_client_common",
 ]
 
 [[package]]
@@ -3996,7 +4043,7 @@ dependencies = [
  "anyhow",
  "indexmap 2.12.0",
  "plonky2",
- "psy_common",
+ "psy_client_common",
  "serde",
  "serde_json",
  "thiserror 2.0.17",
@@ -4018,7 +4065,7 @@ dependencies = [
  "num",
  "plonky2",
  "plonky2_maybe_rayon",
- "psy_common",
+ "psy_client_common",
  "psy_config",
  "rand 0.8.5",
  "ripemd",
@@ -4029,32 +4076,6 @@ dependencies = [
  "sha2",
  "tracing",
  "ts-rs",
-]
-
-[[package]]
-name = "psy_data"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bincode",
- "fastbloom-rs",
- "hashbrown 0.14.5",
- "hex",
- "indexmap 2.12.0",
- "kvq",
- "maybe-async",
- "plonky2",
- "psy_common",
- "psy_config",
- "psy_crypto",
- "serde",
- "serde_json",
- "serde_repr",
- "thiserror 2.0.17",
- "tracing",
- "ts-rs",
- "zstd",
 ]
 
 [[package]]
@@ -4081,11 +4102,11 @@ dependencies = [
  "maybe-async",
  "parking_lot",
  "plonky2",
- "psy_common",
+ "psy_client_common",
+ "psy_client_data",
  "psy_common_circuit",
  "psy_config",
  "psy_crypto",
- "psy_data",
  "psy_network_circuit",
  "psy_vm",
  "rand 0.8.5",
@@ -4116,11 +4137,11 @@ dependencies = [
  "async-trait",
  "bincode",
  "plonky2",
- "psy_common",
+ "psy_client_common",
+ "psy_client_data",
  "psy_common_circuit",
  "psy_config",
  "psy_crypto",
- "psy_data",
  "serde_json",
  "tracing",
 ]
@@ -4151,11 +4172,12 @@ dependencies = [
  "maybe-async",
  "parking_lot",
  "plonky2",
- "psy_common",
+ "psy_client_common",
+ "psy_client_data",
  "psy_common_circuit",
+ "psy_compiler",
  "psy_config",
  "psy_crypto",
- "psy_data",
  "psy_dpn_circuit",
  "psy_network_circuit",
  "psy_provider",
@@ -4208,11 +4230,11 @@ dependencies = [
  "maybe-async",
  "parking_lot",
  "plonky2",
- "psy_common",
+ "psy_client_common",
+ "psy_client_data",
  "psy_common_circuit",
  "psy_config",
  "psy_crypto",
- "psy_data",
  "psy_network_circuit",
  "psy_vm",
  "rand 0.8.5",
@@ -4259,11 +4281,11 @@ dependencies = [
  "maybe-async",
  "parking_lot",
  "plonky2",
- "psy_common",
+ "psy_client_common",
+ "psy_client_data",
  "psy_common_circuit",
  "psy_config",
  "psy_crypto",
- "psy_data",
  "psy_dpn_circuit",
  "psy_network_circuit",
  "psy_vm",
@@ -4300,10 +4322,10 @@ dependencies = [
  "kvq",
  "maybe-async",
  "plonky2",
- "psy_common",
+ "psy_client_common",
+ "psy_client_data",
  "psy_config",
  "psy_crypto",
- "psy_data",
  "serde",
  "serde_cbor",
  "serde_json",
