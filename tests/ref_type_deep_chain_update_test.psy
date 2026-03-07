@@ -35,16 +35,16 @@ fn main() {
     assert_eq(c.person.profile.age, 20, "single ref profile.age after +=");
     assert_eq(c.person.profile.level, 5, "single ref profile.level after +=");
     assert_eq(c.person.score, 55, "single ref score after +=");
-    c.people.index(1) = new Person {
+    c.people[1] = new Person {
         profile: new Profile {
             age: 30,
             level: 7,
         },
         score: 100,
     };
-    c.people.index(1).profile.age += 1;
-    c.people.index(1).score += 9;
-    assert_eq(c.people.index(1).profile.age, 31, "array ref profile.age after +=");
-    assert_eq(c.people.index(1).profile.level, 7, "array ref profile.level unchanged");
-    assert_eq(c.people.index(1).score, 109, "array ref score after +=");
+    c.people[1].profile.age += 1;
+    c.people[1].score += 9;
+    assert_eq(c.people[1].profile.age, 31, "array ref profile.age after +=");
+    assert_eq(c.people[1].profile.level, 7, "array ref profile.level unchanged");
+    assert_eq(c.people[1].score, 109, "array ref score after +=");
 }

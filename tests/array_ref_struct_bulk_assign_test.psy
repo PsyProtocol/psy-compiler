@@ -19,12 +19,12 @@ fn main() {
             age: 20,
             score: 90,
         }];
-    assert_eq(c.people.index(0).age, 10, "bulk assign people[0].age");
-    assert_eq(c.people.index(0).score, 80, "bulk assign people[0].score");
-    assert_eq(c.people.index(1).age, 20, "bulk assign people[1].age");
-    assert_eq(c.people.index(1).score, 90, "bulk assign people[1].score");
-    c.people.index(0).age += 1;
-    c.people.index(1).score += 2;
-    assert_eq(c.people.index(0).age, 11, "people[0].age after +=");
-    assert_eq(c.people.index(1).score, 92, "people[1].score after +=");
+    assert_eq(c.people[0].age, 10, "bulk assign people[0].age");
+    assert_eq(c.people[0].score, 80, "bulk assign people[0].score");
+    assert_eq(c.people[1].age, 20, "bulk assign people[1].age");
+    assert_eq(c.people[1].score, 90, "bulk assign people[1].score");
+    c.people[0].age += 1;
+    c.people[1].score += 2;
+    assert_eq(c.people[0].age, 11, "people[0].age after +=");
+    assert_eq(c.people[1].score, 92, "people[1].score after +=");
 }

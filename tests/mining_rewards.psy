@@ -150,7 +150,7 @@ impl ContractRef {
             && proof.reward_leaf[3] == user_public_key_hash[3],
         "reward not for current user");
 
-        assert(c.claimed_guta_nullifiers.index(nullifier_index).get() == 0, "reward already claimed");
+        assert(c.claimed_guta_nullifiers[nullifier_index].get() == 0, "reward already claimed");
 
         let old_claimed_rewards = if persistant_state.last_claimed_ups_checkpoint_id == current_checkpoint {
             persistant_state.claimed_rewards
@@ -162,7 +162,7 @@ impl ContractRef {
         let total_fees = get_guta_fees_collected(claim_checkpoint_id);
         assert(Self::check_guta_reward(total_proofs, total_fees, proposed_reward), "invalid reward amount");
 
-        c.claimed_guta_nullifiers.index(nullifier_index).set(1);
+        c.claimed_guta_nullifiers[nullifier_index].set(1);
 
         c.persistant_state.set(new PersistantState {
             min_allowed_claimed_checkpoint: persistant_state.min_allowed_claimed_checkpoint,

@@ -54,6 +54,6 @@ impl<T: RefTypeTrait> StorageRef2<T> {
 
 fn main() {
     let ref_number2: StorageRef2<FeltNumber> = <StorageRef2<FeltNumber>>::new(0, 0);
-    let value: FeltNumber = ref_number2.index(0);
+    let value: FeltNumber = ref_number2[0];
     assert_eq(value.value, 888, "value should be 888");
 }
