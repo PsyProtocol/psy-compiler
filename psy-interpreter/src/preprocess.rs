@@ -122,10 +122,7 @@ impl<'a> StorageProcessor<'a> {
         } else {
             UncheckedType::Generic(
                 Identifier::new(ctx.intern("StorageRef"), attr.location),
-                vec![
-                    UncheckedType::Basic(struct_node.name),
-                    UncheckedType::Const(ConstValue::U32(1), attr.location),
-                ],
+                vec![UncheckedType::Basic(struct_node.name)],
                 attr.location,
             )
         };
@@ -217,7 +214,7 @@ impl<'a> StorageProcessor<'a> {
                     ),
                     _ => UncheckedType::Generic(
                         Identifier::new(ctx.intern("StorageRef"), attr.location),
-                        vec![field.ty.clone(), UncheckedType::Const(ConstValue::U32(1), attr.location)],
+                        vec![field.ty.clone()],
                         attr.location,
                     ),
                 }
@@ -298,14 +295,20 @@ impl<'a> StorageProcessor<'a> {
                 (base_type.clone(), 1, field.ty.clone())
             } else {
                 match &field.ty {
-                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") || ident.id == ctx.intern("ArrayRef") => {
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
+                        if params.len() != 1 {
+                            panic!("StorageRef must have exactly one generic parameter");
+                        }
+                        (params[0].clone(), 1, field.ty.clone())
+                    }
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
                         if params.len() != 2 {
-                            panic!("StorageRef must have exactly two generic parameters");
+                            panic!("ArrayRef must have exactly two generic parameters");
                         }
                         let size = match params[1] {
                             UncheckedType::Const(ConstValue::U32(size), _) => size,
                             _ => {
-                                panic!("Second generic parameter of StorageRef must be a u32 const")
+                                panic!("Second generic parameter of ArrayRef must be a u32 const")
                             }
                         };
                         (params[0].clone(), size, field.ty.clone())
@@ -442,14 +445,20 @@ impl<'a> StorageProcessor<'a> {
                 }
             } else {
                 match &field.ty {
-                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") || ident.id == ctx.intern("ArrayRef") => {
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
+                        if params.len() != 1 {
+                            panic!("StorageRef must have exactly one generic parameter");
+                        }
+                        (params[0].clone(), 1)
+                    }
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
                         if params.len() != 2 {
-                            panic!("StorageRef must have exactly two generic parameters");
+                            panic!("ArrayRef must have exactly two generic parameters");
                         }
                         let size = match params[1] {
                             UncheckedType::Const(ConstValue::U32(size), _) => size,
                             _ => {
-                                panic!("Second generic parameter of StorageRef must be a u32 const")
+                                panic!("Second generic parameter of ArrayRef must be a u32 const")
                             }
                         };
                         (params[0].clone(), size)
@@ -733,7 +742,7 @@ impl<'a> StorageProcessor<'a> {
                 // Generated Ref types compare against their base type via generated Eq impl.
                 name.ends_with("Ref")
             }
-            UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") && params.len() == 2 => {
+            UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") && params.len() == 1 => {
                 matches!(
                     &params[0],
                     UncheckedType::Basic(inner)
@@ -759,13 +768,19 @@ impl<'a> StorageProcessor<'a> {
     ) -> ExprId {
         let size_ident = Identifier::new(ctx.intern("size"), attr.location);
         let base_type = match field_type {
-            UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") || ident.id == ctx.intern("ArrayRef") => {
+            UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
+                if params.len() != 1 {
+                    panic!("StorageRef must have exactly one generic parameter");
+                }
+                params[0].clone()
+            }
+            UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
                 if params.len() != 2 {
-                    panic!("StorageRef must have exactly two generic parameters");
+                    panic!("ArrayRef must have exactly two generic parameters");
                 }
                 let array_size = match &params[1] {
                     UncheckedType::Const(ConstValue::U32(size), _) => *size,
-                    _ => panic!("Second generic parameter of StorageRef must be a u32 const"),
+                    _ => panic!("Second generic parameter of ArrayRef must be a u32 const"),
                 };
                 if array_size > 1 {
                     UncheckedType::Array(Box::new(params[0].clone()), array_size, attr.location)
@@ -823,9 +838,15 @@ impl<'a> StorageProcessor<'a> {
                 }
             } else {
                 match &field.ty {
-                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") || ident.id == ctx.intern("ArrayRef") => {
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
+                        if params.len() != 1 {
+                            panic!("StorageRef must have exactly one generic parameter");
+                        }
+                        params[0].clone()
+                    }
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
                         if params.len() != 2 {
-                            panic!("StorageRef must have exactly two generic parameters");
+                            panic!("ArrayRef must have exactly two generic parameters");
                         }
                         params[0].clone()
                     }
@@ -924,9 +945,15 @@ impl<'a> StorageProcessor<'a> {
                 }
             } else {
                 match &field.ty {
-                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") || ident.id == ctx.intern("ArrayRef") => {
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
+                        if params.len() != 1 {
+                            panic!("StorageRef must have exactly one generic parameter");
+                        }
+                        params[0].clone()
+                    }
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
                         if params.len() != 2 {
-                            panic!("StorageRef must have exactly two generic parameters");
+                            panic!("ArrayRef must have exactly two generic parameters");
                         }
                         params[0].clone()
                     }
@@ -1039,9 +1066,15 @@ impl<'a> StorageProcessor<'a> {
                 }
             } else {
                 match &field.ty {
-                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") || ident.id == ctx.intern("ArrayRef") => {
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
+                        if params.len() != 1 {
+                            panic!("StorageRef must have exactly one generic parameter");
+                        }
+                        params[0].clone()
+                    }
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
                         if params.len() != 2 {
-                            panic!("StorageRef must have exactly two generic parameters");
+                            panic!("ArrayRef must have exactly two generic parameters");
                         }
                         params[0].clone()
                     }
@@ -1128,14 +1161,20 @@ impl<'a> StorageProcessor<'a> {
                 }
             } else {
                 match &field.ty {
-                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") || ident.id == ctx.intern("ArrayRef") => {
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
+                        if params.len() != 1 {
+                            panic!("StorageRef must have exactly one generic parameter");
+                        }
+                        (params[0].clone(), 1)
+                    }
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
                         if params.len() != 2 {
-                            panic!("StorageRef must have exactly two generic parameters");
+                            panic!("ArrayRef must have exactly two generic parameters");
                         }
                         let size = match params[1] {
                             UncheckedType::Const(ConstValue::U32(size), _) => size,
                             _ => {
-                                panic!("Second generic parameter of StorageRef must be a u32 const")
+                                panic!("Second generic parameter of ArrayRef must be a u32 const")
                             }
                         };
                         (params[0].clone(), size)
@@ -1303,14 +1342,20 @@ impl<'a> StorageProcessor<'a> {
                 }
             } else {
                 match &field.ty {
-                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") || ident.id == ctx.intern("ArrayRef") => {
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
+                        if params.len() != 1 {
+                            panic!("StorageRef must have exactly one generic parameter");
+                        }
+                        (params[0].clone(), 1)
+                    }
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
                         if params.len() != 2 {
-                            panic!("StorageRef must have exactly two generic parameters");
+                            panic!("ArrayRef must have exactly two generic parameters");
                         }
                         let size = match params[1] {
                             UncheckedType::Const(ConstValue::U32(size), _) => size,
                             _ => {
-                                panic!("Second generic parameter of StorageRef must be a u32 const")
+                                panic!("Second generic parameter of ArrayRef must be a u32 const")
                             }
                         };
                         (params[0].clone(), size)
@@ -1630,10 +1675,12 @@ impl<'a> StorageProcessor<'a> {
         }));
 
         let elem_ty = if let UncheckedType::Generic(ident, params, _) = field_type {
-            if (ident.id == ctx.intern("StorageRef") || ident.id == ctx.intern("ArrayRef")) && params.len() == 2 {
+            if ident.id == ctx.intern("StorageRef") && params.len() == 1 {
+                params[0].clone()
+            } else if ident.id == ctx.intern("ArrayRef") && params.len() == 2 {
                 params[0].clone()
             } else {
-                panic!("Expected StorageRef with two generic parameters");
+                panic!("Expected StorageRef<T> or ArrayRef<T, N>");
             }
         } else if let UncheckedType::Array(elem_ty, _, _) = field_type {
             elem_ty.as_ref().clone()
@@ -1745,10 +1792,12 @@ impl<'a> StorageProcessor<'a> {
         }));
 
         let elem_ty = if let UncheckedType::Generic(ident, params, _) = field_type {
-            if (ident.id == ctx.intern("StorageRef") || ident.id == ctx.intern("ArrayRef")) && params.len() == 2 {
+            if ident.id == ctx.intern("StorageRef") && params.len() == 1 {
+                params[0].clone()
+            } else if ident.id == ctx.intern("ArrayRef") && params.len() == 2 {
                 params[0].clone()
             } else {
-                panic!("Expected StorageRef with two generic parameters");
+                panic!("Expected StorageRef<T> or ArrayRef<T, N>");
             }
         } else if let UncheckedType::Array(elem_ty, _, _) = field_type {
             elem_ty.as_ref().clone()

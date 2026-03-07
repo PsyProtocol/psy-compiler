@@ -1655,7 +1655,7 @@ mod tests {
         println!("compile_result: {:?}", result.compile_results);
         #[allow(static_mut_refs)]
         unsafe {
-            STD_PRIMITIVE_SCOPE_ID.take().unwrap()
+            let _ = STD_PRIMITIVE_SCOPE_ID.take();
         };
     }
 
@@ -1736,7 +1736,7 @@ mod tests {
             println!("result_events: {:?}", cfc_input.events);
             #[allow(static_mut_refs)]
             unsafe {
-                STD_PRIMITIVE_SCOPE_ID.take().unwrap()
+                let _ = STD_PRIMITIVE_SCOPE_ID.take();
             };
 
             assert_snapshot!(ctx.debug_scope(ScopeId::root()))
@@ -1755,7 +1755,7 @@ mod tests {
 
             #[allow(static_mut_refs)]
             unsafe {
-                STD_PRIMITIVE_SCOPE_ID.take().unwrap()
+                let _ = STD_PRIMITIVE_SCOPE_ID.take();
             };
 
             let formatted_content = ctx.format_file(&entry).unwrap();
@@ -1770,7 +1770,7 @@ mod tests {
 
             #[allow(static_mut_refs)]
             unsafe {
-                STD_PRIMITIVE_SCOPE_ID.take().unwrap()
+                let _ = STD_PRIMITIVE_SCOPE_ID.take();
             };
         });
     }

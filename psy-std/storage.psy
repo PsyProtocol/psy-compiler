@@ -30,7 +30,7 @@ pub trait StorageAt<T: Storage, N: u32> {
     pub fn write_at(offset: Felt, index: Felt, value: T);
 }
 
-pub struct StorageRef<T, N: u32> {
+pub struct StorageRef<T> {
     pub offset: Felt,
     pub metadata: ContractMetadata,
 }
@@ -40,9 +40,9 @@ pub struct ArrayRef<T, N: u32> {
     pub metadata: ContractMetadata,
 }
 
-impl<T, N: u32> StorageNew for StorageRef<T, N> {
+impl<T> StorageNew for StorageRef<T> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
-        return new StorageRef<T, N> {
+        return new StorageRef<T> {
             offset,
             metadata
         };
@@ -59,7 +59,7 @@ impl<T, N: u32> StorageNew for ArrayRef<T, N> {
 }
 
 impl Storage for Felt {
-    pub type RefType = StorageRef<Self, 1u32>;
+    pub type RefType = StorageRef<Self>;
 
     pub fn size() -> Felt {
         return 1;
@@ -85,7 +85,7 @@ impl Storage for Felt {
 }
 
 impl Storage for bool {
-    pub type RefType = StorageRef<Self, 1u32>;
+    pub type RefType = StorageRef<Self>;
 
     pub fn size() -> Felt {
         return 1;
@@ -111,7 +111,7 @@ impl Storage for bool {
 }
 
 impl Storage for u32 {
-    pub type RefType = StorageRef<Self, 1u32>;
+    pub type RefType = StorageRef<Self>;
 
     pub fn size() -> Felt {
         return 1;
@@ -181,9 +181,9 @@ impl<T: Storage, N: u32> StorageAt<T, N> for [T; N] {
     }
 }
 
-impl<T: Storage, N: u32> StorageRef<T, N> {
+impl<T: Storage> StorageRef<T> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
-        return new StorageRef<T, N> {
+        return new StorageRef<T> {
             offset,
             metadata
         };
@@ -202,10 +202,6 @@ impl<T: Storage, N: u32> StorageRef<T, N> {
         T::write(self.offset, value);
     }
 
-    pub fn index(self, index: Felt) -> T::RefType {
-        assert(index < (N as Felt), "Index out of bounds");
-        <T::RefType as StorageNew>::new(self.offset + index * T::size(), self.metadata)
-    }
 }
 
 impl<T: Storage, N: u32> ArrayRef<T, N> {
@@ -315,104 +311,104 @@ pub trait ShrAssign<Rhs> {
     pub fn shr_assign(self: Self, rhs: Rhs);
 }
 
-impl<T: Storage, N: u32> EqAssign<T> for StorageRef<T, N> {
+impl<T: Storage> EqAssign<T> for StorageRef<T> {
     pub fn eq_assign(self: Self, rhs: T) {
         self.set(rhs);
     }
 }
 
-impl<N: u32> Eq<Felt> for StorageRef<Felt, N> {
+impl Eq<Felt> for StorageRef<Felt> {
     pub fn eq(self: Self, rhs: Felt) -> bool {
         self.get() == rhs
     }
 }
 
-impl<N: u32> Eq<StorageRef<Felt, N>> for StorageRef<Felt, N> {
-    pub fn eq(self: Self, rhs: StorageRef<Felt, N>) -> bool {
+impl Eq<StorageRef<Felt>> for StorageRef<Felt> {
+    pub fn eq(self: Self, rhs: StorageRef<Felt>) -> bool {
         self.get() == rhs.get()
     }
 }
 
-impl<N: u32> AddAssign<Felt> for StorageRef<Felt, N> {
+impl AddAssign<Felt> for StorageRef<Felt> {
     pub fn add_assign(self: Self, rhs: Felt) {
         self.set(self.get() + rhs);
     }
 }
 
-impl<N: u32> SubAssign<Felt> for StorageRef<Felt, N> {
+impl SubAssign<Felt> for StorageRef<Felt> {
     pub fn sub_assign(self: Self, rhs: Felt) {
         self.set(self.get() - rhs);
     }
 }
 
-impl<N: u32> MulAssign<Felt> for StorageRef<Felt, N> {
+impl MulAssign<Felt> for StorageRef<Felt> {
     pub fn mul_assign(self: Self, rhs: Felt) {
         self.set(self.get() * rhs);
     }
 }
 
-impl<N: u32> DivAssign<Felt> for StorageRef<Felt, N> {
+impl DivAssign<Felt> for StorageRef<Felt> {
     pub fn div_assign(self: Self, rhs: Felt) {
         self.set(self.get() / rhs);
     }
 }
 
-impl<N: u32> RemAssign<Felt> for StorageRef<Felt, N> {
+impl RemAssign<Felt> for StorageRef<Felt> {
     pub fn rem_assign(self: Self, rhs: Felt) {
         self.set(self.get() % rhs);
     }
 }
 
-impl<N: u32> BitAndAssign<Felt> for StorageRef<Felt, N> {
+impl BitAndAssign<Felt> for StorageRef<Felt> {
     pub fn bitand_assign(self: Self, rhs: Felt) {
         self.set(self.get() & rhs);
     }
 }
 
-impl<N: u32> BitOrAssign<Felt> for StorageRef<Felt, N> {
+impl BitOrAssign<Felt> for StorageRef<Felt> {
     pub fn bitor_assign(self: Self, rhs: Felt) {
         self.set(self.get() | rhs);
     }
 }
 
-impl<N: u32> BitXorAssign<Felt> for StorageRef<Felt, N> {
+impl BitXorAssign<Felt> for StorageRef<Felt> {
     pub fn bitxor_assign(self: Self, rhs: Felt) {
         self.set(self.get() ^ rhs);
     }
 }
 
-impl<N: u32> ShlAssign<Felt> for StorageRef<Felt, N> {
+impl ShlAssign<Felt> for StorageRef<Felt> {
     pub fn shl_assign(self: Self, rhs: Felt) {
         self.set(self.get() << rhs);
     }
 }
 
-impl<N: u32> ShrAssign<Felt> for StorageRef<Felt, N> {
+impl ShrAssign<Felt> for StorageRef<Felt> {
     pub fn shr_assign(self: Self, rhs: Felt) {
         self.set(self.get() >> rhs);
     }
 }
 
-impl<N: u32> Eq<u32> for StorageRef<u32, N> {
+impl Eq<u32> for StorageRef<u32> {
     pub fn eq(self: Self, rhs: u32) -> bool {
         self.get() == rhs
     }
 }
 
-impl<N: u32> Eq<StorageRef<u32, N>> for StorageRef<u32, N> {
-    pub fn eq(self: Self, rhs: StorageRef<u32, N>) -> bool {
+impl Eq<StorageRef<u32>> for StorageRef<u32> {
+    pub fn eq(self: Self, rhs: StorageRef<u32>) -> bool {
         self.get() == rhs.get()
     }
 }
 
-impl<N: u32> Eq<bool> for StorageRef<bool, N> {
+impl Eq<bool> for StorageRef<bool> {
     pub fn eq(self: Self, rhs: bool) -> bool {
         self.get() == rhs
     }
 }
 
-impl<N: u32> Eq<StorageRef<bool, N>> for StorageRef<bool, N> {
-    pub fn eq(self: Self, rhs: StorageRef<bool, N>) -> bool {
+impl Eq<StorageRef<bool>> for StorageRef<bool> {
+    pub fn eq(self: Self, rhs: StorageRef<bool>) -> bool {
         self.get() == rhs.get()
     }
 }
@@ -441,7 +437,7 @@ impl<N: u32> Eq<[u32; N]> for [u32; N] {
     }
 }
 
-impl<N: u32> EqAssign<[Felt; N]> for [StorageRef<Felt, 1u32>; N] {
+impl<N: u32> EqAssign<[Felt; N]> for [StorageRef<Felt>; N] {
     pub fn eq_assign(self: Self, rhs: [Felt; N]) {
         for i in 0u32..N {
             self[i as Felt].set(rhs[i as Felt]);
@@ -449,7 +445,7 @@ impl<N: u32> EqAssign<[Felt; N]> for [StorageRef<Felt, 1u32>; N] {
     }
 }
 
-impl<N: u32> EqAssign<[u32; N]> for [StorageRef<u32, 1u32>; N] {
+impl<N: u32> EqAssign<[u32; N]> for [StorageRef<u32>; N] {
     pub fn eq_assign(self: Self, rhs: [u32; N]) {
         for i in 0u32..N {
             self[i as Felt].set(rhs[i as Felt]);
@@ -523,61 +519,61 @@ impl<N: u32> Eq<ArrayRef<u32, N>> for ArrayRef<u32, N> {
     }
 }
 
-impl<N: u32> AddAssign<u32> for StorageRef<u32, N> {
+impl AddAssign<u32> for StorageRef<u32> {
     pub fn add_assign(self: Self, rhs: u32) {
         self.set(self.get() + rhs);
     }
 }
 
-impl<N: u32> SubAssign<u32> for StorageRef<u32, N> {
+impl SubAssign<u32> for StorageRef<u32> {
     pub fn sub_assign(self: Self, rhs: u32) {
         self.set(self.get() - rhs);
     }
 }
 
-impl<N: u32> MulAssign<u32> for StorageRef<u32, N> {
+impl MulAssign<u32> for StorageRef<u32> {
     pub fn mul_assign(self: Self, rhs: u32) {
         self.set(self.get() * rhs);
     }
 }
 
-impl<N: u32> DivAssign<u32> for StorageRef<u32, N> {
+impl DivAssign<u32> for StorageRef<u32> {
     pub fn div_assign(self: Self, rhs: u32) {
         self.set(self.get() / rhs);
     }
 }
 
-impl<N: u32> RemAssign<u32> for StorageRef<u32, N> {
+impl RemAssign<u32> for StorageRef<u32> {
     pub fn rem_assign(self: Self, rhs: u32) {
         self.set(self.get() % rhs);
     }
 }
 
-impl<N: u32> BitAndAssign<u32> for StorageRef<u32, N> {
+impl BitAndAssign<u32> for StorageRef<u32> {
     pub fn bitand_assign(self: Self, rhs: u32) {
         self.set(self.get() & rhs);
     }
 }
 
-impl<N: u32> BitOrAssign<u32> for StorageRef<u32, N> {
+impl BitOrAssign<u32> for StorageRef<u32> {
     pub fn bitor_assign(self: Self, rhs: u32) {
         self.set(self.get() | rhs);
     }
 }
 
-impl<N: u32> BitXorAssign<u32> for StorageRef<u32, N> {
+impl BitXorAssign<u32> for StorageRef<u32> {
     pub fn bitxor_assign(self: Self, rhs: u32) {
         self.set(self.get() ^ rhs);
     }
 }
 
-impl<N: u32> ShlAssign<u32> for StorageRef<u32, N> {
+impl ShlAssign<u32> for StorageRef<u32> {
     pub fn shl_assign(self: Self, rhs: u32) {
         self.set(self.get() << rhs);
     }
 }
 
-impl<N: u32> ShrAssign<u32> for StorageRef<u32, N> {
+impl ShrAssign<u32> for StorageRef<u32> {
     pub fn shr_assign(self: Self, rhs: u32) {
         self.set(self.get() >> rhs);
     }

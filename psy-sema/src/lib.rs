@@ -924,7 +924,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             ValueNode::Struct(path, generic_args, data, location) => Ok({
                 let checked_path_node = self.visit_expr(path, ctx)?;
                 // Keep the instantiated struct type from the path. Falling back to `poly_of`
-                // here drops concrete generic arguments (for example `StorageRef<T, N>` in impl scope),
+                // here drops concrete generic arguments (for example `StorageRef<T>` in impl scope),
                 // which then causes `new Struct { ... }` to be typed as the polymorphic base type.
                 let struct_type_id = checked_path_node.ty();
                 let fields = ctx.symbols[struct_type_id].as_struct().unwrap().fields.clone();
@@ -1815,7 +1815,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
         let implementor_type_id = self.typecheck(&impl_node.ty, ctx)?;
         let implementor_poly_type_id = self.poly_of(implementor_type_id, ctx).unwrap();
-        // Allow specialized impl headers such as `impl StorageRef<Felt, N> { ... }`.
+        // Allow specialized impl headers such as `impl StorageRef<Felt> { ... }`.
         // Ambiguous overlaps are validated during impl lookup/registration.
 
         ctx.symbols.add_type_id(None, IdentId::TYPE_SELF, implementor_type_id)?;
@@ -2535,7 +2535,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let implementor_poly_type_id = self.poly_of(implementor_type_id, ctx).unwrap();
 
         // Allow specialized trait impl headers such as
-        // `impl EqAssign<Felt> for StorageRef<Felt, N>`.
+        // `impl EqAssign<Felt> for StorageRef<Felt>`.
 
         for (generic_parameter, generic_arg) in ctx.symbols[implementor_poly_type_id]
             .generic_parameters()
@@ -2745,7 +2745,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
             if let Err(id) = STD_PRIMITIVE_SCOPE_ID.set(scope_id)
                 && id != scope_id
             {
-                STD_PRIMITIVE_SCOPE_ID.take().unwrap();
+                let _ = STD_PRIMITIVE_SCOPE_ID.take();
                 STD_PRIMITIVE_SCOPE_ID.set(scope_id).unwrap();
             }
             // //Warning: Not safe to run in a multithreaded environment
