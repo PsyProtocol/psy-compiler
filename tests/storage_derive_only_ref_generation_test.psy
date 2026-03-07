@@ -1,0 +1,26 @@
+#[contract]
+#[derive(Storage)]
+pub struct DeriveOnlyContract {
+    pub counter: Felt,
+}
+
+impl DeriveOnlyContractRef {
+    pub fn set_counter(v: Felt) {
+        let c = DeriveOnlyContractRef::new(ContractMetadata::current());
+        c.counter = v;
+    }
+    pub fn add_counter(v: Felt) {
+        let c = DeriveOnlyContractRef::new(ContractMetadata::current());
+        c.counter += v;
+    }
+}
+
+fn main() {
+    let c = DeriveOnlyContractRef::new(ContractMetadata::current());
+    c.counter = 1;
+    c.counter += 2;
+    assert_eq(c.counter, 3, "derive(Storage) should still generate ContractRef");
+    DeriveOnlyContractRef::set_counter(10);
+    DeriveOnlyContractRef::add_counter(5);
+    assert_eq(c.counter, 15, "impl ContractRef methods should resolve with derive(Storage) only");
+}

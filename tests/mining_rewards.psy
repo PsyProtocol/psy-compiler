@@ -12,7 +12,7 @@ struct VariableHeightRewardMerkleProof {
     pub index: Felt,
 }
 
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 struct PersistantState {
     pub min_allowed_claimed_checkpoint: Felt,
     pub last_claimed_ups_checkpoint_id: Felt,
@@ -21,7 +21,7 @@ struct PersistantState {
 }
 
 #[contract]
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 struct Contract {
     pub persistant_state: PersistantState,
     pub claimed_guta_nullifiers: [Felt; 16777216],
@@ -98,17 +98,17 @@ impl ContractRef {
 
     pub fn advance_to_checkpoint(new_claim_checkpoint_id: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
-        let persistant_state = c.persistant_state.get();
+        let persistant_state = c.persistant_state;
         assert(new_claim_checkpoint_id > persistant_state.min_allowed_claimed_checkpoint, "checkpoint must be greater");
 
         clear_entire_tree();
 
-        c.persistant_state.set(new PersistantState {
+        c.persistant_state = new PersistantState {
             min_allowed_claimed_checkpoint: new_claim_checkpoint_id,
             last_claimed_ups_checkpoint_id: get_checkpoint_id(),
             claimed_rewards: 0,
             sealed_for_ups_checkpoint_id: persistant_state.sealed_for_ups_checkpoint_id,
-        });
+        };
     }
 
     pub fn claim_guta_proof(
@@ -122,7 +122,7 @@ impl ContractRef {
 
         assert(current_checkpoint > claim_checkpoint_id + claim_rewards_cooldown, "cooldown not satisfied");
 
-        let persistant_state = c.persistant_state.get();
+        let persistant_state = c.persistant_state;
 
         assert(current_checkpoint > persistant_state.sealed_for_ups_checkpoint_id, "checkpoint is sealed");
 
@@ -150,7 +150,7 @@ impl ContractRef {
             && proof.reward_leaf[3] == user_public_key_hash[3],
         "reward not for current user");
 
-        assert(c.claimed_guta_nullifiers[nullifier_index].get() == 0, "reward already claimed");
+        assert(c.claimed_guta_nullifiers[nullifier_index] == 0, "reward already claimed");
 
         let old_claimed_rewards = if persistant_state.last_claimed_ups_checkpoint_id == current_checkpoint {
             persistant_state.claimed_rewards
@@ -162,14 +162,14 @@ impl ContractRef {
         let total_fees = get_guta_fees_collected(claim_checkpoint_id);
         assert(Self::check_guta_reward(total_proofs, total_fees, proposed_reward), "invalid reward amount");
 
-        c.claimed_guta_nullifiers[nullifier_index].set(1);
+        c.claimed_guta_nullifiers[nullifier_index] = 1;
 
-        c.persistant_state.set(new PersistantState {
+        c.persistant_state = new PersistantState {
             min_allowed_claimed_checkpoint: persistant_state.min_allowed_claimed_checkpoint,
             last_claimed_ups_checkpoint_id: current_checkpoint,
             claimed_rewards: old_claimed_rewards + proposed_reward,
             sealed_for_ups_checkpoint_id: persistant_state.sealed_for_ups_checkpoint_id,
-        });
+        };
     }
 
     pub fn advance_and_claim_guta_proof(
@@ -187,17 +187,17 @@ impl ContractRef {
 
     pub fn advance_to_checkpoint_and_seal(new_claim_checkpoint_id: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
-        let persistant_state = c.persistant_state.get();
+        let persistant_state = c.persistant_state;
         assert(new_claim_checkpoint_id > persistant_state.min_allowed_claimed_checkpoint, "checkpoint must be greater");
 
         clear_entire_tree();
 
-        c.persistant_state.set(new PersistantState {
+        c.persistant_state = new PersistantState {
             min_allowed_claimed_checkpoint: new_claim_checkpoint_id,
             last_claimed_ups_checkpoint_id: get_checkpoint_id(),
             claimed_rewards: 0,
             sealed_for_ups_checkpoint_id: get_checkpoint_id(),
-        });
+        };
     }
 
     pub fn claim_simple_reward(claim_checkpoint_id: Felt, proposed_reward: Felt) {
@@ -207,7 +207,7 @@ impl ContractRef {
 
         assert(current_checkpoint > claim_checkpoint_id + claim_rewards_cooldown, "cooldown not satisfied");
 
-        let persistant_state = c.persistant_state.get();
+        let persistant_state = c.persistant_state;
 
         assert(persistant_state.min_allowed_claimed_checkpoint == claim_checkpoint_id, "invalid claim checkpoint");
 
@@ -219,12 +219,12 @@ impl ContractRef {
 
         assert(proposed_reward > 0 && proposed_reward <= 1000000000, "invalid reward amount");
 
-        c.persistant_state.set(new PersistantState {
+        c.persistant_state = new PersistantState {
             min_allowed_claimed_checkpoint: persistant_state.min_allowed_claimed_checkpoint,
             last_claimed_ups_checkpoint_id: current_checkpoint,
             claimed_rewards: old_claimed_rewards + proposed_reward,
             sealed_for_ups_checkpoint_id: persistant_state.sealed_for_ups_checkpoint_id,
-        });
+        };
     }
 }
 
@@ -236,5 +236,5 @@ fn main() {
         claimed_rewards: 0,
         sealed_for_ups_checkpoint_id: 0,
     };
-    c.persistant_state.set(initial_state);
+    c.persistant_state = initial_state;
 }

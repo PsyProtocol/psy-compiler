@@ -69,6 +69,7 @@ ci:
 	@$(DARGO_CLI_EXECUTE) array_ref_struct_index_test.psy
 	@$(DARGO_CLI_EXECUTE) array_ref_struct_bulk_assign_test.psy
 	@$(DARGO_CLI_EXECUTE) storage_ref_alias_consistency_test.psy
+	@$(DARGO_CLI_EXECUTE) storage_derive_only_ref_generation_test.psy
 	@$(DARGO_CLI_EXECUTE) trait_test.psy --parameters 2,3
 	@$(DARGO_CLI_EXECUTE) member_call_expected_signature_test.psy
 	@$(DARGO_CLI_EXECUTE) member_call_expected_signature_array_arg_test.psy

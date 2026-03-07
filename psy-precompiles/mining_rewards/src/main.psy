@@ -14,7 +14,7 @@ struct MiningRewardMerkleProof {
     pub siblings: [SimpleMerkleProofSiblingLevel; 21],
 }
 
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 struct PersistentState {
     pub claimed_rewards: Felt,
     pub last_claimed_checkpoint_id: Felt,
@@ -22,7 +22,7 @@ struct PersistentState {
 }
 
 #[contract]
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 pub struct PsyPOWMiningRewardsClaimContract {
     pub persistent_state: PersistentState,
     pub claimed_guta_nullifiers: [Felt; 16777216],

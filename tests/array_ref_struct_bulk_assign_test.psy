@@ -1,11 +1,11 @@
-#[derive(StorageRef, Storage)]
+#[derive(Storage)]
 pub struct Person {
     pub age: Felt,
     pub score: Felt,
 }
 
 #[contract]
-#[derive(StorageRef, Storage)]
+#[derive(Storage)]
 pub struct C {
     pub people: [Person; 2],
 }

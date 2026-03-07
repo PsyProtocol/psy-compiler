@@ -1,5 +1,5 @@
 #[contract]
-#[derive(StorageRef, Storage)]
+#[derive(Storage)]
 pub struct C {
     pub a: [Felt; 4],
 }

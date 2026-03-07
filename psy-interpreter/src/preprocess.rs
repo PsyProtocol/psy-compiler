@@ -113,10 +113,13 @@ impl<'a> StorageProcessor<'a> {
         methods.push(self.generate_storage_read_method(struct_node, attr, ctx));
         methods.push(self.generate_storage_write_method(struct_node, attr, ctx));
 
-        let has_storage_ref_derive = struct_node.attrs.iter().any(|a| {
-            a.is_derive() && a.properties.iter().any(|p| p.id == ctx.intern("StorageRef"))
+        let has_storage_ref_behavior = struct_node.attrs.iter().any(|a| {
+            a.is_derive()
+                && a.properties
+                    .iter()
+                    .any(|p| p.id == ctx.intern("StorageRef") || p.id == ctx.intern("Storage"))
         });
-        let ref_type = if has_storage_ref_derive {
+        let ref_type = if has_storage_ref_behavior {
             let ref_struct_name = format!("{}Ref", ctx.ident(struct_node.name.id));
             UncheckedType::Basic(Identifier::new(ctx.intern(ref_struct_name), attr.location))
         } else {
@@ -246,7 +249,12 @@ impl<'a> StorageProcessor<'a> {
                 struct_node
                     .attrs
                     .iter()
-                    .filter(|a| !a.is_derive() || !a.properties.iter().any(|p| p.id == ctx.intern("StorageRef")))
+                    .filter(|a| {
+                        !a.is_derive()
+                            || !a.properties
+                                .iter()
+                                .any(|p| p.id == ctx.intern("StorageRef") || p.id == ctx.intern("Storage"))
+                    })
                     .cloned()
                     .collect()
             } else {
@@ -2283,8 +2291,9 @@ impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcesso
 
         let event_trait_id = ctx.intern("Event");
 
+        let mut generated_storage_ref = false;
         for attr in &s.attrs {
-            if attr.is_derive() && attr.properties.iter().any(|p| p == &event_trait_id) {
+            if attr.is_derive() && attr.properties.iter().any(|p| p.id == event_trait_id) {
                 let impl_node = self.generate_event_impl(&s, attr, ctx);
                 ctx.insert_definition(DefinitionNode::TraitImpl(impl_node), InsertPosition::End);
             }
@@ -2294,7 +2303,13 @@ impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcesso
                 ctx.insert_definition(DefinitionNode::Impl(impl_node), InsertPosition::End);
             }
 
-            if attr.is_derive() && attr.properties.iter().any(|p| p == &storage_ref_attribute_id) {
+            if !generated_storage_ref
+                && attr.is_derive()
+                && attr
+                    .properties
+                    .iter()
+                    .any(|p| p.id == storage_ref_attribute_id || p.id == storage_trait_id)
+            {
                 let ref_struct = self.transform_struct_to_storage_ref(&s, attr, ctx, Some("Ref"));
                 ctx.insert_definition(DefinitionNode::Struct(ref_struct.clone()), InsertPosition::End);
 
@@ -2343,9 +2358,11 @@ impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcesso
                         ctx.insert_definition(DefinitionNode::TraitImpl(impl_node), InsertPosition::End);
                     }
                 }
+
+                generated_storage_ref = true;
             }
 
-            if attr.is_derive() && attr.properties.iter().any(|p| p == &storage_trait_id) {
+            if attr.is_derive() && attr.properties.iter().any(|p| p.id == storage_trait_id) {
                 let impl_node = self.generate_storage_impl(&s, attr, ctx);
                 ctx.insert_definition(DefinitionNode::TraitImpl(impl_node), InsertPosition::End);
             }

@@ -1,7 +1,7 @@
 use std::prelude::*;
 use mining_rewards::PsyPOWMiningRewardsClaimContractRef;
 
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 struct OtherUserInfo {
     pub amount_sent: Felt,
     pub amount_claimed: Felt,
@@ -18,7 +18,7 @@ pub struct UserInfoEvent {
     pub balance: Felt,
 }
 
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 struct NullifierNode {
     pub value: Hash,
     pub prev_index: Felt,
@@ -32,7 +32,7 @@ struct PrivateClaimProof {
 }
 
 #[contract]
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 pub struct PsyTokenContract {
     pub balance: Felt,
     pub last_claimed_pow_rewards_checkpoint_id: Felt,

@@ -1,22 +1,18 @@
 #[contract]
-#[derive(StorageRef, Storage)]
+#[derive(Storage)]
 struct TestContract {
     pub data: [Felt; 10],
     pub single_value: Felt,
 }
 
-fn main() -> Felt {
+fn main() {
     let contract = TestContractRef::new(ContractMetadata::current());
     contract.single_value = 42;
     // Verify it was set
-    let value_before = contract.single_value.get();
-    assert_eq(value_before, 42, "Value should be 42 before clear");
+    assert_eq(contract.single_value, 42, "Value should be 42 before clear");
     clear_entire_tree();
     // After clearing, value should be reset to 0
-    let value_after = contract.single_value.get();
-    assert_eq(value_after, 0, "Value should be 0 after clear");
+    assert_eq(contract.single_value, 0, "Value should be 0 after clear");
     contract.single_value = 100;
-    let final_value = contract.single_value.get();
-    assert_eq(final_value, 100, "Should be able to set new value after clear");
-    return final_value;
+    assert_eq(contract.single_value, 100, "Should be able to set new value after clear");
 }

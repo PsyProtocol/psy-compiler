@@ -1,11 +1,11 @@
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 struct OtherUserInfo {
     pub amount_sent: Felt,
     pub amount_claimed: Felt,
 }
 
 #[contract]
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 struct Contract {
     pub balance: Felt,
     pub other_user_info: [OtherUserInfo; 16777216],
@@ -20,23 +20,23 @@ impl ContractRef {
 
     pub fn simple_burn(amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
-        let current_balance = c.balance.get();
+        let current_balance = c.balance;
         assert(current_balance >= amount, "insufficient balance");
         c.balance -= amount;
     }
 
     pub fn simple_transfer(recipient: Felt, amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
-        let current_balance = c.balance.get();
+        let current_balance = c.balance;
         assert(current_balance >= amount, "insufficient balance");
 
-        let mut recipient_info = c.other_user_info[recipient].get();
+        let mut recipient_info = c.other_user_info[recipient];
         assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
 
-        c.other_user_info[recipient].set(new OtherUserInfo {
+        c.other_user_info[recipient] = new OtherUserInfo {
             amount_sent: recipient_info.amount_sent + amount,
             amount_claimed: recipient_info.amount_claimed
-        });
+        };
 
         c.balance -= amount;
     }
@@ -48,16 +48,16 @@ impl ContractRef {
         let c = ContractRef::new(ContractMetadata::current());
 
         let sender_user_contract = ContractRef::new(ContractMetadata::new(get_contract_id(), sender));
-        let sender_total_sent = sender_user_contract.other_user_info[self_user_id].get().amount_sent;
+        let sender_total_sent = sender_user_contract.other_user_info[self_user_id].amount_sent;
 
-        let mut sender_info = c.other_user_info[sender].get();
+        let mut sender_info = c.other_user_info[sender];
         assert(sender_info.amount_claimed < sender_total_sent, "no tokens to claim from this sender");
         let claimed = sender_total_sent - sender_info.amount_claimed;
 
-        c.other_user_info[sender].set(new OtherUserInfo {
+        c.other_user_info[sender] = new OtherUserInfo {
             amount_sent: sender_info.amount_sent,
             amount_claimed: sender_total_sent
-        });
+        };
 
         c.balance += claimed;
     }
@@ -71,5 +71,5 @@ fn main() {
 
     ContractRef::simple_transfer(10, 50);
     assert_eq(c.balance, 50, "c.balance == 50");
-    assert_eq(c.other_user_info[10].get().amount_sent, 50, "c.other_user_info[10].amount_sent == 50");
+    assert_eq(c.other_user_info[10].amount_sent, 50, "c.other_user_info[10].amount_sent == 50");
 }

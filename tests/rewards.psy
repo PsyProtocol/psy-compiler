@@ -1,35 +1,35 @@
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 struct JobProofSibling {
     pub sibling_hash: [Felt; 4],
     pub is_left: Felt,
 }
 
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 struct JobProof {
     pub value: [Felt; 4],
     pub siblings: [JobProofSibling; 32],
     pub root: [Felt; 4],
 }
 
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 struct JobClaim {
     pub job_type: Felt,
     pub proof: JobProof,
 }
 
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 struct OtherUserInfo {
     pub amount_sent: Felt,
     pub amount_claimed: Felt,
 }
 
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 struct UserNullifier {
     pub last_claimed_checkpoint: Felt,
 }
 
 #[contract]
-#[derive(Storage, StorageRef)]
+#[derive(Storage)]
 struct Contract {
     pub balance: Felt,
     pub other_user_info: [OtherUserInfo; 16777216],
@@ -106,7 +106,7 @@ impl ContractRef {
         let user_id = get_user_id();
 
         let user_nullifier_ref = c.user_nullifiers[user_id];
-        let current_nullifier = user_nullifier_ref.get();
+        let current_nullifier = user_nullifier_ref;
         assert(checkpoint_id > current_nullifier.last_claimed_checkpoint, "checkpoint must be greater than last claimed");
 
         let mut total_reward = 0;
@@ -154,36 +154,36 @@ impl ContractRef {
         }
 
         assert(total_reward > 0, "no valid claims");
-        user_nullifier_ref.set(new UserNullifier { last_claimed_checkpoint: checkpoint_id });
-        c.balance.set(c.balance.get() + total_reward);
+        user_nullifier_ref = new UserNullifier { last_claimed_checkpoint: checkpoint_id };
+        c.balance += total_reward;
     }
 
     pub fn simple_mint(amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
-        c.balance.set(c.balance.get() + amount);
+        c.balance += amount;
     }
 
     pub fn simple_burn(amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
-        let current_balance = c.balance.get();
+        let current_balance = c.balance;
         assert(current_balance >= amount, "insufficient balance");
-        c.balance.set(current_balance - amount);
+        c.balance = current_balance - amount;
     }
 
     pub fn simple_transfer(recipient: Felt, amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
-        let current_balance = c.balance.get();
+        let current_balance = c.balance;
         assert(current_balance >= amount, "insufficient balance");
 
-        let mut recipient_info = c.other_user_info[recipient].get();
+        let mut recipient_info = c.other_user_info[recipient];
         assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
 
-        c.other_user_info[recipient].set(new OtherUserInfo {
+        c.other_user_info[recipient] = new OtherUserInfo {
             amount_sent: recipient_info.amount_sent + amount,
             amount_claimed: recipient_info.amount_claimed
-        });
+        };
 
-        c.balance.set(current_balance - amount);
+        c.balance = current_balance - amount;
     }
 
     pub fn simple_claim(sender: Felt) {
@@ -193,19 +193,19 @@ impl ContractRef {
         let c = ContractRef::new(ContractMetadata::current());
 
         let sender_user_contract = ContractRef::new(ContractMetadata::new(get_contract_id(), sender));
-        let sender_other_user_info = sender_user_contract.other_user_info[self_user_id].get();
+        let sender_other_user_info = sender_user_contract.other_user_info[self_user_id];
         let sender_total_sent = sender_other_user_info.amount_sent;
 
-        let mut sender_info = c.other_user_info[sender].get();
+        let mut sender_info = c.other_user_info[sender];
         assert(sender_info.amount_claimed < sender_total_sent, "no tokens to claim from this sender");
         let claimed = sender_total_sent - sender_info.amount_claimed;
 
-        c.other_user_info[sender].set(new OtherUserInfo {
+        c.other_user_info[sender] = new OtherUserInfo {
             amount_sent: sender_info.amount_sent,
             amount_claimed: sender_total_sent
-        });
+        };
 
-        c.balance.set(c.balance.get() + claimed);
+        c.balance += claimed;
     }
 }
 

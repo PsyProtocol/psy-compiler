@@ -1,4 +1,4 @@
-#[derive(StorageRef, Storage)]
+#[derive(Storage)]
 pub struct Person {
     pub age: Felt,
     pub height: Felt,
@@ -6,7 +6,7 @@ pub struct Person {
 }
 
 #[contract]
-#[derive(StorageRef, Storage)]
+#[derive(Storage)]
 pub struct SimpleContract {
     pub a: Felt,
     #[ref]
@@ -32,7 +32,7 @@ fn main() {
     assert_eq(c.b.age, 10, "c.b.age == 10");
     assert_eq(c.b.height, 20, "c.b.height == 20");
     assert_eq(c.b.year_of_birth, 2000, "c.b.year_of_birth == 2000");
-    let p = c.b.get();
+    let p = c.b;
     assert_eq(p.age, 10, "c.b.age == 10");
     assert_eq(p.height, 20, "c.b.height == 20");
     assert_eq(p.year_of_birth, 2000, "c.b.year_of_birth == 2000");

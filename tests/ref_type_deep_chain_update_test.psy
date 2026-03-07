@@ -1,10 +1,10 @@
-#[derive(StorageRef, Storage)]
+#[derive(Storage)]
 pub struct Profile {
     pub age: Felt,
     pub level: Felt,
 }
 
-#[derive(StorageRef, Storage)]
+#[derive(Storage)]
 pub struct Person {
     #[RefType]
     pub profile: Profile,
@@ -12,7 +12,7 @@ pub struct Person {
 }
 
 #[contract]
-#[derive(StorageRef, Storage)]
+#[derive(Storage)]
 pub struct C {
     #[RefType]
     pub person: Person,
