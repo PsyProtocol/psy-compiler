@@ -131,7 +131,7 @@ interpret:
 	@RUST_LOG=${LOG_LEVEL} ./target/${PROFILE}/dargo execute --program-dir $(dir ${FILE}) --debug --entry-path $(notdir ${FILE}) --parameters ${PARAMETERS}
 
 compile-token-contract:
-	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names simple_mint simple_transfer simple_claim batch_simple_transfer simple_burn simple_claim_pow_rewards private_transfer private_claim
+	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names simple_mint simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
 
 compile-mining-rewards-contract:
 	@cd $(MINING_REWARDS_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyPOWMiningRewardsClaimContractRef --method-names start_session end_session claim_guta_rewards_1 claim_guta_rewards_2 claim_guta_rewards_5
