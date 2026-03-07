@@ -38,6 +38,23 @@ pub struct InterpretResult {
 }
 
 pub fn interpret(contract_name: Option<String>, method_names: Vec<String>, crate_path_graph: Graph<PathBuf>) -> anyhow::Result<InterpretResult> {
+    struct PrimitiveScopeResetGuard;
+    impl Drop for PrimitiveScopeResetGuard {
+        fn drop(&mut self) {
+            #[allow(static_mut_refs)]
+            unsafe {
+                let _ = STD_PRIMITIVE_SCOPE_ID.take();
+            }
+        }
+    }
+
+    // Clear leaked primitive scope from previous compilation in the same process.
+    #[allow(static_mut_refs)]
+    unsafe {
+        let _ = STD_PRIMITIVE_SCOPE_ID.take();
+    }
+    let _primitive_scope_guard = PrimitiveScopeResetGuard;
+
     let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
     let (mut typechecker, mut ctx) = interpreter.typecheck(crate_path_graph)?;
 

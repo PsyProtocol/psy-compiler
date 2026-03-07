@@ -1,6 +1,0 @@
-[package]
-name = "mining_rewards_v2"
-type = "bin"
-authors = [""]
-
-[dependencies]

@@ -170,20 +170,7 @@ impl PsyTokenContractRef {
     }
 
     // pub fn claim_pow_rewards() {
-    //     let c = PsyTokenContractRef::new(ContractMetadata::current());
-    //
-    //     let psy_pow_mining_rewards_claim_contract = PsyPOWMiningRewardsClaimContractRef::new(ContractMetadata::new(2, get_user_id()));
-    //     let pow_rewards_persistant_state = psy_pow_mining_rewards_claim_contract.persistant_state.get();
-    //
-    //     let checkpoint_id = get_checkpoint_id();
-    //
-    //     assert(pow_rewards_persistant_state.last_claimed_ups_checkpoint_id == checkpoint_id, "the claims must be from the latest ups");
-    //     assert(pow_rewards_persistant_state.sealed_for_ups_checkpoint_id == checkpoint_id, "the checkpoint must be sealed");
-    //     assert(c.last_claimed_pow_rewards_checkpoint_id.get() < checkpoint_id, "must haven't already claimed during this ups");
-    //
-    //     c.last_claimed_pow_rewards_checkpoint_id.set(checkpoint_id);
-    //
-    //     c.balance.set(c.balance.get() + pow_rewards_persistant_state.claimed_rewards);
+    //     // deprecated
     // }
 
     pub fn private_transfer(owner: Hash, value: Felt, randomness: Hash) {
