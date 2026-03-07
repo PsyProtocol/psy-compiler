@@ -60,17 +60,8 @@ impl VariableHeightRewardMerkleProof {
                 nullifier_level_start_index_multiplier = nullifier_level_start_index_multiplier * 2;
             } else {
                 let zero_hash = [0, 0, 0, 0];
-                assert(
-                    reward_leaf[0] == zero_hash[0]
-                    && reward_leaf[1] == zero_hash[1]
-                    && reward_leaf[2] == zero_hash[2]
-                    && reward_leaf[3] == zero_hash[3],
-                "unused reward leaf must be zero");
-                assert(sibling_node[0] == zero_hash[0]
-                    && sibling_node[1] == zero_hash[1]
-                    && sibling_node[2] == zero_hash[2]
-                    && sibling_node[3] == zero_hash[3],
-                "unused sibling node must be zero");
+                assert(reward_leaf == zero_hash, "unused reward leaf must be zero");
+                assert(sibling_node == zero_hash, "unused sibling node must be zero");
 
                 assert(index_bit == 0, "unused index bit must be zero");
             };
@@ -106,23 +97,13 @@ impl PsyPOWMiningRewardsClaimContractRef {
         let guta_rewards_tree_root = result.0;
         let nullifier_index = result.1;
 
-        assert(
-            guta_rewards_tree_root[0] == expected_guta_rewards_tree_root[0]
-            && guta_rewards_tree_root[1] == expected_guta_rewards_tree_root[1]
-            && guta_rewards_tree_root[2] == expected_guta_rewards_tree_root[2]
-            && guta_rewards_tree_root[3] == expected_guta_rewards_tree_root[3],
-        "guta tree root mismatch");
+        assert(guta_rewards_tree_root == expected_guta_rewards_tree_root, "guta tree root mismatch");
 
-        assert(
-            proof.reward_leaf[0] == user_id_hash[0]
-            && proof.reward_leaf[1] == user_id_hash[1]
-            && proof.reward_leaf[2] == user_id_hash[2]
-            && proof.reward_leaf[3] == user_id_hash[3],
-        "reward not for current user");
+        assert(proof.reward_leaf == user_id_hash, "reward not for current user");
 
-        assert(c.claimed_guta_nullifiers.index(nullifier_index).get() == 0, "reward already claimed");
+        assert(c.claimed_guta_nullifiers[nullifier_index] == 0, "reward already claimed");
 
-        c.claimed_guta_nullifiers.index(nullifier_index).set(1);
+        c.claimed_guta_nullifiers[nullifier_index] = 1;
     }
 
     pub fn start_session(
@@ -139,11 +120,11 @@ impl PsyPOWMiningRewardsClaimContractRef {
 
         assert(claim_checkpoint_id > persistent_state.last_sealed_checkpoint_id, "checkpoint is sealed");
 
-        c.persistent_state.set(new PersistentState {
+        c.persistent_state = new PersistentState {
             last_claimed_checkpoint_id: claim_checkpoint_id,
             claimed_rewards: persistent_state.claimed_rewards,
             last_sealed_checkpoint_id: persistent_state.last_sealed_checkpoint_id,
-        });
+        };
     }
 
     pub fn end_session(claim_checkpoint_id: Felt) {
@@ -157,11 +138,11 @@ impl PsyPOWMiningRewardsClaimContractRef {
 
         clear_entire_tree();
 
-        c.persistent_state.set(new PersistentState {
+        c.persistent_state = new PersistentState {
             last_claimed_checkpoint_id: persistent_state.last_claimed_checkpoint_id,
             claimed_rewards: persistent_state.claimed_rewards,
             last_sealed_checkpoint_id: claim_checkpoint_id,
-        });
+        };
     }
 
     pub fn claim_guta_rewards_1(
@@ -184,11 +165,11 @@ impl PsyPOWMiningRewardsClaimContractRef {
         Self::claim_single_guta_reward(checkpoint_id, proof, proposed_reward);
 
         let new_persistent_state = c.persistent_state.get();
-        c.persistent_state.set(new PersistentState {
+        c.persistent_state = new PersistentState {
             last_claimed_checkpoint_id: checkpoint_id,
             claimed_rewards: new_persistent_state.claimed_rewards + proposed_reward,
             last_sealed_checkpoint_id: new_persistent_state.last_sealed_checkpoint_id,
-        });
+        };
     }
 
     pub fn claim_guta_rewards_2(
@@ -223,11 +204,11 @@ impl PsyPOWMiningRewardsClaimContractRef {
         }
 
         let final_persistent_state = c.persistent_state.get();
-        c.persistent_state.set(new PersistentState {
+        c.persistent_state = new PersistentState {
             last_claimed_checkpoint_id: last_checkpoint,
             claimed_rewards: final_persistent_state.claimed_rewards + total_rewards_claimed,
             last_sealed_checkpoint_id: final_persistent_state.last_sealed_checkpoint_id,
-        });
+        };
     }
 
     pub fn claim_guta_rewards_5(
@@ -262,11 +243,11 @@ impl PsyPOWMiningRewardsClaimContractRef {
         }
 
         let final_persistent_state = c.persistent_state.get();
-        c.persistent_state.set(new PersistentState {
+        c.persistent_state = new PersistentState {
             last_claimed_checkpoint_id: last_checkpoint,
             claimed_rewards: final_persistent_state.claimed_rewards + total_rewards_claimed,
             last_sealed_checkpoint_id: final_persistent_state.last_sealed_checkpoint_id,
-        });
+        };
     }
 
 }

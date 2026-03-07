@@ -315,8 +315,8 @@ pub trait ShrAssign<Rhs> {
     pub fn shr_assign(self: Self, rhs: Rhs);
 }
 
-impl<N: u32> EqAssign<Felt> for StorageRef<Felt, N> {
-    pub fn eq_assign(self: Self, rhs: Felt) {
+impl<T: Storage, N: u32> EqAssign<T> for StorageRef<T, N> {
+    pub fn eq_assign(self: Self, rhs: T) {
         self.set(rhs);
     }
 }
@@ -393,12 +393,6 @@ impl<N: u32> ShrAssign<Felt> for StorageRef<Felt, N> {
     }
 }
 
-impl<N: u32> EqAssign<u32> for StorageRef<u32, N> {
-    pub fn eq_assign(self: Self, rhs: u32) {
-        self.set(rhs);
-    }
-}
-
 impl<N: u32> Eq<u32> for StorageRef<u32, N> {
     pub fn eq(self: Self, rhs: u32) -> bool {
         self.get() == rhs
@@ -420,6 +414,30 @@ impl<N: u32> Eq<bool> for StorageRef<bool, N> {
 impl<N: u32> Eq<StorageRef<bool, N>> for StorageRef<bool, N> {
     pub fn eq(self: Self, rhs: StorageRef<bool, N>) -> bool {
         self.get() == rhs.get()
+    }
+}
+
+impl<N: u32> Eq<[Felt; N]> for [Felt; N] {
+    pub fn eq(self: Self, rhs: [Felt; N]) -> bool {
+        let mut same = true;
+        for i in 0u32..N {
+            if self[i as Felt] != rhs[i as Felt] {
+                same = false;
+            }
+        }
+        same
+    }
+}
+
+impl<N: u32> Eq<[u32; N]> for [u32; N] {
+    pub fn eq(self: Self, rhs: [u32; N]) -> bool {
+        let mut same = true;
+        for i in 0u32..N {
+            if self[i as Felt] != rhs[i as Felt] {
+                same = false;
+            }
+        }
+        same
     }
 }
 

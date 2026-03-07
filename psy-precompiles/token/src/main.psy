@@ -58,7 +58,7 @@ impl PsyTokenContractRef {
 
     pub fn simple_mint(amount: Felt) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
-        c.balance.set(c.balance.get() + amount);
+        c.balance += amount;
         // invoke_deferred(0, 354447671, [999, 1]);
     }
 
@@ -66,7 +66,7 @@ impl PsyTokenContractRef {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
         assert(current_balance >= amount, "insufficient balance");
-        c.balance.set(current_balance - amount);
+        c.balance = current_balance - amount;
     }
 
     pub fn simple_transfer(recipient: Felt, amount: Felt) {
@@ -80,19 +80,19 @@ impl PsyTokenContractRef {
         let current_balance = c.balance.get();
         assert(current_balance >= amount, "insufficient balance");
 
-        let mut recipient_info = c.other_user_info.index(recipient).get();
+        let mut recipient_info = c.other_user_info[recipient].get();
         assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
 
-        c.other_user_info.index(recipient).set(new OtherUserInfo {
+        c.other_user_info[recipient] = new OtherUserInfo {
             amount_sent: recipient_info.amount_sent + amount,
             amount_claimed: recipient_info.amount_claimed
-        });
+        };
 
         let sender_start_info = new UserInfoEvent {
             balance: c.balance.get(),
         };
         sender_start_info.emit();
-        c.balance.set(current_balance - amount);
+        c.balance = current_balance - amount;
         let sender_end_info = new UserInfoEvent {
             balance: c.balance.get(),
         };
@@ -106,18 +106,18 @@ impl PsyTokenContractRef {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
 
         let sender_user_contract = PsyTokenContractRef::new(ContractMetadata::new(get_contract_id(), sender));
-        let sender_total_sent = sender_user_contract.other_user_info.index(self_user_id).get().amount_sent;
+        let sender_total_sent = sender_user_contract.other_user_info[self_user_id].get().amount_sent;
 
-        let mut sender_info = c.other_user_info.index(sender).get();
+        let mut sender_info = c.other_user_info[sender].get();
         assert(sender_info.amount_claimed < sender_total_sent, "no tokens to claim from this sender");
         let claimed = sender_total_sent - sender_info.amount_claimed;
 
-        c.other_user_info.index(sender).set(new OtherUserInfo {
+        c.other_user_info[sender] = new OtherUserInfo {
             amount_sent: sender_info.amount_sent,
             amount_claimed: sender_total_sent
-        });
+        };
 
-        c.balance.set(c.balance.get() + claimed);
+        c.balance += claimed;
     }
 
     pub fn simple_claim_pow_rewards(checkpoint_id: Felt) {
@@ -134,9 +134,9 @@ impl PsyTokenContractRef {
 
         let reward_diff = total_claimed_rewards - claimed_rewards;
 
-        c.last_claimed_pow_rewards_checkpoint_id.set(checkpoint_id);
-        c.claimed_rewards.set(total_claimed_rewards);
-        c.balance.set(c.balance.get() + reward_diff);
+        c.last_claimed_pow_rewards_checkpoint_id = checkpoint_id;
+        c.claimed_rewards = total_claimed_rewards;
+        c.balance += reward_diff;
     }
 
     pub fn batch_simple_transfer(recipients: [Felt; 5], amounts: [Felt; 5]) {
@@ -156,17 +156,17 @@ impl PsyTokenContractRef {
             let amount = amounts[i as Felt];
 
             if amount > 0 {
-                let mut recipient_info = c.other_user_info.index(recipient).get();
+                let mut recipient_info = c.other_user_info[recipient].get();
                 assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
 
-                c.other_user_info.index(recipient).set(new OtherUserInfo {
+                c.other_user_info[recipient] = new OtherUserInfo {
                     amount_sent: recipient_info.amount_sent + amount,
                     amount_claimed: recipient_info.amount_claimed
-                });
+                };
             }
         }
 
-        c.balance.set(current_balance - total_amount);
+        c.balance = current_balance - total_amount;
     }
 
     // pub fn claim_pow_rewards() {
@@ -191,7 +191,7 @@ impl PsyTokenContractRef {
         let current_balance = c.balance.get();
         assert(value > 0, "value must be positive");
         assert(current_balance >= value, "insufficient balance");
-        c.balance.set(current_balance - value);
+        c.balance = current_balance - value;
 
         // commitment = hash(hash(owner, [value, 0, 0, 0]), randomness)
         let value_hash: Hash = [value, 0, 0, 0];
@@ -207,18 +207,18 @@ impl PsyTokenContractRef {
             let level_index = level as Felt;
             let is_right: Felt = path_index & 1;
             if is_right == 0 {
-                c.last_path.index(level_index).set(current);
+                c.last_path[level_index] = current;
                 current = hash_two_to_one(current, zero);
             } else {
-                let left = c.last_path.index(level_index).get();
+                let left = c.last_path[level_index].get();
                 current = hash_two_to_one(left, current);
             };
             zero = hash_two_to_one(zero, zero);
             path_index = path_index >> 1;
         }
 
-        c.note_root.set(current);
-        c.note_count.set(idx + 1);
+        c.note_root = current;
+        c.note_count = idx + 1;
     }
 
     pub fn private_claim(nullifier: Hash, owner: Hash, amount: Felt,randomness: Hash, user_tree_root: Hash, checkpoint_id: Felt, note_root_slot: Felt, low_index: Felt, proof: PrivateClaimProof) {
@@ -250,23 +250,11 @@ impl PsyTokenContractRef {
         }
 
         let expected_root: Hash = get_session_proof_tree_root();
-        assert(
-            current[0] == expected_root[0]
-            && current[1] == expected_root[1]
-            && current[2] == expected_root[2]
-            && current[3] == expected_root[3],
-            "proof tree root mismatch"
-        );
+        assert(current == expected_root, "proof tree root mismatch");
 
         // 2. Verify user_tree_root matches the actual global state at checkpoint_id
         let expected_user_tree_root: Hash = get_checkpoint_user_tree_root(checkpoint_id);
-        assert(
-            user_tree_root[0] == expected_user_tree_root[0]
-            && user_tree_root[1] == expected_user_tree_root[1]
-            && user_tree_root[2] == expected_user_tree_root[2]
-            && user_tree_root[3] == expected_user_tree_root[3],
-            "user tree root does not match checkpoint state"
-        );
+        assert(user_tree_root == expected_user_tree_root, "user tree root does not match checkpoint state");
 
         // 3. Note_root slot id must match token storage layout
         assert(note_root_slot == 8388609, "invalid note root slot id");
@@ -275,19 +263,13 @@ impl PsyTokenContractRef {
         let expected_public_key_hash: Hash = get_user_public_key_hash();
         let user_id_hash: Hash = [get_user_id(), 0, 0, 0];
         let expected_owner: Hash = hash_two_to_one(expected_public_key_hash, user_id_hash);
-        assert(
-            owner[0] == expected_owner[0]
-            && owner[1] == expected_owner[1]
-            && owner[2] == expected_owner[2]
-            && owner[3] == expected_owner[3],
-            "owner does not match claiming user"
-        );
+        assert(owner == expected_owner, "owner does not match claiming user");
 
 
         // 5. Nullifier sorted linked list insertion (non-membership + insert)
         let nullifier_count = c.nullifier_count.get();
         assert(low_index <= nullifier_count, "invalid low index");
-        let low = c.nullifier_nodes.index(low_index).get();
+        let low = c.nullifier_nodes[low_index].get();
         let low_value: Hash = low.value;
         let low_prev: Felt = low.prev_index;
         let low_next: Felt = low.next_index;
@@ -298,14 +280,14 @@ impl PsyTokenContractRef {
             // Empty list is represented by sentinel.next == 0.
             if low_next != 0 {
                 assert(low_next <= nullifier_count, "broken linked list");
-                let low_next_node = c.nullifier_nodes.index(low_next).get();
+                let low_next_node = c.nullifier_nodes[low_next].get();
                 assert(low_next_node.prev_index == 0, "broken linked list");
             } else {};
         } else {
             assert(low_next != low_index, "broken linked list");
             assert(low_prev <= nullifier_count, "broken linked list");
             assert(low_prev != low_index, "broken linked list");
-            let low_prev_node = c.nullifier_nodes.index(low_prev).get();
+            let low_prev_node = c.nullifier_nodes[low_prev].get();
             assert(low_prev_node.next_index == low_index, "broken linked list");
         };
 
@@ -315,7 +297,7 @@ impl PsyTokenContractRef {
         // Verify nullifier < next.value if not end of list
         if low_next != 0 {
             assert(low_next <= nullifier_count, "broken linked list");
-            let high = c.nullifier_nodes.index(low_next).get();
+            let high = c.nullifier_nodes[low_next].get();
             let high_value: Hash = high.value;
             let high_prev: Felt = high.prev_index;
             assert(high.next_index != low_next, "broken linked list");
@@ -326,32 +308,32 @@ impl PsyTokenContractRef {
         // insert new node at next available index
         let new_index: Felt = nullifier_count + 1;
         assert(new_index < 1048576, "nullifier list is full");
-        c.nullifier_nodes.index(new_index).set(new NullifierNode {
+        c.nullifier_nodes[new_index] = new NullifierNode {
             value: nullifier,
             prev_index: low_index,
             next_index: low_next
-        });
+        };
 
         // update low node's next pointer
-        c.nullifier_nodes.index(low_index).set(new NullifierNode {
+        c.nullifier_nodes[low_index] = new NullifierNode {
             value: low_value,
             prev_index: low_prev,
             next_index: new_index
-        });
+        };
 
         // update high node's prev pointer when inserting in the middle
         if low_next != 0 {
-            let high = c.nullifier_nodes.index(low_next).get();
-            c.nullifier_nodes.index(low_next).set(new NullifierNode {
+            let high = c.nullifier_nodes[low_next].get();
+            c.nullifier_nodes[low_next] = new NullifierNode {
                 value: high.value,
                 prev_index: new_index,
                 next_index: high.next_index
-            });
+            };
         } else {};
 
-        c.nullifier_count.set(new_index);
+        c.nullifier_count = new_index;
 
         // 6. Mint to own balance
-        c.balance.set(c.balance.get() + amount);
+        c.balance += amount;
     }
 }
