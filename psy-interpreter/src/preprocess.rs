@@ -590,6 +590,167 @@ impl<'a> StorageProcessor<'a> {
         }
     }
 
+    fn generate_ref_struct_eq_impl<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
+    >(
+        &self,
+        ref_struct: &StructNode,
+        attr: &AttrNode,
+        ctx: &mut V,
+    ) -> TraitImplNode {
+        let base_name = ctx.ident(ref_struct.name.id).0.to_string().trim_end_matches("Ref").to_string();
+        let base_ty = UncheckedType::Basic(Identifier::new(ctx.intern(base_name.as_str()), attr.location));
+
+        let rhs_ident = Identifier::new(ctx.intern("rhs"), attr.location);
+        let self_target = ctx.alloc_expression(ExprNode::Path(PathNode {
+            root: None,
+            segments: vec![],
+            target: UncheckedType::Basic(Identifier::new(IdentId::SELF, attr.location)),
+            is_ty: false,
+            location: attr.location,
+        }));
+        let self_receiver = ctx.alloc_expression(ExprNode::Path(PathNode {
+            root: None,
+            segments: vec![],
+            target: UncheckedType::Basic(Identifier::new(IdentId::SELF, attr.location)),
+            is_ty: false,
+            location: attr.location,
+        }));
+        let rhs_expr = ctx.alloc_expression(ExprNode::Path(PathNode {
+            root: None,
+            segments: vec![],
+            target: UncheckedType::Basic(rhs_ident),
+            is_ty: false,
+            location: attr.location,
+        }));
+
+        let mut eq_expr: Option<ExprId> = None;
+        for (field_name, _) in &ref_struct.fields {
+            let self_field_target = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
+                target: self_target,
+                field: *field_name,
+                location: attr.location,
+            }));
+            let self_field_receiver = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
+                target: self_receiver,
+                field: *field_name,
+                location: attr.location,
+            }));
+            let rhs_field = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
+                target: rhs_expr,
+                field: *field_name,
+                location: attr.location,
+            }));
+            let eq_ident = Identifier::new(ctx.intern("eq"), attr.location);
+            let callee = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
+                target: self_field_target,
+                field: eq_ident,
+                location: attr.location,
+            }));
+            let field_eq = ctx.alloc_expression(ExprNode::MemberCall(MemberCallNode {
+                callee,
+                receiver: self_field_receiver,
+                generic_parameters: vec![],
+                args: vec![rhs_field],
+                location: attr.location,
+            }));
+
+            eq_expr = Some(match eq_expr {
+                None => field_eq,
+                Some(prev) => ctx.alloc_expression(ExprNode::Binary(BinaryNode {
+                    lhs: prev,
+                    operator: BinaryOperator::And,
+                    rhs: field_eq,
+                    location: attr.location,
+                })),
+            });
+        }
+
+        let default_true_expr = ctx.alloc_expression(ExprNode::Value(ValueNode::Bool(F::from(1u32), attr.location)));
+        let body_expr = eq_expr.unwrap_or(default_true_expr);
+        let body = ctx.alloc_expression(ExprNode::BlockExpr(BlockExprNode {
+            stmts: Vec::new(),
+            expr: Some(body_expr),
+            expr_comments: vec![],
+            location: attr.location,
+        }));
+
+        let eq_fn = FunctionNode {
+            name: Identifier::new(ctx.intern("eq"), attr.location),
+            parameters: vec![
+                FunctionParameter::new(
+                    Identifier::new(IdentId::SELF, attr.location),
+                    TypeQualifier::new(false, attr.location),
+                    UncheckedType::Basic(Identifier::new(IdentId::TYPE_SELF, attr.location)),
+                    attr.location,
+                ),
+                FunctionParameter::new(rhs_ident, TypeQualifier::new(false, attr.location), base_ty.clone(), attr.location),
+            ],
+            generic_parameters: vec![],
+            body: Some(body),
+            return_type: Some(UncheckedType::Basic(Identifier::new(IdentId::TYPE_BOOL, attr.location))),
+            qualifier: Qualifier {
+                is_extern: false,
+                is_const: false,
+                location: attr.location,
+            },
+            visibility: Visibility::Public,
+            attrs: vec![],
+            comments: vec![],
+            location: attr.location,
+        };
+
+        TraitImplNode {
+            associated_types: IndexMap::new(),
+            generic_parameters: ref_struct.generic_parameters.clone(),
+            trait_ty: UncheckedType::Generic(
+                Identifier::new(ctx.intern("Eq"), attr.location),
+                vec![base_ty],
+                attr.location,
+            ),
+            ty: UncheckedType::Basic(ref_struct.name),
+            body: vec![ctx.alloc_definition(DefinitionNode::Function(eq_fn))],
+            comments: vec![],
+            location: attr.location,
+            is_generated: true,
+        }
+    }
+
+    fn supports_generated_eq_field<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
+    >(
+        &self,
+        ty: &UncheckedType,
+        ctx: &mut V,
+    ) -> bool {
+        match ty {
+            UncheckedType::Basic(ident) => {
+                let name = ctx.ident(ident.id).0.to_string();
+                // Generated Ref types compare against their base type via generated Eq impl.
+                name.ends_with("Ref")
+            }
+            UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") && params.len() == 2 => {
+                matches!(
+                    &params[0],
+                    UncheckedType::Basic(inner)
+                        if inner.id == IdentId::TYPE_FELT || inner.id == IdentId::TYPE_U32 || inner.id == IdentId::TYPE_BOOL
+                )
+            }
+            UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") && params.len() == 2 => {
+                matches!(
+                    &params[0],
+                    UncheckedType::Basic(inner)
+                        if inner.id == IdentId::TYPE_FELT || inner.id == IdentId::TYPE_U32
+                )
+            }
+            _ => false,
+        }
+    }
+
     fn generate_field_size<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
         &self,
         attr: &AttrNode,
@@ -2119,6 +2280,14 @@ impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcesso
                 ctx.insert_definition(DefinitionNode::Impl(accessor_impl), InsertPosition::End);
                 let eq_assign_impl = self.generate_ref_struct_eq_assign_impl(&ref_struct, attr, ctx);
                 ctx.insert_definition(DefinitionNode::TraitImpl(eq_assign_impl), InsertPosition::End);
+                if ref_struct
+                    .fields
+                    .iter()
+                    .all(|(_, field)| self.supports_generated_eq_field(&field.ty, ctx))
+                {
+                    let eq_impl = self.generate_ref_struct_eq_impl(&ref_struct, attr, ctx);
+                    ctx.insert_definition(DefinitionNode::TraitImpl(eq_impl), InsertPosition::End);
+                }
 
                 for (_, field) in &ref_struct.fields {
                     if let Some(impl_node) = self.generate_storage_at_impl(&field.ty, attr, ctx) {

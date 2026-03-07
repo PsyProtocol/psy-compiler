@@ -27,4 +27,12 @@ fn main() {
     assert_eq(c.people[0].score.get(), 80, "people[0].score");
     assert_eq(c.people[1].age.get(), 21, "people[1].age after +=");
     assert_eq(c.people[1].score.get(), 92, "people[1].score after +=");
+    assert(p1 == new Person {
+        age: 21,
+        score: 92,
+    }, "RefType from index should support ==");
+    assert_eq(p1, new Person {
+        age: 21,
+        score: 92,
+    }, "assert_eq should use Eq trait for indexed RefType");
 }

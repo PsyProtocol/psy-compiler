@@ -979,12 +979,92 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let checked_rhs = self.visit_expr(binary_node.rhs, ctx)?;
 
         let lhs_ty = checked_lhs.ty();
-        if !self.unify(lhs_ty, checked_rhs.ty(), ctx) {
+        let rhs_ty = checked_rhs.ty();
+        if !matches!(binary_node.operator, BinaryOperator::Eq | BinaryOperator::Neq) && !self.unify(lhs_ty, rhs_ty, ctx) {
             return Err(Error::TypeMismatch {
                 location: checked_rhs.location(),
                 expected: vec![lhs_ty],
-                found: checked_rhs.ty(),
+                found: rhs_ty,
             });
+        }
+
+        if matches!(binary_node.operator, BinaryOperator::Eq | BinaryOperator::Neq) {
+            // Primitive equality keeps builtin semantics. For other types, route to `eq` trait method.
+            if self.unify(lhs_ty, rhs_ty, ctx)
+                && (self.unify(lhs_ty, BOOL_TYPE, ctx) || self.unify(lhs_ty, FELT_TYPE, ctx) || self.unify(lhs_ty, U32_TYPE, ctx))
+            {
+                return Ok(CheckedExprNode::Binary(CheckedBinaryNode {
+                    lhs: self.program.exprs.alloc_item(checked_lhs),
+                    operator: binary_node.operator,
+                    rhs: self.program.exprs.alloc_item(checked_rhs),
+                    type_id: BOOL_TYPE,
+                    location: binary_node.location,
+                }));
+            }
+
+            let eq_ident = Identifier::new(ctx.intern("eq"), binary_node.location);
+            let method_ty = self.find_member(
+                lhs_ty,
+                None,
+                Some(binary_node.location),
+                eq_ident,
+                Some(&[lhs_ty, rhs_ty]),
+                ctx,
+            )?;
+            let signature = ctx.symbols[method_ty].signature();
+
+            if signature.parameters.len() != 2 {
+                return Err(Error::InvalidFunctionArguments {
+                    location: binary_node.location,
+                    method_name: method_ty,
+                    expected: "2 parameters".to_string(),
+                    found: format!("{}", signature.parameters.len()),
+                });
+            }
+            if !self.unify(signature.parameters[0], lhs_ty, ctx) || !self.unify(signature.parameters[1], rhs_ty, ctx) {
+                return Err(Error::TypeMismatch {
+                    location: binary_node.location,
+                    expected: vec![signature.parameters[0], signature.parameters[1]],
+                    found: rhs_ty,
+                });
+            }
+            if !self.unify(signature.return_type, BOOL_TYPE, ctx) {
+                return Err(Error::TypeMismatch {
+                    location: binary_node.location,
+                    expected: vec![BOOL_TYPE],
+                    found: signature.return_type,
+                });
+            }
+
+            let callee = CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
+                target: self.program.exprs.alloc_item(checked_lhs.clone()),
+                field: eq_ident,
+                type_id: method_ty,
+                location: binary_node.location,
+            });
+            let eq_call = CheckedExprNode::MemberCall(CheckedMemberCallNode {
+                callee: self.program.exprs.alloc_item(callee),
+                receiver: self.program.exprs.alloc_item(checked_lhs),
+                generic_parameters: ctx.symbols[method_ty]
+                    .generic_parameters()
+                    .into_iter()
+                    .map(|generic_param| self.substitute_all(generic_param, ctx))
+                    .collect::<Result<Vec<TypeId>>>()?,
+                args: self.program.exprs.alloc_items(vec![checked_rhs]),
+                type_id: BOOL_TYPE,
+                location: binary_node.location,
+            });
+
+            return if matches!(binary_node.operator, BinaryOperator::Eq) {
+                Ok(eq_call)
+            } else {
+                Ok(CheckedExprNode::Unary(CheckedUnaryNode {
+                    operator: UnaryOperator::Not,
+                    rhs: self.program.exprs.alloc_item(eq_call),
+                    type_id: BOOL_TYPE,
+                    location: binary_node.location,
+                }))
+            };
         }
 
         let type_id = match binary_node.operator {
@@ -1035,16 +1115,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 }
                 BOOL_TYPE
             }
-            BinaryOperator::Eq | BinaryOperator::Neq => {
-                if !self.unify(lhs_ty, BOOL_TYPE, ctx) && !self.unify(lhs_ty, FELT_TYPE, ctx) && !self.unify(lhs_ty, U32_TYPE, ctx) {
-                    return Err(Error::TypeMismatch {
-                        location: binary_node.location,
-                        expected: vec![BOOL_TYPE, FELT_TYPE, U32_TYPE],
-                        found: lhs_ty,
-                    });
-                }
-                BOOL_TYPE
-            }
+            BinaryOperator::Eq | BinaryOperator::Neq => unreachable!(),
             BinaryOperator::Lt | BinaryOperator::Lte | BinaryOperator::Gt | BinaryOperator::Gte => {
                 if !self.unify(lhs_ty, FELT_TYPE, ctx) && !self.unify(lhs_ty, U32_TYPE, ctx) {
                     return Err(Error::TypeMismatch {
@@ -1651,21 +1722,73 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             } => {
                 let checked_lhs = self.visit_expr(left, ctx)?;
                 let checked_rhs = self.visit_expr(right, ctx)?;
+                let lhs_ty = checked_lhs.ty();
+                let rhs_ty = checked_rhs.ty();
 
-                if !self.unify(checked_lhs.ty(), checked_rhs.ty(), ctx) {
-                    return Err(Error::TypeMismatch {
-                        location: location,
-                        expected: vec![checked_lhs.ty()],
-                        found: checked_rhs.ty(),
+                // Primitive equality keeps builtin semantics. For other types, route to `eq` trait method.
+                let checked_eq = if self.unify(lhs_ty, rhs_ty, ctx)
+                    && (self.unify(lhs_ty, BOOL_TYPE, ctx) || self.unify(lhs_ty, FELT_TYPE, ctx) || self.unify(lhs_ty, U32_TYPE, ctx))
+                {
+                    CheckedExprNode::Binary(CheckedBinaryNode {
+                        lhs: self.program.exprs.alloc_item(checked_lhs),
+                        operator: BinaryOperator::Eq,
+                        rhs: self.program.exprs.alloc_item(checked_rhs),
+                        type_id: BOOL_TYPE,
+                        location,
+                    })
+                } else {
+                    let eq_ident = Identifier::new(ctx.intern("eq"), location);
+                    let method_ty = self.find_member(lhs_ty, None, Some(location), eq_ident, Some(&[lhs_ty, rhs_ty]), ctx)?;
+                    let signature = ctx.symbols[method_ty].signature();
+
+                    if signature.parameters.len() != 2 {
+                        return Err(Error::InvalidFunctionArguments {
+                            location,
+                            method_name: method_ty,
+                            expected: "2 parameters".to_string(),
+                            found: format!("{}", signature.parameters.len()),
+                        });
+                    }
+                    if !self.unify(signature.parameters[0], lhs_ty, ctx) || !self.unify(signature.parameters[1], rhs_ty, ctx) {
+                        return Err(Error::TypeMismatch {
+                            location,
+                            expected: vec![signature.parameters[0], signature.parameters[1]],
+                            found: rhs_ty,
+                        });
+                    }
+                    if !self.unify(signature.return_type, BOOL_TYPE, ctx) {
+                        return Err(Error::TypeMismatch {
+                            location,
+                            expected: vec![BOOL_TYPE],
+                            found: signature.return_type,
+                        });
+                    }
+
+                    let callee = CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
+                        target: self.program.exprs.alloc_item(checked_lhs.clone()),
+                        field: eq_ident,
+                        type_id: method_ty,
+                        location,
                     });
-                }
+                    CheckedExprNode::MemberCall(CheckedMemberCallNode {
+                        callee: self.program.exprs.alloc_item(callee),
+                        receiver: self.program.exprs.alloc_item(checked_lhs),
+                        generic_parameters: ctx.symbols[method_ty]
+                            .generic_parameters()
+                            .into_iter()
+                            .map(|generic_param| self.substitute_all(generic_param, ctx))
+                            .collect::<Result<Vec<TypeId>>>()?,
+                        args: self.program.exprs.alloc_items(vec![checked_rhs]),
+                        type_id: BOOL_TYPE,
+                        location,
+                    })
+                };
 
-                Ok(CheckedStmtNode::Intrinsic(CheckedIntrinsicStmtNode::AssertEq {
-                    left: self.program.exprs.alloc_item(checked_lhs),
-                    right: self.program.exprs.alloc_item(checked_rhs),
+                Ok(CheckedStmtNode::Intrinsic(CheckedIntrinsicStmtNode::Assert {
+                    left: self.program.exprs.alloc_item(checked_eq),
                     message: message,
                     comments: comments,
-                    location: location,
+                    location,
                 }))
             }
             IntrinsicStmtNode::ClearEntireTree { comments, location } => Ok(CheckedStmtNode::Intrinsic(CheckedIntrinsicStmtNode::ClearEntireTree {

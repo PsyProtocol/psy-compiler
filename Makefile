@@ -65,6 +65,7 @@ ci:
 	@$(DARGO_CLI_EXECUTE) storage_u32_assign_ops_test.psy
 	@$(DARGO_CLI_EXECUTE) storage_ref_index_write_sugar_test.psy
 	@$(DARGO_CLI_EXECUTE) storage_ref_bracket_sugar_test.psy
+	@$(DARGO_CLI_EXECUTE) eq_trait_storage_ref_test.psy
 	@$(DARGO_CLI_EXECUTE) array_ref_struct_index_test.psy
 	@$(DARGO_CLI_EXECUTE) array_ref_struct_bulk_assign_test.psy
 	@$(DARGO_CLI_EXECUTE) storage_ref_alias_consistency_test.psy

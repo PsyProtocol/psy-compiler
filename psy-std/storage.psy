@@ -271,6 +271,10 @@ pub trait EqAssign<Rhs> {
     pub fn eq_assign(self: Self, rhs: Rhs);
 }
 
+pub trait Eq<Rhs> {
+    pub fn eq(self: Self, rhs: Rhs) -> bool;
+}
+
 pub trait AddAssign<Rhs> {
     pub fn add_assign(self: Self, rhs: Rhs);
 }
@@ -314,6 +318,18 @@ pub trait ShrAssign<Rhs> {
 impl<N: u32> EqAssign<Felt> for StorageRef<Felt, N> {
     pub fn eq_assign(self: Self, rhs: Felt) {
         self.set(rhs);
+    }
+}
+
+impl<N: u32> Eq<Felt> for StorageRef<Felt, N> {
+    pub fn eq(self: Self, rhs: Felt) -> bool {
+        self.get() == rhs
+    }
+}
+
+impl<N: u32> Eq<StorageRef<Felt, N>> for StorageRef<Felt, N> {
+    pub fn eq(self: Self, rhs: StorageRef<Felt, N>) -> bool {
+        self.get() == rhs.get()
     }
 }
 
@@ -383,6 +399,30 @@ impl<N: u32> EqAssign<u32> for StorageRef<u32, N> {
     }
 }
 
+impl<N: u32> Eq<u32> for StorageRef<u32, N> {
+    pub fn eq(self: Self, rhs: u32) -> bool {
+        self.get() == rhs
+    }
+}
+
+impl<N: u32> Eq<StorageRef<u32, N>> for StorageRef<u32, N> {
+    pub fn eq(self: Self, rhs: StorageRef<u32, N>) -> bool {
+        self.get() == rhs.get()
+    }
+}
+
+impl<N: u32> Eq<bool> for StorageRef<bool, N> {
+    pub fn eq(self: Self, rhs: bool) -> bool {
+        self.get() == rhs
+    }
+}
+
+impl<N: u32> Eq<StorageRef<bool, N>> for StorageRef<bool, N> {
+    pub fn eq(self: Self, rhs: StorageRef<bool, N>) -> bool {
+        self.get() == rhs.get()
+    }
+}
+
 impl<N: u32> EqAssign<[Felt; N]> for [StorageRef<Felt, 1u32>; N] {
     pub fn eq_assign(self: Self, rhs: [Felt; N]) {
         for i in 0u32..N {
@@ -411,9 +451,57 @@ impl<N: u32> EqAssign<[Felt; N]> for ArrayRef<Felt, N> {
     }
 }
 
+impl<N: u32> Eq<[Felt; N]> for ArrayRef<Felt, N> {
+    pub fn eq(self: Self, rhs: [Felt; N]) -> bool {
+        let mut same = true;
+        for i in 0u32..N {
+            if self.index(i as Felt).get() != rhs[i as Felt] {
+                same = false;
+            }
+        }
+        same
+    }
+}
+
+impl<N: u32> Eq<ArrayRef<Felt, N>> for ArrayRef<Felt, N> {
+    pub fn eq(self: Self, rhs: ArrayRef<Felt, N>) -> bool {
+        let mut same = true;
+        for i in 0u32..N {
+            if self.index(i as Felt).get() != rhs.index(i as Felt).get() {
+                same = false;
+            }
+        }
+        same
+    }
+}
+
 impl<N: u32> EqAssign<[u32; N]> for ArrayRef<u32, N> {
     pub fn eq_assign(self: Self, rhs: [u32; N]) {
         self.set(rhs);
+    }
+}
+
+impl<N: u32> Eq<[u32; N]> for ArrayRef<u32, N> {
+    pub fn eq(self: Self, rhs: [u32; N]) -> bool {
+        let mut same = true;
+        for i in 0u32..N {
+            if self.index(i as Felt).get() != rhs[i as Felt] {
+                same = false;
+            }
+        }
+        same
+    }
+}
+
+impl<N: u32> Eq<ArrayRef<u32, N>> for ArrayRef<u32, N> {
+    pub fn eq(self: Self, rhs: ArrayRef<u32, N>) -> bool {
+        let mut same = true;
+        for i in 0u32..N {
+            if self.index(i as Felt).get() != rhs.index(i as Felt).get() {
+                same = false;
+            }
+        }
+        same
     }
 }
 
