@@ -1,0 +1,27 @@
+#[contract]
+#[derive(Storage)]
+pub struct MapContract {
+    pub balances: Map<Hash, Hash, 128u32>,
+    pub allowances: Map<Hash, Hash, 128u32>,
+}
+
+fn main() {
+    let c = MapContractRef::new(ContractMetadata::current());
+    let key0: Hash = [1001, 0, 0, 0];
+    let key1: Hash = [1002, 0, 0, 0];
+    let value0: Hash = [11, 22, 33, 44];
+    let value1: Hash = [101, 202, 303, 404];
+    assert_eq(c.balances.contains(key0), false, "balances should not contain key0 initially");
+    let old0 = c.balances.insert(key0, value0);
+    assert_eq(old0, [0, 0, 0, 0], "old value should be zero hash for first insert");
+    assert_eq(c.balances.contains(key0), true, "balances should contain key0");
+    assert_eq(c.balances.get(key0), value0, "balances.get(key0) should return inserted value");
+    c.balances.set(key0, value1);
+    assert_eq(c.balances.get(key0), value1, "balances.set should update value");
+    assert_eq(c.balances.contains(key1), false, "balances should not contain key1");
+    // Two map fields should be isolated by offset.
+    assert_eq(c.allowances.contains(key0), false, "allowances should not contain balances key");
+    c.allowances.insert(key1, value0);
+    assert_eq(c.allowances.get(key1), value0, "allowances.get(key1) should return inserted value");
+    assert_eq(c.balances.contains(key1), false, "balances should still not contain key1");
+}

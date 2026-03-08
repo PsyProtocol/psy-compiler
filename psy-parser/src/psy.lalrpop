@@ -992,6 +992,26 @@ IntrinsicExpression: ExprNode<F> = {
             }
         )
     },
+    <l:@L> <variable:IMT_GET> "(" <key: Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::ImtGet {
+                key: expr_nodes.alloc_item(key),
+                base_offset: expr_nodes.alloc_item(ExprNode::Value(ValueNode::Felt(F::from(0), Location::new(file_id, l, r)))),
+                capacity: expr_nodes.alloc_item(ExprNode::Value(ValueNode::Felt(F::from(0), Location::new(file_id, l, r)))),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
+    <l:@L> <variable:IMT_GET> "(" <key: Expression> "," <base_offset: Expression> "," <capacity: Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::ImtGet {
+                key: expr_nodes.alloc_item(key),
+                base_offset: expr_nodes.alloc_item(base_offset),
+                capacity: expr_nodes.alloc_item(capacity),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
     <l:@L> <variable:CTX_GET_OTHER_CONTRACT_STATE_HASH_AT> "(" <contract_state_tree_height: Expression> "," <contract_id: Expression> "," <slot_index: Expression> ")" <r:@R> => {
         ExprNode::Intrinsic(
             IntrinsicExprNode::GetOtherContractStateHashAt {
@@ -1018,6 +1038,38 @@ IntrinsicExpression: ExprNode<F> = {
             IntrinsicExprNode::CSetStateHashAt {
                 slot_index: expr_nodes.alloc_item(slot_index),
                 new_value: expr_nodes.alloc_item(new_value),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
+    <l:@L> <variable:IMT_SET> "(" <key: Expression> "," <new_value: Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::ImtSet {
+                key: expr_nodes.alloc_item(key),
+                new_value: expr_nodes.alloc_item(new_value),
+                base_offset: expr_nodes.alloc_item(ExprNode::Value(ValueNode::Felt(F::from(0), Location::new(file_id, l, r)))),
+                capacity: expr_nodes.alloc_item(ExprNode::Value(ValueNode::Felt(F::from(0), Location::new(file_id, l, r)))),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
+    <l:@L> <variable:IMT_SET> "(" <key: Expression> "," <new_value: Expression> "," <base_offset: Expression> "," <capacity: Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::ImtSet {
+                key: expr_nodes.alloc_item(key),
+                new_value: expr_nodes.alloc_item(new_value),
+                base_offset: expr_nodes.alloc_item(base_offset),
+                capacity: expr_nodes.alloc_item(capacity),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
+    <l:@L> <variable:IMT_CONTAINS> "(" <key: Expression> "," <base_offset: Expression> "," <capacity: Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::ImtContains {
+                key: expr_nodes.alloc_item(key),
+                base_offset: expr_nodes.alloc_item(base_offset),
+                capacity: expr_nodes.alloc_item(capacity),
                 location: Location::new(file_id, l, r)
             }
         )
@@ -1376,6 +1428,9 @@ extern {
         CTX_GET_OTHER_CONTRACT_STATE_HASH_AT => Token::IntrinsicCtxGetOtherContractStateHashAt,
         CTX_GET_OTHER_USER_CONTRACT_STATE_HASH_AT => Token::IntrinsicCtxGetOtherUserContractStateHashAt,
         CTX_SET_STATE_HASH_AT => Token::IntrinsicCtxSetStateHashAt,
+        IMT_GET => Token::IntrinsicImtGet,
+        IMT_SET => Token::IntrinsicImtSet,
+        IMT_CONTAINS => Token::IntrinsicImtContains,
 
         INVOKE_SYNC => Token::IntrinsicInvokeSync,
         INVOKE_DEFERRED => Token::IntrinsicInvokeDeferred,

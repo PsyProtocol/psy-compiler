@@ -100,6 +100,10 @@ pub fn get_state_hash_at(slot_index: Felt) -> Hash {
     __ctx_get_state_hash_at(slot_index)
 }
 
+pub fn imt_get(key: Hash, base_offset: Felt, capacity: Felt) -> Hash {
+    __imt_get(key, base_offset, capacity)
+}
+
 pub fn get_other_contract_state_hash_at(contract_state_tree_height: Felt, contract_id: Felt, slot_index: Felt) -> Hash {
     __ctx_get_other_contract_state_hash_at(contract_state_tree_height, contract_id, slot_index)
 }
@@ -110,6 +114,14 @@ pub fn get_other_user_contract_state_hash_at(contract_state_tree_height: Felt, u
 
 pub fn cset_state_hash_at(slot_index: Felt, new_value: Hash) -> Hash {
     __ctx_set_state_hash_at(slot_index, new_value)
+}
+
+pub fn imt_set(key: Hash, new_value: Hash, base_offset: Felt, capacity: Felt) -> Hash {
+    __imt_set(key, new_value, base_offset, capacity)
+}
+
+pub fn imt_contains(key: Hash, base_offset: Felt, capacity: Felt) -> bool {
+    __imt_contains(key, base_offset, capacity)
 }
 
 pub fn invoke_sync<T, U>(contract_id: Felt, method_id: Felt, inputs: U) -> T {

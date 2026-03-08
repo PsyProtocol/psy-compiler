@@ -30,12 +30,29 @@ pub trait StorageAt<T: Storage, N: u32> {
     pub fn write_at(offset: Felt, index: Felt, value: T);
 }
 
+pub trait ToHash {
+    pub fn to_hash(self) -> Hash;
+}
+
+impl ToHash for Hash {
+    pub fn to_hash(self) -> Hash {
+        self
+    }
+}
+
 pub struct StorageRef<T> {
     pub offset: Felt,
     pub metadata: ContractMetadata,
 }
 
 pub struct ArrayRef<T, N: u32> {
+    pub offset: Felt,
+    pub metadata: ContractMetadata,
+}
+
+pub struct Map<K, V, C: u32> {}
+
+pub struct MapRef<K, V, C: u32> {
     pub offset: Felt,
     pub metadata: ContractMetadata,
 }
@@ -52,6 +69,15 @@ impl<T> StorageNew for StorageRef<T> {
 impl<T, N: u32> StorageNew for ArrayRef<T, N> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
         return new ArrayRef<T, N> {
+            offset,
+            metadata
+        };
+    }
+}
+
+impl<K, V, C: u32> StorageNew for MapRef<K, V, C> {
+    pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
+        return new MapRef<K, V, C> {
             offset,
             metadata
         };
@@ -163,6 +189,27 @@ impl<T: Storage, N: u32> Storage for [T; N] {
     }
 }
 
+impl<K, V, C: u32> Storage for Map<K, V, C> {
+    pub type RefType = MapRef<K, V, C>;
+
+    pub fn size() -> Felt {
+        C as Felt
+    }
+
+    pub fn read(
+        _contract_state_tree_height: Felt,
+        _user_id: Felt,
+        _contract_id: Felt,
+        _offset: Felt
+    ) -> Self {
+        new Map<K, V, C> {}
+    }
+
+    pub fn write(_offset: Felt, _value: Self) {
+        assert(false, "Map does not support whole-value write");
+    }
+}
+
 impl<T: Storage, N: u32> StorageAt<T, N> for [T; N] {
     pub fn write_at(offset: Felt, index: Felt, value: T) {
         let offset = offset + (index * T::size());
@@ -228,6 +275,35 @@ impl<T: Storage, N: u32> ArrayRef<T, N> {
     pub fn index(self, index: Felt) -> T::RefType {
         assert(index < (N as Felt), "Index out of bounds");
         <T::RefType as StorageNew>::new(self.offset + index * T::size(), self.metadata)
+    }
+}
+
+impl<K: ToHash, V: ToHash, C: u32> MapRef<K, V, C> {
+    pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
+        return new MapRef<K, V, C> {
+            offset,
+            metadata
+        };
+    }
+
+    pub fn size() -> Felt {
+        C as Felt
+    }
+
+    pub fn get(self: Self, key: K) -> Hash {
+        return __imt_get(key.to_hash(), self.offset, C as Felt);
+    }
+
+    pub fn insert(self: Self, key: K, value: V) -> Hash {
+        return __imt_set(key.to_hash(), value.to_hash(), self.offset, C as Felt);
+    }
+
+    pub fn set(self: Self, key: K, value: V) -> Hash {
+        return self.insert(key, value);
+    }
+
+    pub fn contains(self: Self, key: K) -> bool {
+        return __imt_contains(key.to_hash(), self.offset, C as Felt);
     }
 }
 

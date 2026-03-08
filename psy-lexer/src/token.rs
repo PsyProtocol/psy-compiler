@@ -107,6 +107,12 @@ pub enum Token<'input> {
     IntrinsicCtxGetOtherUserContractStateHashAt,
     #[token("__ctx_set_state_hash_at")]
     IntrinsicCtxSetStateHashAt,
+    #[token("__imt_get")]
+    IntrinsicImtGet,
+    #[token("__imt_set")]
+    IntrinsicImtSet,
+    #[token("__imt_contains")]
+    IntrinsicImtContains,
     #[token("__ctx_get_guta_fees_collected")]
     IntrinsicCtxGetGutaFeesCollected,
     #[token("__ctx_get_da_fees_collected")]

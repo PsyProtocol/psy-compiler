@@ -107,6 +107,7 @@ ci:
 	@$(DARGO_CLI_EXECUTE) two_user_ups.psy --contract-name=Contract --method-names=simple_mint --method-names=simple_transfer --parameters 1000 --parameters 2,100
 	@$(DARGO_CLI_EXECUTE) check_secp_sign_test.psy
 	@$(DARGO_CLI_EXECUTE) clear_entire_tree_test.psy
+	@$(DARGO_CLI_COMPILE) imt_intrinsic_test.psy
 
 	@RUST_LOG=${LOG_LEVEL} cargo test --profile ${PROFILE} \
 	       --package psy-ast \

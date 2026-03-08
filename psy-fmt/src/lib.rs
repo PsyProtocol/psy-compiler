@@ -65,7 +65,10 @@ impl<'a, F: Clone + From<u32> + Debug, C> Formatter<'a, F, C> {
         match node {
             UncheckedType::Basic(name) => format!("{}", ctx.ident(name)),
             UncheckedType::Path(name) => self.visit_path_node(name, ctx),
-            UncheckedType::Const(value, _) => value.to_string(),
+            UncheckedType::Const(value, _) => match value {
+                ConstValue::U32(v) => format!("{v}u32"),
+                _ => value.to_string(),
+            },
             UncheckedType::Generic(name, generic_parameters, _) => {
                 if name == &IdentId::TYPE_ARRAY {
                     assert!(generic_parameters.len() == 2);
@@ -857,6 +860,17 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
             IntrinsicExprNode::GetStateHashAt { slot_index, .. } => {
                 Ok(format!("__ctx_get_state_hash_at({})", self.visit_expr(slot_index.clone(), ctx)?))
             }
+            IntrinsicExprNode::ImtGet {
+                key,
+                base_offset,
+                capacity,
+                ..
+            } => Ok(format!(
+                "__imt_get({}, {}, {})",
+                self.visit_expr(key.clone(), ctx)?,
+                self.visit_expr(base_offset.clone(), ctx)?,
+                self.visit_expr(capacity.clone(), ctx)?
+            )),
             IntrinsicExprNode::GetOtherContractStateHashAt {
                 contract_state_tree_height,
                 contract_id,
@@ -885,6 +899,30 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
                 "__ctx_cset_state_hash_at({}, {})",
                 self.visit_expr(slot_index.clone(), ctx)?,
                 self.visit_expr(new_value.clone(), ctx)?
+            )),
+            IntrinsicExprNode::ImtSet {
+                key,
+                new_value,
+                base_offset,
+                capacity,
+                ..
+            } => Ok(format!(
+                "__imt_set({}, {}, {}, {})",
+                self.visit_expr(key.clone(), ctx)?,
+                self.visit_expr(new_value.clone(), ctx)?,
+                self.visit_expr(base_offset.clone(), ctx)?,
+                self.visit_expr(capacity.clone(), ctx)?
+            )),
+            IntrinsicExprNode::ImtContains {
+                key,
+                base_offset,
+                capacity,
+                ..
+            } => Ok(format!(
+                "__imt_contains({}, {}, {})",
+                self.visit_expr(key.clone(), ctx)?,
+                self.visit_expr(base_offset.clone(), ctx)?,
+                self.visit_expr(capacity.clone(), ctx)?
             )),
             IntrinsicExprNode::MemTransmute { data, target_type, .. } => Ok(format!(
                 "__mem_transmute#<{}>({})",

@@ -819,6 +819,18 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let slot_index = self.interpret_expr(program, slot_index.clone(), ctx)?.to_felt();
                         CheckedValueRef::from_vec(type_id.clone(), self.context.get_state_hash_at(slot_index))
                     }
+                    CheckedIntrinsicExprNode::ImtGet {
+                        key,
+                        base_offset,
+                        capacity,
+                        type_id,
+                        ..
+                    } => {
+                        let key = self.interpret_expr(program, key.clone(), ctx)?.to_array();
+                        let base_offset = self.interpret_expr(program, base_offset.clone(), ctx)?.to_felt();
+                        let capacity = self.interpret_expr(program, capacity.clone(), ctx)?.to_felt();
+                        CheckedValueRef::from_vec(type_id.clone(), self.context.imt_get_value(key, base_offset, capacity))
+                    }
                     CheckedIntrinsicExprNode::GetOtherContractStateHashAt {
                         contract_state_tree_height,
                         contract_id,
@@ -862,6 +874,31 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let new_value = self.interpret_expr(program, new_value.clone(), ctx)?.to_array();
                         let slot_index = self.interpret_expr(program, slot_index.clone(), ctx)?.to_felt();
                         CheckedValueRef::from_vec(type_id.clone(), self.context.cset_state_hash_at(slot_index, new_value))
+                    }
+                    CheckedIntrinsicExprNode::ImtSet {
+                        key,
+                        new_value,
+                        base_offset,
+                        capacity,
+                        type_id,
+                        ..
+                    } => {
+                        let key = self.interpret_expr(program, key.clone(), ctx)?.to_array();
+                        let new_value = self.interpret_expr(program, new_value.clone(), ctx)?.to_array();
+                        let base_offset = self.interpret_expr(program, base_offset.clone(), ctx)?.to_felt();
+                        let capacity = self.interpret_expr(program, capacity.clone(), ctx)?.to_felt();
+                        CheckedValueRef::from_vec(type_id.clone(), self.context.imt_insert(key, new_value, base_offset, capacity))
+                    }
+                    CheckedIntrinsicExprNode::ImtContains {
+                        key,
+                        base_offset,
+                        capacity,
+                        ..
+                    } => {
+                        let key = self.interpret_expr(program, key.clone(), ctx)?.to_array();
+                        let base_offset = self.interpret_expr(program, base_offset.clone(), ctx)?.to_felt();
+                        let capacity = self.interpret_expr(program, capacity.clone(), ctx)?.to_felt();
+                        CheckedValueRef::from_bool(self.context.imt_contains(key, base_offset, capacity))
                     }
                     CheckedIntrinsicExprNode::StorageRead {
                         contract_state_tree_height,

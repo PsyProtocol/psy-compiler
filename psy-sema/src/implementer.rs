@@ -289,7 +289,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                         }
                     }
 
-                    if ctx.symbols[ty].is_array() {
+                    if ctx.symbols[ty].is_array()
+                        && constraint
+                            .constraints
+                            .iter()
+                            .any(|c| ctx.symbols[*c].is_type_variable())
+                    {
                         let poly_function_id = self.program[impl_id].as_trait_impl().unwrap().body[function_idx];
                         let poly_candidate = self.program[poly_function_id].as_function().unwrap().type_id;
                         if !candidate_matches!(poly_candidate) {

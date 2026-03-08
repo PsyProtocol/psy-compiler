@@ -348,6 +348,44 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                     location,
                 }));
             }
+            IntrinsicExprNode::ImtGet {
+                key,
+                base_offset,
+                capacity,
+                location,
+            } => {
+                let key = self.visit_expr(key, ctx)?;
+                let base_offset = self.visit_expr(base_offset, ctx)?;
+                let capacity = self.visit_expr(capacity, ctx)?;
+                if !self.unify(key.ty(), HASH_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: key.location(),
+                        expected: vec![HASH_TYPE],
+                        found: key.ty(),
+                    });
+                }
+                if !self.unify(base_offset.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: base_offset.location(),
+                        expected: vec![FELT_TYPE],
+                        found: base_offset.ty(),
+                    });
+                }
+                if !self.unify(capacity.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: capacity.location(),
+                        expected: vec![FELT_TYPE],
+                        found: capacity.ty(),
+                    });
+                }
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::ImtGet {
+                    key: self.program.exprs.alloc_item(key),
+                    base_offset: self.program.exprs.alloc_item(base_offset),
+                    capacity: self.program.exprs.alloc_item(capacity),
+                    type_id: HASH_TYPE,
+                    location,
+                }));
+            }
             IntrinsicExprNode::GetOtherContractStateHashAt {
                 contract_state_tree_height,
                 contract_id,
@@ -463,6 +501,96 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                     slot_index: self.program.exprs.alloc_item(slot_index),
                     new_value: self.program.exprs.alloc_item(new_value),
                     type_id: HASH_TYPE,
+                    location,
+                }));
+            }
+            IntrinsicExprNode::ImtSet {
+                key,
+                new_value,
+                base_offset,
+                capacity,
+                location,
+            } => {
+                let key = self.visit_expr(key, ctx)?;
+                let new_value = self.visit_expr(new_value, ctx)?;
+                let base_offset = self.visit_expr(base_offset, ctx)?;
+                let capacity = self.visit_expr(capacity, ctx)?;
+
+                if !self.unify(key.ty(), HASH_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: key.location(),
+                        expected: vec![HASH_TYPE],
+                        found: key.ty(),
+                    });
+                }
+                if !self.unify(new_value.ty(), HASH_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: new_value.location(),
+                        expected: vec![HASH_TYPE],
+                        found: new_value.ty(),
+                    });
+                }
+                if !self.unify(base_offset.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: base_offset.location(),
+                        expected: vec![FELT_TYPE],
+                        found: base_offset.ty(),
+                    });
+                }
+                if !self.unify(capacity.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: capacity.location(),
+                        expected: vec![FELT_TYPE],
+                        found: capacity.ty(),
+                    });
+                }
+
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::ImtSet {
+                    key: self.program.exprs.alloc_item(key),
+                    new_value: self.program.exprs.alloc_item(new_value),
+                    base_offset: self.program.exprs.alloc_item(base_offset),
+                    capacity: self.program.exprs.alloc_item(capacity),
+                    type_id: HASH_TYPE,
+                    location,
+                }));
+            }
+            IntrinsicExprNode::ImtContains {
+                key,
+                base_offset,
+                capacity,
+                location,
+            } => {
+                let key = self.visit_expr(key, ctx)?;
+                let base_offset = self.visit_expr(base_offset, ctx)?;
+                let capacity = self.visit_expr(capacity, ctx)?;
+
+                if !self.unify(key.ty(), HASH_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: key.location(),
+                        expected: vec![HASH_TYPE],
+                        found: key.ty(),
+                    });
+                }
+                if !self.unify(base_offset.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: base_offset.location(),
+                        expected: vec![FELT_TYPE],
+                        found: base_offset.ty(),
+                    });
+                }
+                if !self.unify(capacity.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: capacity.location(),
+                        expected: vec![FELT_TYPE],
+                        found: capacity.ty(),
+                    });
+                }
+
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::ImtContains {
+                    key: self.program.exprs.alloc_item(key),
+                    base_offset: self.program.exprs.alloc_item(base_offset),
+                    capacity: self.program.exprs.alloc_item(capacity),
+                    type_id: BOOL_TYPE,
                     location,
                 }));
             }

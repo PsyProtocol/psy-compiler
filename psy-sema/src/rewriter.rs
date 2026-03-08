@@ -639,6 +639,18 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                     *slot_index = self.rewrite_expr(*slot_index, ctx)?;
                     *type_id = self.substitute_all(*type_id, ctx)?;
                 }
+                CheckedIntrinsicExprNode::ImtGet {
+                    key,
+                    base_offset,
+                    capacity,
+                    type_id,
+                    ..
+                } => {
+                    *key = self.rewrite_expr(*key, ctx)?;
+                    *base_offset = self.rewrite_expr(*base_offset, ctx)?;
+                    *capacity = self.rewrite_expr(*capacity, ctx)?;
+                    *type_id = self.substitute_all(*type_id, ctx)?;
+                }
                 CheckedIntrinsicExprNode::GetOtherContractStateHashAt {
                     contract_state_tree_height,
                     contract_id,
@@ -673,6 +685,32 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                 } => {
                     *new_value = self.rewrite_expr(*new_value, ctx)?;
                     *slot_index = self.rewrite_expr(*slot_index, ctx)?;
+                    *type_id = self.substitute_all(*type_id, ctx)?;
+                }
+                CheckedIntrinsicExprNode::ImtSet {
+                    key,
+                    new_value,
+                    base_offset,
+                    capacity,
+                    type_id,
+                    ..
+                } => {
+                    *key = self.rewrite_expr(*key, ctx)?;
+                    *new_value = self.rewrite_expr(*new_value, ctx)?;
+                    *base_offset = self.rewrite_expr(*base_offset, ctx)?;
+                    *capacity = self.rewrite_expr(*capacity, ctx)?;
+                    *type_id = self.substitute_all(*type_id, ctx)?;
+                }
+                CheckedIntrinsicExprNode::ImtContains {
+                    key,
+                    base_offset,
+                    capacity,
+                    type_id,
+                    ..
+                } => {
+                    *key = self.rewrite_expr(*key, ctx)?;
+                    *base_offset = self.rewrite_expr(*base_offset, ctx)?;
+                    *capacity = self.rewrite_expr(*capacity, ctx)?;
                     *type_id = self.substitute_all(*type_id, ctx)?;
                 }
                 CheckedIntrinsicExprNode::StorageRead { offset, type_id, .. } => {

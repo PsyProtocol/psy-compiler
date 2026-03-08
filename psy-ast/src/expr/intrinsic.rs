@@ -99,6 +99,12 @@ pub enum IntrinsicExprNode {
         slot_index: ExprId,
         location: Location,
     },
+    ImtGet {
+        key: ExprId,
+        base_offset: ExprId,
+        capacity: ExprId,
+        location: Location,
+    },
     GetOtherContractStateHashAt {
         contract_state_tree_height: ExprId,
         contract_id: ExprId,
@@ -115,6 +121,19 @@ pub enum IntrinsicExprNode {
     CSetStateHashAt {
         slot_index: ExprId,
         new_value: ExprId,
+        location: Location,
+    },
+    ImtSet {
+        key: ExprId,
+        new_value: ExprId,
+        base_offset: ExprId,
+        capacity: ExprId,
+        location: Location,
+    },
+    ImtContains {
+        key: ExprId,
+        base_offset: ExprId,
+        capacity: ExprId,
         location: Location,
     },
     MemTransmute {
