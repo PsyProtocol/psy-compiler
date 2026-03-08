@@ -19,9 +19,17 @@ pub struct UserInfoEvent {
 }
 
 struct PrivateClaimProof {
-    pub fingerprint: Hash,
     pub siblings: [Hash; 16],
     pub index: Felt,
+}
+
+struct ProofPublicInputsPreimage {
+    pub receiver: Hash,
+    pub amount: Felt,
+    pub user_tree_root: Hash,
+    pub checkpoint_id: Felt,
+    pub note_root_slot: Felt,
+    pub nullifier_hash: Hash,
 }
 
 #[contract]
@@ -33,10 +41,10 @@ pub struct PsyTokenContract {
     pub other_user_info: [OtherUserInfo; 16777216],
 
     pub note_count: Felt,
-    // Append-only private note tree state (height=20, capacity=2^20 notes)
+
     pub note_root: Hash,
     pub last_path: [Hash; 20],
-    // Nullifier set keyed by nullifier hash.
+
     pub claimed_nullifiers: Map<Hash, Hash, 1048576u32>,
 }
 
@@ -183,16 +191,15 @@ impl PsyTokenContractRef {
         c.balance = current_balance - total_amount;
     }
 
-    pub fn private_transfer(owner: Hash, value: Felt, randomness: Hash) {
+    pub fn private_transfer(receiver: Hash, value: Felt, note_secret_hash: Hash) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
         assert(value > 0, "value must be positive");
         assert(current_balance >= value, "insufficient balance");
         c.balance = current_balance - value;
 
-        // commitment = hash(hash(owner, [value, 0, 0, 0]), randomness)
         let value_hash: Hash = [value, 0, 0, 0];
-        let commitment: Hash = hash_two_to_one(hash_two_to_one(owner, value_hash), randomness);
+        let commitment: Hash = hash_two_to_one(hash_two_to_one(receiver, value_hash), note_secret_hash);
         let idx = c.note_count.get();
         assert(idx < 1048576, "note tree is full");
 
@@ -218,21 +225,44 @@ impl PsyTokenContractRef {
         c.note_count = idx + 1;
     }
 
-    pub fn private_claim(nullifier: Hash, owner: Hash, amount: Felt,randomness: Hash, user_tree_root: Hash, checkpoint_id: Felt, note_root_slot: Felt, proof: PrivateClaimProof) {
+    pub fn private_claim(
+        nullifier_hash: Hash,
+        receiver: Hash,
+        amount: Felt,
+        user_tree_root: Hash,
+        checkpoint_id: Felt,
+        note_root_slot: Felt,
+        random0: Felt,
+        random1: Felt,
+        proof: PrivateClaimProof
+    ) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
 
-        let public_inputs_hash: Hash = hash([
-            nullifier[0], nullifier[1], nullifier[2], nullifier[3],
-            owner[0], owner[1], owner[2], owner[3],
+        let preimage = new ProofPublicInputsPreimage {
+            receiver,
             amount,
-            randomness[0], randomness[1], randomness[2], randomness[3],
-            user_tree_root[0], user_tree_root[1], user_tree_root[2], user_tree_root[3],
+            user_tree_root,
             checkpoint_id,
-            note_root_slot
-        ]);
-        let leaf: Hash = hash_two_to_one(proof.fingerprint, public_inputs_hash);
+            note_root_slot,
+            nullifier_hash
+        };
 
-        // 1. Verify proof exists in UPS proof tree
+        let public_inputs_hash: Hash = hash([
+            preimage.receiver[0], preimage.receiver[1], preimage.receiver[2], preimage.receiver[3],
+            preimage.amount,
+            preimage.user_tree_root[0], preimage.user_tree_root[1], preimage.user_tree_root[2], preimage.user_tree_root[3],
+            preimage.checkpoint_id,
+            preimage.note_root_slot,
+            preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
+        ]);
+        let private_note_inclusion_fingerprint: Hash = [
+            17872084790529570755,
+            14171151298373845645,
+            12503293009455873041,
+            4076606115310224046
+        ];
+        let leaf: Hash = hash_two_to_one(private_note_inclusion_fingerprint, public_inputs_hash);
+
         let mut current: Hash = leaf;
         for i in 0u32..16u32 {
             let level_index = i as Felt;
@@ -249,23 +279,16 @@ impl PsyTokenContractRef {
         let expected_root: Hash = get_session_proof_tree_root();
         assert(current == expected_root, "proof tree root mismatch");
 
-        // 2. Verify user_tree_root matches the actual global state at checkpoint_id
-        let expected_user_tree_root: Hash = get_checkpoint_user_tree_root(checkpoint_id);
-        assert(user_tree_root == expected_user_tree_root, "user tree root does not match checkpoint state");
+        let expected_user_tree_root: Hash = get_checkpoint_user_tree_root(preimage.checkpoint_id);
+        assert(preimage.user_tree_root == expected_user_tree_root, "user tree root does not match checkpoint state");
 
-        // 3. Note_root slot id must match token storage layout
-        assert(note_root_slot == 8388609, "invalid note root slot id");
+        assert(preimage.note_root_slot == 8388609, "invalid note root slot id");
 
-        // 4. Verify owner binds claiming user's public key hash and user id
-        let expected_public_key_hash: Hash = get_user_public_key_hash();
-        let user_id_hash: Hash = [get_user_id(), 0, 0, 0];
-        let expected_owner: Hash = hash_two_to_one(expected_public_key_hash, user_id_hash);
-        assert(owner == expected_owner, "owner does not match claiming user");
-        // 5. Nullifier uniqueness check using map (no linked-list ordering requirement).
-        assert(c.claimed_nullifiers.contains(nullifier) == false, "nullifier already claimed");
-        c.claimed_nullifiers.insert(nullifier, [1, 0, 0, 0]);
+        let expected_receiver: Hash = hash([get_user_id(), 1337, random0, random1]);
+        assert(preimage.receiver == expected_receiver, "receiver does not match claiming user");
+        assert(c.claimed_nullifiers.contains(preimage.nullifier_hash) == false, "nullifier already claimed");
+        c.claimed_nullifiers.insert(preimage.nullifier_hash, [1, 0, 0, 0]);
 
-        // 6. Mint to own balance
-        c.balance += amount;
+        c.balance += preimage.amount;
     }
 }
