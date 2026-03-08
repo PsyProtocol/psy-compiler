@@ -6,7 +6,7 @@ pub struct Person {
 #[contract]
 #[derive(Storage)]
 pub struct SimpleContract {
-    #[RefType]
+    #[ref]
     pub person: Person,
 }
 

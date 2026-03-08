@@ -18,10 +18,7 @@ impl<'a> StorageProcessor<'a> {
         attrs: &[AttrNode],
         ctx: &mut V,
     ) -> bool {
-        attrs.iter().any(|a| {
-            let id = a.name.id;
-            id == ctx.intern("RefType") || id == ctx.intern("ref")
-        })
+        attrs.iter().any(|a| a.name.id == ctx.intern("ref"))
     }
 
     fn is_map_ref_type<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
@@ -227,7 +224,7 @@ impl<'a> StorageProcessor<'a> {
             let transformed_type = if self.has_ref_type_attr(&field.attrs, ctx) {
                 let base_type = match &field.ty {
                     UncheckedType::Basic(ident) => ident,
-                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
+                    _ => panic!("#[ref] attribute only supported on basic struct types"),
                 };
                 let ref_type_name = format!("{}Ref", ctx.ident(base_type.id));
                 UncheckedType::Basic(Identifier::new(ctx.intern(ref_type_name.as_str()), attr.location))
@@ -331,7 +328,7 @@ impl<'a> StorageProcessor<'a> {
                         let base_name = type_name.trim_end_matches("Ref");
                         UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
                     }
-                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
+                    _ => panic!("#[ref] attribute only supported on basic struct types"),
                 };
                 (base_type.clone(), 1, field.ty.clone())
             } else {
@@ -482,7 +479,7 @@ impl<'a> StorageProcessor<'a> {
                         let base_name = type_name.trim_end_matches("Ref");
                         (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), 1)
                     }
-                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
+                    _ => panic!("#[ref] attribute only supported on basic struct types"),
                 }
             } else {
                 match &field.ty {
@@ -875,7 +872,7 @@ impl<'a> StorageProcessor<'a> {
                         let base_name = type_name.trim_end_matches("Ref");
                         UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
                     }
-                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
+                    _ => panic!("#[ref] attribute only supported on basic struct types"),
                 }
             } else {
                 match &field.ty {
@@ -982,7 +979,7 @@ impl<'a> StorageProcessor<'a> {
                         let base_name = type_name.trim_end_matches("Ref");
                         UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
                     }
-                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
+                    _ => panic!("#[ref] attribute only supported on basic struct types"),
                 }
             } else {
                 match &field.ty {
@@ -1103,7 +1100,7 @@ impl<'a> StorageProcessor<'a> {
                         let base_name = type_name.trim_end_matches("Ref");
                         UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
                     }
-                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
+                    _ => panic!("#[ref] attribute only supported on basic struct types"),
                 }
             } else {
                 match &field.ty {
@@ -1198,7 +1195,7 @@ impl<'a> StorageProcessor<'a> {
                         let base_name = type_name.trim_end_matches("Ref");
                         (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), 1)
                     }
-                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
+                    _ => panic!("#[ref] attribute only supported on basic struct types"),
                 }
             } else {
                 match &field.ty {
@@ -1379,7 +1376,7 @@ impl<'a> StorageProcessor<'a> {
                         let base_name = type_name.trim_end_matches("Ref");
                         (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), 1)
                     }
-                    _ => panic!("#[RefType] attribute only supported on basic struct types"),
+                    _ => panic!("#[ref] attribute only supported on basic struct types"),
                 }
             } else {
                 match &field.ty {

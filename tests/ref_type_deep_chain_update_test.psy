@@ -6,7 +6,7 @@ pub struct Profile {
 
 #[derive(Storage)]
 pub struct Person {
-    #[RefType]
+    #[ref]
     pub profile: Profile,
     pub score: Felt,
 }
@@ -14,7 +14,7 @@ pub struct Person {
 #[contract]
 #[derive(Storage)]
 pub struct C {
-    #[RefType]
+    #[ref]
     pub person: Person,
     pub people: [Person; 2],
 }

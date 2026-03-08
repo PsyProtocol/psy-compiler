@@ -8,7 +8,7 @@ pub struct Person {
 #[derive(Storage)]
 pub struct C {
     pub a: Felt,
-    #[RefType]
+    #[ref]
     pub person: Person,
 }
 
