@@ -41,17 +41,9 @@ pub struct PsyTokenContract {
 }
 
 impl PsyTokenContractRef {
-    pub fn hash_lt(a: Hash, b: Hash) -> bool {
-        a[0] < b[0]
-            || (a[0] == b[0] && a[1] < b[1])
-            || (a[0] == b[0] && a[1] == b[1] && a[2] < b[2])
-            || (a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] < b[3])
-    }
-
     pub fn simple_mint(amount: Felt) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         c.balance += amount;
-        // invoke_deferred(0, 354447671, [999, 1]);
     }
 
     pub fn simple_burn(amount: Felt) {
@@ -226,7 +218,7 @@ impl PsyTokenContractRef {
         c.note_count = idx + 1;
     }
 
-    pub fn private_claim(nullifier: Hash, owner: Hash, amount: Felt,randomness: Hash, user_tree_root: Hash, checkpoint_id: Felt, note_root_slot: Felt, low_index: Felt, proof: PrivateClaimProof) {
+    pub fn private_claim(nullifier: Hash, owner: Hash, amount: Felt,randomness: Hash, user_tree_root: Hash, checkpoint_id: Felt, note_root_slot: Felt, proof: PrivateClaimProof) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
 
         let public_inputs_hash: Hash = hash([
