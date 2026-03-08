@@ -1,17 +1,15 @@
-use std::prelude::*;
-
 pub fn main() {
     let key0: Hash = [7001, 0, 0, 0];
     let key1: Hash = [7002, 0, 0, 0];
-
     let v0: Hash = [11, 22, 33, 44];
     let v1: Hash = [101, 202, 303, 404];
-
-    __imt_set(key0, v0);
-    assert_eq(__imt_get(key0), v0, "__imt_get/__imt_set should round-trip");
-
-    imt_set(key1, v1);
-    assert_eq(imt_get(key1), v1, "imt_get/imt_set wrapper should round-trip");
-
-    assert_eq(imt_get(key0), v0, "imt key isolation");
+    let offset: Felt = 0;
+    let capacity: Felt = 128;
+    __imt_set(key0, v0, offset, capacity);
+    assert_eq(__imt_get(key0, offset, capacity), v0, "__imt_get/__imt_set should round-trip");
+    imt_set(key1, v1, offset, capacity);
+    assert_eq(imt_get(key1, offset, capacity), v1, "imt_get/imt_set wrapper should round-trip");
+    assert_eq(imt_contains(key0, offset, capacity), true, "imt_contains should be true for existing key");
+    assert_eq(imt_contains([9999, 0, 0, 0], offset, capacity), false, "imt_contains should be false for missing key");
+    assert_eq(imt_get(key0, offset, capacity), v0, "imt key isolation");
 }

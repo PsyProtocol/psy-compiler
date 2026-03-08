@@ -24,6 +24,29 @@ impl<'a> StorageProcessor<'a> {
         })
     }
 
+    fn is_map_ref_type<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
+        &self,
+        ty: &UncheckedType,
+        ctx: &mut V,
+    ) -> bool {
+        matches!(ty, UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("MapRef") && params.len() == 3)
+    }
+
+    fn struct_has_map_ref_fields<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
+    >(
+        &self,
+        struct_node: &StructNode,
+        ctx: &mut V,
+    ) -> bool {
+        struct_node
+            .fields
+            .values()
+            .any(|field| self.is_map_ref_type(&field.ty, ctx))
+    }
+
     fn generate_event_impl<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
         &self,
         struct_node: &StructNode,
@@ -210,6 +233,16 @@ impl<'a> StorageProcessor<'a> {
                 UncheckedType::Basic(Identifier::new(ctx.intern(ref_type_name.as_str()), attr.location))
             } else {
                 match &field.ty {
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("Map") => {
+                        if params.len() != 3 {
+                            panic!("Map must have exactly three generic parameters");
+                        }
+                        UncheckedType::Generic(
+                            Identifier::new(ctx.intern("MapRef"), attr.location),
+                            params.clone(),
+                            attr.location,
+                        )
+                    }
                     UncheckedType::Array(elem_ty, size, _) => UncheckedType::Generic(
                         Identifier::new(ctx.intern("ArrayRef"), attr.location),
                         vec![elem_ty.as_ref().clone(), UncheckedType::Const(ConstValue::U32(*size), attr.location)],
@@ -434,7 +467,7 @@ impl<'a> StorageProcessor<'a> {
         let mut methods = Vec::new();
 
         // Add get and set methods for the entire struct if it's a Ref struct
-        if is_ref_struct {
+        if is_ref_struct && !self.struct_has_map_ref_fields(struct_node, ctx) {
             methods.push(self.generate_struct_getter(struct_node, attr, ctx));
             methods.push(self.generate_struct_setter(struct_node, attr, ctx));
         }
@@ -2342,15 +2375,17 @@ impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcesso
 
                 let accessor_impl = self.generate_accessor_impl(&ref_struct, attr, ctx, true);
                 ctx.insert_definition(DefinitionNode::Impl(accessor_impl), InsertPosition::End);
-                let eq_assign_impl = self.generate_ref_struct_eq_assign_impl(&ref_struct, attr, ctx);
-                ctx.insert_definition(DefinitionNode::TraitImpl(eq_assign_impl), InsertPosition::End);
-                if ref_struct
-                    .fields
-                    .iter()
-                    .all(|(_, field)| self.supports_generated_eq_field(&field.ty, ctx))
-                {
-                    let eq_impl = self.generate_ref_struct_eq_impl(&ref_struct, attr, ctx);
-                    ctx.insert_definition(DefinitionNode::TraitImpl(eq_impl), InsertPosition::End);
+                if !self.struct_has_map_ref_fields(&ref_struct, ctx) {
+                    let eq_assign_impl = self.generate_ref_struct_eq_assign_impl(&ref_struct, attr, ctx);
+                    ctx.insert_definition(DefinitionNode::TraitImpl(eq_assign_impl), InsertPosition::End);
+                    if ref_struct
+                        .fields
+                        .iter()
+                        .all(|(_, field)| self.supports_generated_eq_field(&field.ty, ctx))
+                    {
+                        let eq_impl = self.generate_ref_struct_eq_impl(&ref_struct, attr, ctx);
+                        ctx.insert_definition(DefinitionNode::TraitImpl(eq_impl), InsertPosition::End);
+                    }
                 }
 
                 for (_, field) in &ref_struct.fields {

@@ -18,13 +18,6 @@ pub struct UserInfoEvent {
     pub balance: Felt,
 }
 
-#[derive(Storage)]
-struct NullifierNode {
-    pub value: Hash,
-    pub prev_index: Felt,
-    pub next_index: Felt,
-}
-
 struct PrivateClaimProof {
     pub fingerprint: Hash,
     pub siblings: [Hash; 16],
@@ -43,9 +36,8 @@ pub struct PsyTokenContract {
     // Append-only private note tree state (height=20, capacity=2^20 notes)
     pub note_root: Hash,
     pub last_path: [Hash; 20],
-    // Nullifier sorted linked list (node 0 = sentinel with value [0,0,0,0])
-    pub nullifier_nodes: [NullifierNode; 1048576],
-    pub nullifier_count: Felt,
+    // Nullifier set keyed by nullifier hash.
+    pub claimed_nullifiers: Map<Hash, Hash, 1048576u32>,
 }
 
 impl PsyTokenContractRef {
@@ -277,74 +269,9 @@ impl PsyTokenContractRef {
         let user_id_hash: Hash = [get_user_id(), 0, 0, 0];
         let expected_owner: Hash = hash_two_to_one(expected_public_key_hash, user_id_hash);
         assert(owner == expected_owner, "owner does not match claiming user");
-
-
-        // 5. Nullifier sorted linked list insertion (non-membership + insert)
-        let nullifier_count = c.nullifier_count.get();
-        assert(low_index <= nullifier_count, "invalid low index");
-        let low = c.nullifier_nodes[low_index].get();
-        let low_value: Hash = low.value;
-        let low_prev: Felt = low.prev_index;
-        let low_next: Felt = low.next_index;
-
-        // Strict linked-list consistency checks for low node.
-        if low_index == 0 {
-            assert(low_prev == 0, "broken sentinel node");
-            // Empty list is represented by sentinel.next == 0.
-            if low_next != 0 {
-                assert(low_next <= nullifier_count, "broken linked list");
-                let low_next_node = c.nullifier_nodes[low_next].get();
-                assert(low_next_node.prev_index == 0, "broken linked list");
-            } else {};
-        } else {
-            assert(low_next != low_index, "broken linked list");
-            assert(low_prev <= nullifier_count, "broken linked list");
-            assert(low_prev != low_index, "broken linked list");
-            let low_prev_node = c.nullifier_nodes[low_prev].get();
-            assert(low_prev_node.next_index == low_index, "broken linked list");
-        };
-
-        // Verify low.value < nullifier (lexicographic comparison)
-        assert(Self::hash_lt(low_value, nullifier), "nullifier must be greater than low node");
-
-        // Verify nullifier < next.value if not end of list
-        if low_next != 0 {
-            assert(low_next <= nullifier_count, "broken linked list");
-            let high = c.nullifier_nodes[low_next].get();
-            let high_value: Hash = high.value;
-            let high_prev: Felt = high.prev_index;
-            assert(high.next_index != low_next, "broken linked list");
-            assert(high_prev == low_index, "broken linked list");
-            assert(Self::hash_lt(nullifier, high_value), "nullifier must be less than next node");
-        } else {};
-
-        // insert new node at next available index
-        let new_index: Felt = nullifier_count + 1;
-        assert(new_index < 1048576, "nullifier list is full");
-        c.nullifier_nodes[new_index] = new NullifierNode {
-            value: nullifier,
-            prev_index: low_index,
-            next_index: low_next
-        };
-
-        // update low node's next pointer
-        c.nullifier_nodes[low_index] = new NullifierNode {
-            value: low_value,
-            prev_index: low_prev,
-            next_index: new_index
-        };
-
-        // update high node's prev pointer when inserting in the middle
-        if low_next != 0 {
-            let high = c.nullifier_nodes[low_next].get();
-            c.nullifier_nodes[low_next] = new NullifierNode {
-                value: high.value,
-                prev_index: new_index,
-                next_index: high.next_index
-            };
-        } else {};
-
-        c.nullifier_count = new_index;
+        // 5. Nullifier uniqueness check using map (no linked-list ordering requirement).
+        assert(c.claimed_nullifiers.contains(nullifier) == false, "nullifier already claimed");
+        c.claimed_nullifiers.insert(nullifier, [1, 0, 0, 0]);
 
         // 6. Mint to own balance
         c.balance += amount;

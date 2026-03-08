@@ -237,6 +237,8 @@ impl Type {
 
     pub fn name(&self) -> IdentId {
         match self {
+            Type::Unknown => IdentId::TYPE_UNKNOWN,
+            Type::VOID => IdentId::TYPE_VOID,
             Type::Felt => IdentId::TYPE_FELT,
             Type::Bool => IdentId::TYPE_BOOL,
             Type::U32 => IdentId::TYPE_U32,
@@ -244,10 +246,12 @@ impl Type {
             Type::Enum(CheckedEnumNode { name, .. }) => name.id,
             Type::Function(CheckedFunctionNode { name, .. }) => name.id,
             Type::Trait(CheckedTraitNode { name, .. }) => name.id,
-            // Type::Const(CheckedConstNode { name, .. }) => name.unwrap().id,
+            Type::Const(CheckedConstNode { name, .. }) => name.map(|n| n.id).unwrap_or(IdentId::TYPE_UNKNOWN),
             Type::Array(_) => IdentId::TYPE_ARRAY,
+            Type::Tuple(_) => IdentId::TYPE_TUPLE,
+            Type::LambdaFunction(CheckedLambdaFunctionNode { name, .. }) => name.id,
+            Type::FunctionSignature(_) => IdentId::TYPE_UNKNOWN,
             Type::TypeVariable(CheckedGenericParameter { name, .. }) => name.clone(),
-            _ => unreachable!(),
         }
     }
 
