@@ -256,10 +256,10 @@ impl PsyTokenContractRef {
             preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
         ]);
         let private_note_inclusion_fingerprint: Hash = [
-            17872084790529570755,
-            14171151298373845645,
-            12503293009455873041,
-            4076606115310224046
+            1866130053021784426,
+            4684972721646198880,
+            8939938924988830351,
+            15880983663605084668
         ];
         let leaf: Hash = hash_two_to_one(private_note_inclusion_fingerprint, public_inputs_hash);
 
