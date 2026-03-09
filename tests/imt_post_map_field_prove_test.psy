@@ -1,0 +1,30 @@
+#[contract]
+#[derive(Storage)]
+pub struct MapPostFieldContract {
+    pub balances: Map<Hash, Hash, 128u32>,
+    pub tail_a: Felt,
+    pub tail_b: Felt,
+}
+
+#[test]
+fn test_fields_after_map_remain_readable_and_writable() {
+    let c = MapPostFieldContractRef::new(ContractMetadata::current());
+    let key0: Hash = [7001, 0, 0, 0];
+    let value0: Hash = [1, 2, 3, 4];
+    let value1: Hash = [5, 6, 7, 8];
+    c.tail_a = 41;
+    c.tail_b = 42;
+    assert_eq(c.tail_a, 41, "tail_a should be writable before map operations");
+    assert_eq(c.tail_b, 42, "tail_b should be writable before map operations");
+    let old0 = c.balances.insert(key0, value0);
+    assert_eq(old0, [0, 0, 0, 0], "first insert should return zero old value");
+    assert_eq(c.balances.get(key0), value0, "map get should return inserted value");
+    c.tail_a = 141;
+    c.tail_b = 142;
+    assert_eq(c.tail_a, 141, "tail_a should still be writable after insert");
+    assert_eq(c.tail_b, 142, "tail_b should still be writable after insert");
+    c.balances.set(key0, value1);
+    assert_eq(c.balances.get(key0), value1, "map update should return new value");
+    assert_eq(c.tail_a, 141, "map update should not corrupt tail_a");
+    assert_eq(c.tail_b, 142, "map update should not corrupt tail_b");
+}

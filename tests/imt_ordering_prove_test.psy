@@ -1,0 +1,36 @@
+#[contract]
+#[derive(Storage)]
+pub struct MapOrderingContract {
+    pub prefix: Felt,
+    pub balances: Map<Hash, Hash, 128u32>,
+}
+
+#[test]
+fn test_imt_out_of_order_inserts_and_non_membership() {
+    let c = MapOrderingContractRef::new(ContractMetadata::current());
+    let k10: Hash = [10, 0, 0, 0];
+    let k20: Hash = [20, 0, 0, 0];
+    let k25: Hash = [25, 0, 0, 0];
+    let k30: Hash = [30, 0, 0, 0];
+    let v10: Hash = [101, 0, 0, 0];
+    let v20: Hash = [202, 0, 0, 0];
+    let v20_new: Hash = [2202, 0, 0, 0];
+    let v30: Hash = [303, 0, 0, 0];
+    c.prefix = 99;
+    let old30 = c.balances.insert(k30, v30);
+    assert_eq(old30, [0, 0, 0, 0], "first insert should create k30");
+    let old10 = c.balances.insert(k10, v10);
+    assert_eq(old10, [0, 0, 0, 0], "inserting k10 before k30 should still be a fresh insert");
+    let old20 = c.balances.insert(k20, v20);
+    assert_eq(old20, [0, 0, 0, 0], "inserting k20 between k10 and k30 should still be a fresh insert");
+    assert_eq(c.balances.contains(k10), true, "k10 should exist");
+    assert_eq(c.balances.contains(k20), true, "k20 should exist");
+    assert_eq(c.balances.contains(k30), true, "k30 should exist");
+    assert_eq(c.balances.contains(k25), false, "k25 should be proven absent between k20 and k30");
+    assert_eq(c.balances.get(k10), v10, "k10 value should stay readable");
+    assert_eq(c.balances.get(k20), v20, "k20 value should stay readable");
+    assert_eq(c.balances.get(k30), v30, "k30 value should stay readable");
+    c.balances.set(k20, v20_new);
+    assert_eq(c.balances.get(k20), v20_new, "updated middle key should return new value");
+    assert_eq(c.prefix, 99, "map operations should not corrupt prefix field");
+}

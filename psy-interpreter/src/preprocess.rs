@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{collections::HashSet, marker::PhantomData};
 
 use indexmap::IndexMap;
 use psy_ast::*;
@@ -42,6 +42,79 @@ impl<'a> StorageProcessor<'a> {
             .fields
             .values()
             .any(|field| self.is_map_ref_type(&field.ty, ctx))
+    }
+
+    fn find_struct_definition<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
+    >(
+        &self,
+        struct_id: IdentId,
+        ctx: &mut V,
+    ) -> Option<StructNode> {
+        ctx.program()
+            .defs
+            .iter()
+            .find_map(|def| match def {
+                DefinitionNode::Struct(s) if s.name.id == struct_id => Some(s.clone()),
+                _ => None,
+            })
+    }
+
+    fn count_maps_in_type<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
+    >(
+        &self,
+        ty: &UncheckedType,
+        ctx: &mut V,
+        visiting: &mut HashSet<IdentId>,
+    ) -> usize {
+        match ty {
+            UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("Map") => 1,
+            UncheckedType::Array(elem_ty, _, _) => self.count_maps_in_type(elem_ty, ctx, visiting),
+            UncheckedType::Basic(ident) => {
+                if !visiting.insert(ident.id) {
+                    return 0;
+                }
+                let total = self
+                    .find_struct_definition(ident.id, ctx)
+                    .map(|s| {
+                        s.fields
+                            .values()
+                            .map(|field| self.count_maps_in_type(&field.ty, ctx, visiting))
+                            .sum()
+                    })
+                    .unwrap_or(0);
+                visiting.remove(&ident.id);
+                total
+            }
+            UncheckedType::Generic(_, params, _) => params
+                .iter()
+                .map(|param| self.count_maps_in_type(param, ctx, visiting))
+                .sum(),
+            _ => 0,
+        }
+    }
+
+    fn count_maps_in_struct<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
+    >(
+        &self,
+        struct_node: &StructNode,
+        ctx: &mut V,
+    ) -> usize {
+        let mut visiting = HashSet::new();
+        visiting.insert(struct_node.name.id);
+        struct_node
+            .fields
+            .values()
+            .map(|field| self.count_maps_in_type(&field.ty, ctx, &mut visiting))
+            .sum()
     }
 
     fn generate_event_impl<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
@@ -2320,6 +2393,22 @@ impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcesso
         let contract_attribute_id = ctx.intern("contract");
 
         let event_trait_id = ctx.intern("Event");
+        let has_contract_attr = s.attrs.iter().any(|a| a.name == contract_attribute_id);
+        let has_storage_derive = s
+            .attrs
+            .iter()
+            .any(|a| a.is_derive() && a.properties.iter().any(|p| p.id == storage_trait_id));
+
+        if has_contract_attr && has_storage_derive {
+            let total_maps = self.count_maps_in_struct(&s, ctx);
+            if total_maps > 1 {
+                return Err(psy_common::Error::Message(format!(
+                    "Only one Map is currently supported per contract. Found {} map fields in contract '{}'",
+                    total_maps,
+                    ctx.ident(s.name.id)
+                )));
+            }
+        }
 
         let mut generated_storage_ref = false;
         for attr in &s.attrs {

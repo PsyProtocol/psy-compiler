@@ -2,7 +2,6 @@
 #[derive(Storage)]
 pub struct MapContract {
     pub balances: Map<Hash, Hash, 128u32>,
-    pub allowances: Map<Hash, Hash, 128u32>,
 }
 
 fn main() {
@@ -19,9 +18,7 @@ fn main() {
     c.balances.set(key0, value1);
     assert_eq(c.balances.get(key0), value1, "balances.set should update value");
     assert_eq(c.balances.contains(key1), false, "balances should not contain key1");
-    // Two map fields should be isolated by offset.
-    assert_eq(c.allowances.contains(key0), false, "allowances should not contain balances key");
-    c.allowances.insert(key1, value0);
-    assert_eq(c.allowances.get(key1), value0, "allowances.get(key1) should return inserted value");
-    assert_eq(c.balances.contains(key1), false, "balances should still not contain key1");
+    let old1 = c.balances.insert(key1, value0);
+    assert_eq(old1, [0, 0, 0, 0], "second fresh insert should still return zero hash");
+    assert_eq(c.balances.get(key1), value0, "balances.get(key1) should return inserted value");
 }

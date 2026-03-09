@@ -1648,8 +1648,10 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 #[cfg(test)]
 mod tests {
     use std::{
+        fs,
         fs::File,
         io::{BufWriter, Write},
+        time::{SystemTime, UNIX_EPOCH},
     };
 
     use insta::assert_snapshot;
@@ -1810,5 +1812,51 @@ mod tests {
                 let _ = STD_PRIMITIVE_SCOPE_ID.take();
             };
         });
+    }
+
+    #[test]
+    #[serial]
+    fn test_reject_nested_multiple_maps_in_contract_storage() {
+        psy_common::setup_logging().ok();
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("psy_nested_multi_map_{unique}.psy"));
+        let source = r#"
+#[derive(Storage)]
+pub struct Inner {
+    pub balances: Map<Hash, Hash, 8u32>,
+}
+
+#[contract]
+#[derive(Storage)]
+pub struct NestedMapContract {
+    pub inner: Inner,
+    pub allowances: Map<Hash, Hash, 8u32>,
+}
+
+fn main() {}
+"#;
+        fs::write(&path, source).unwrap();
+
+        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+        let err = match interpreter.typecheck_single(path.clone()) {
+            Ok(_) => panic!("expected nested multiple maps to be rejected"),
+            Err(err) => err,
+        };
+        let err_msg = format!("{err:#}");
+        assert!(
+            err_msg.contains("Only one Map is currently supported per contract"),
+            "unexpected error: {err_msg}"
+        );
+
+        let _ = fs::remove_file(path);
+
+        #[allow(static_mut_refs)]
+        unsafe {
+            let _ = STD_PRIMITIVE_SCOPE_ID.take();
+        };
     }
 }

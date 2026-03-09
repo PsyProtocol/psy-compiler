@@ -1,0 +1,30 @@
+#[contract]
+#[derive(Storage)]
+pub struct MapOffsetContract {
+    pub a: Felt,
+    pub b: Felt,
+    pub balances: Map<Hash, Hash, 128u32>,
+}
+
+#[test]
+fn test_single_map_with_unaligned_prefix_fields() {
+    let c = MapOffsetContractRef::new(ContractMetadata::current());
+    let key0: Hash = [9001, 0, 0, 0];
+    let key1: Hash = [9002, 0, 0, 0];
+    let value0: Hash = [11, 22, 33, 44];
+    let value1: Hash = [101, 202, 303, 404];
+    c.a = 7;
+    c.b = 8;
+    assert_eq(c.a, 7, "a should remain readable");
+    assert_eq(c.b, 8, "b should remain readable");
+    assert_eq(c.balances.contains(key0), false, "missing key0 should not exist initially");
+    let old0 = c.balances.insert(key0, value0);
+    assert_eq(old0, [0, 0, 0, 0], "first insert should return zero old value");
+    assert_eq(c.balances.contains(key0), true, "existing key0 should exist after insert");
+    assert_eq(c.balances.get(key0), value0, "get(key0) should return inserted value");
+    c.balances.set(key0, value1);
+    assert_eq(c.balances.get(key0), value1, "updated key0 should return new value");
+    assert_eq(c.balances.contains(key1), false, "missing key1 should still not exist");
+    assert_eq(c.a, 7, "map operations should not corrupt field a");
+    assert_eq(c.b, 8, "map operations should not corrupt field b");
+}
