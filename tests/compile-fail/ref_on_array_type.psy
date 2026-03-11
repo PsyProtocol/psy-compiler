@@ -1,0 +1,9 @@
+#[storage]
+#[derive(Storage)]
+pub struct C {
+    pub a: Felt,
+    #[ref]
+    pub b: [Felt; 4],
+}
+
+fn main() -> Felt { 0 }

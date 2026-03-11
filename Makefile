@@ -95,6 +95,9 @@ ci:
 	       -- \
 	       --nocapture
 
+	@echo "Running compile-fail tests (each tests/compile-fail/*.psy must fail to compile)..."
+	@RUST_LOG=${LOG_LEVEL} cargo test --profile ${PROFILE} --package dargo compile_fail -- --nocapture
+
 update-snapshots:
 	@cargo insta review
 

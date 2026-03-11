@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use anyhow::anyhow;
 use indexmap::IndexMap;
 use psy_ast::*;
 
@@ -502,7 +503,10 @@ impl<'a> StorageProcessor<'a> {
         attr: &AttrNode,
         ctx: &mut V,
     ) -> DefId {
-        let mut sum = self.generate_field_size(attr, &struct_node.fields.iter().next().unwrap().1.ty, ctx);
+        let mut sum = match struct_node.fields.iter().next() {
+            Some((_, field)) => self.generate_field_size(attr, &field.ty, ctx),
+            None => ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(0), attr.location))),
+        };
         for (_, field) in struct_node.fields.iter().skip(1) {
             let inner_ty = if field.attrs.iter().any(|a| a.name.id == ctx.intern("ref")) {
                 match &field.ty {
@@ -1868,7 +1872,7 @@ impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcesso
     type Context = DefaultVisitorContext<'a, F, C>;
     type ExprResult = ();
     type StmtResult = ();
-    type Error = psy_common::Error;
+    type Error = anyhow::Error;
     type Expr = ExprNode<F>;
     type Stmt = StmtNode;
     type Definition = DefinitionNode;
@@ -1886,6 +1890,17 @@ impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcesso
         let contract_attribute_id = ctx.intern("contract");
 
         let event_trait_id = ctx.intern("Event");
+
+        for (field_name, field) in &s.fields {
+            if field.attrs.iter().any(|a| a.name.id == ctx.intern("ref")) {
+                if !matches!(&field.ty, UncheckedType::Basic(_)) {
+                    return Err(anyhow!(
+                        "#[ref] attribute only supported on basic struct types (field `{}`)",
+                        ctx.ident(field_name.id)
+                    ));
+                }
+            }
+        }
 
         for attr in &s.attrs {
             if attr.is_derive() && attr.properties.iter().any(|p| p == &storage_trait_id) {

@@ -1,0 +1,4 @@
+fn main() -> Felt {
+    let x: bool = 1;
+    x as Felt
+}

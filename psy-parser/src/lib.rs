@@ -264,7 +264,9 @@ mod tests {
     use psy_common::Graph;
     use psy_vm::dpn::ops::exec_context::QExecContext;
 
+    use super::error::Error;
     use super::Parser;
+
     #[test]
     fn test_psy_parser() {
         let mut program = Program::new();
@@ -273,5 +275,34 @@ mod tests {
         crate_path_graph.add_node(PathBuf::from("../tests/storage_test.psy"));
         let mut parser = Parser::new(&mut program, &mut ctx, crate_path_graph);
         parser.parse().unwrap();
+    }
+
+    /// Invalid input must produce a parse error (UnrecognizedEof or similar), not panic.
+    #[test]
+    fn test_parse_fail_unclosed_brace() {
+        let mut program = Program::new();
+        let mut ctx = QExecContext::new();
+        let mut crate_path_graph = Graph::new();
+        crate_path_graph.add_node(PathBuf::from("../tests/compile-fail/parse_error_unclosed_brace.psy"));
+        let mut parser = Parser::new(&mut program, &mut ctx, crate_path_graph);
+        let result = parser.parse();
+        assert!(result.is_err(), "expected parse error for unclosed brace");
+        assert!(
+            matches!(result.as_ref().unwrap_err(), Error::UnrecognizedEof { .. } | Error::UnrecognizedToken { .. }),
+            "expected UnrecognizedEof or UnrecognizedToken, got {:?}",
+            result.unwrap_err()
+        );
+    }
+
+    /// Invalid token must produce a parse/lex error, not panic.
+    #[test]
+    fn test_parse_fail_invalid_token() {
+        let mut program = Program::new();
+        let mut ctx = QExecContext::new();
+        let mut crate_path_graph = Graph::new();
+        crate_path_graph.add_node(PathBuf::from("../tests/compile-fail/parse_error_invalid_token.psy"));
+        let mut parser = Parser::new(&mut program, &mut ctx, crate_path_graph);
+        let result = parser.parse();
+        assert!(result.is_err(), "expected parse/lex error for invalid token");
     }
 }

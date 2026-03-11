@@ -1,0 +1,6 @@
+struct S { pub a: Felt, pub b: Felt }
+
+fn main() -> Felt {
+    let x = new S { a: 0 };
+    x.a
+}

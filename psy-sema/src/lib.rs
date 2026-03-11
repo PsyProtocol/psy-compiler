@@ -844,7 +844,14 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
                 let mut new_data = IndexMap::new();
                 for (field_name, CheckedStructField { ty: field_type, .. }) in fields {
-                    let field_value = self.visit_expr(data.get(&field_name).unwrap().clone(), ctx)?;
+                    let expr_id = data.get(&field_name).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Struct literal missing field `{}` for type {}",
+                            ctx.ident(field_name),
+                            ctx.ident(ctx.symbols[underlying_type_id].name())
+                        )
+                    })?;
+                    let field_value = self.visit_expr(expr_id.clone(), ctx)?;
                     if !self.unify(field_type, field_value.ty(), ctx) {
                         return Err(Error::TypeMismatch {
                             location: field_value.location(),

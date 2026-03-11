@@ -1,0 +1,3 @@
+fn main() -> Felt {
+    return no_such_symbol;
+}
