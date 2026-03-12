@@ -1,0 +1,25 @@
+//! Tests that logical And/Or short-circuit: rhs is not evaluated when lhs
+//! determines the result. If rhs were evaluated, would_fail() would add an
+//! unsatisfiable assert and proof would fail.
+
+fn would_fail() -> bool {
+    assert(false, "rhs evaluated - short circuit broken");
+    return true;
+}
+
+fn main() {
+    // And short-circuit: (1==0) is constant false, rhs must not be evaluated
+    let and_result: bool = (1 == 0) && would_fail();
+
+    // Or short-circuit: (1==1) is constant true, rhs must not be evaluated
+    let or_result: bool = (1 == 1) || would_fail();
+
+    assert_eq(and_result, false, "and short-circuit result");
+    assert_eq(or_result, true, "or short-circuit result");
+
+    // Sanity: both operands evaluated when needed
+    let a: bool = (1 == 1) && (2 == 2);
+    let b: bool = (1 == 0) || (2 == 2);
+    assert_eq(a, true, "and both evaluated");
+    assert_eq(b, true, "or both evaluated");
+}

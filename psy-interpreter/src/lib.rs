@@ -663,6 +663,78 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<CheckedValue<F>> {
         use BinaryOperator::*;
+
+        // Short-circuit evaluation for logical And and Or
+        if binary_node.operator == And || binary_node.operator == Or {
+            let lhs_value = self.interpret_expr(program, binary_node.lhs, ctx)?;
+            let lhs_bool = lhs_value.to_bool();
+
+            let short_circuit_result = if self.is_constant(lhs_bool) {
+                let lhs_const = self.context.get_constant_value(lhs_bool);
+                if binary_node.operator == And && lhs_const == 0 {
+                    Some(CheckedValue::Bool(self.context.op_false()))
+                } else if binary_node.operator == Or && lhs_const == 1 {
+                    Some(CheckedValue::Bool(self.context.op_true()))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(result) = short_circuit_result {
+                // Short-circuit: skip rhs evaluation
+                return Ok(result);
+            }
+
+            // Either lhs is constant (And+true or Or+false) or symbolic: evaluate rhs
+            if !self.is_constant(lhs_bool) {
+                // Symbolic lhs: use conditional to avoid evaluating rhs when lhs determines result
+                let rhs_value = if binary_node.operator == And {
+                    self.context.start_if_block(lhs_bool);
+                    let rhs = self.interpret_expr(program, binary_node.rhs, ctx)?;
+                    self.context.start_else_block();
+                    let false_val = CheckedValueRef::from_bool(self.context.op_false());
+                    let result = CheckedValueRef::<F>::select(
+                        &mut self.context,
+                        &rhs,
+                        &false_val,
+                        &|c: &mut C, n: &F, o: &F| c.cset(o.clone(), n.clone()),
+                    );
+                    self.context.end_if_block();
+                    result
+                } else {
+                    self.context.start_if_block(lhs_bool);
+                    let true_val = CheckedValueRef::from_bool(self.context.op_true());
+                    self.context.start_else_block();
+                    let rhs = self.interpret_expr(program, binary_node.rhs, ctx)?;
+                    let result = CheckedValueRef::<F>::select(
+                        &mut self.context,
+                        &true_val,
+                        &rhs,
+                        &|c: &mut C, n: &F, o: &F| c.cset(o.clone(), n.clone()),
+                    );
+                    self.context.end_if_block();
+                    result
+                };
+                let inner = rhs_value.borrow();
+                let out = match &*inner {
+                    CheckedValue::Bool(f) => CheckedValue::Bool(f.clone()),
+                    _ => unreachable!("short-circuit result must be bool"),
+                };
+                return Ok(out);
+            }
+
+            // Lhs constant and need rhs: And (lhs=true) or Or (lhs=false)
+            let rhs_value = self.interpret_expr(program, binary_node.rhs, ctx)?;
+            let value = match (&*lhs_value.borrow(), &*rhs_value.borrow(), binary_node.operator) {
+                (CheckedValue::Bool(l), CheckedValue::Bool(r), And) => self.context.op_bool_and(*l, *r),
+                (CheckedValue::Bool(l), CheckedValue::Bool(r), Or) => self.context.op_bool_or(*l, *r),
+                _ => unreachable!(),
+            };
+            return Ok(CheckedValue::Bool(value));
+        }
+
         let lhs_value = self.interpret_expr(program, binary_node.lhs, ctx)?;
         let rhs_value = self.interpret_expr(program, binary_node.rhs, ctx)?;
 
@@ -704,8 +776,6 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             (CheckedValue::U32(l), CheckedValue::U32(r), Mod) => self.context.op_u32_mod(*l, *r),
             (CheckedValue::U32(l), CheckedValue::U32(r), Pow) => self.context.op_u32_exp(*l, *r),
 
-            (CheckedValue::Bool(l), CheckedValue::Bool(r), And) => self.context.op_bool_and(*l, *r),
-            (CheckedValue::Bool(l), CheckedValue::Bool(r), Or) => self.context.op_bool_or(*l, *r),
             (CheckedValue::Bool(l), CheckedValue::Bool(r), Eq) => self.context.op_eq(*l, *r),
             (CheckedValue::Bool(l), CheckedValue::Bool(r), Neq) => self.context.op_neq(*l, *r),
             (CheckedValue::Bool(l), CheckedValue::Bool(r), Lt) => self.context.op_lt(*l, *r),
@@ -1570,6 +1640,88 @@ mod tests {
     use serial_test::serial;
 
     use super::*;
+
+    /// Verifies logical And/Or short-circuit: rhs is not evaluated when lhs
+    /// determines the result. Uses would_fail() that asserts false - if rhs
+    /// were evaluated, the circuit would be unsatisfiable and proof would fail.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn test_short_circuit() {
+        psy_common::setup_logging().ok();
+
+        let path = std::path::PathBuf::from("../tests/short_circuit_test.psy");
+        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+        let (mut typechecker, mut ctx) = interpreter.typecheck_single(path).unwrap();
+
+        let compile_results = interpreter
+            .interpret(
+                &mut typechecker,
+                &mut ctx,
+                None,
+                vec!["main"],
+                |context, (method_name, method_id, outputs)| {
+                    PsyCompileResult::compile_exec(method_name, method_id, &context.store, &context, &outputs)
+                },
+            )
+            .unwrap();
+
+        let priv_key = QHashOut::rand();
+        let wallet = SimplePsyZKSignatureManager::<C, D>::new();
+        let priv_key_w = SimplePsyPrivateKey::new(priv_key);
+        let pub_key_param = priv_key_w.get_public_key_param::<PsyHasher>();
+        let contract_state_tree_height = GLOBAL_USER_TREE_HEIGHT as usize;
+
+        let deployer = QHashOut::rand();
+        let (_circuits, deploy_cmd) =
+            gen_contract_deploy_and_circuits_for_functions::<C, D>(deployer, contract_state_tree_height as u8, &compile_results).unwrap();
+
+        let mut lps = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let store = KVQSimpleMemoryBackingStore::new();
+                store.set_block_state(&PsyBlockState::get_genesis_value())?;
+                store.set_checkpoint_leaf_data(
+                    0,
+                    &PsyCheckpointLeaf {
+                        global_chain_root: QHashOut::ZERO,
+                        stats: PsyCheckpointLeafStats::new_empty(),
+                    },
+                )?;
+                let final_store = SimpleBlockProcessor::prepare_environment_with_real_contract(
+                    vec![QBCRegisterUser::new(wallet.get_zksig_circuit_fingerprint(), pub_key_param)],
+                    vec![deploy_cmd],
+                    store,
+                )
+                .await?;
+                let latest_block_state = final_store.get_latest_block_state().await?;
+                let checkpoint_id = PsyFelt::from_canonical_u64(latest_block_state.checkpoint_id);
+                let user_id = PsyFelt::from_canonical_u64(5);
+                Ok::<_, anyhow::Error>(PsyLocalProvingSessionStore::<_, _, PsyHasher>::new_at(
+                    final_store,
+                    checkpoint_id,
+                    user_id,
+                    PsyFelt::ZERO,
+                    PsyFelt::ZERO,
+                    GLOBAL_USER_TREE_HEIGHT as usize,
+                ))
+            })
+        })
+        .unwrap();
+
+        let contract_id = GoldilocksField::from_canonical_u64(2);
+        let _cfc_input = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                PsyEvalSessionResult::new()
+                    .exec_contract_call(&mut lps, contract_id, &compile_results[0], vec![])
+                    .await
+            })
+        })
+        .expect("short-circuit test proof must succeed; if it fails, rhs was evaluated and assert(false) made the circuit unsatisfiable");
+
+        #[allow(static_mut_refs)]
+        unsafe {
+            STD_PRIMITIVE_SCOPE_ID.take().unwrap()
+        };
+    }
 
     #[test]
     #[serial]
