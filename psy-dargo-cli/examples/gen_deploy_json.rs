@@ -57,20 +57,32 @@ fn main() -> anyhow::Result<()> {
         let defs: Vec<DPNFunctionCircuitDefinition> = serde_json::from_str(&input_json)
             .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", input_path, e))?;
 
-        println!("[{}] {} — {} functions:", i, input_path, defs.len());
-        for def in &defs {
-            println!("     - {} (method_id: {})", def.name, def.method_id);
-        }
-
-        println!("    Building deploy contract...");
         let (_circuits, deploy_contract) =
             gen_contract_deploy_and_circuits_for_functions::<C, D>(deployer, DEFAULT_STATE_TREE_HEIGHT, &defs)?;
 
-        println!("    function_whitelist entries: {}", deploy_contract.function_whitelist.len());
+        println!(
+            "[{}] contract={} functions={} whitelist={} deployer={}",
+            i,
+            input_path,
+            defs.len(),
+            deploy_contract.function_whitelist.len(),
+            deployer_hex
+        );
         deploy_contracts.push(deploy_contract);
     }
 
-    let output_json = serde_json::to_string_pretty(&deploy_contracts)?;
+    // Keep output as valid JSON array while making each contract object occupy
+    // exactly one line for easier review and diff.
+    let mut output_json = String::from("[\n");
+    for (i, deploy_contract) in deploy_contracts.iter().enumerate() {
+        output_json.push_str("  ");
+        output_json.push_str(&serde_json::to_string(deploy_contract)?);
+        if i + 1 != deploy_contracts.len() {
+            output_json.push(',');
+        }
+        output_json.push('\n');
+    }
+    output_json.push(']');
     fs::write(output_path, &output_json)
         .map_err(|e| anyhow::anyhow!("Failed to write {}: {}", output_path, e))?;
 
