@@ -782,6 +782,14 @@ IntrinsicExpression: ExprNode<F> = {
             }
         )
     },
+    <l:@L> <variable:Keccak256> "(" <data:Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::Keccak256 {
+                data: expr_nodes.alloc_item(data),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
     <l:@L> <variable:HashTwoToOne> "(" <left:Expression> "," <right:Expression> ")" <r:@R> => {
         ExprNode::Intrinsic(
             IntrinsicExprNode::HashTwoToOne {
@@ -1391,6 +1399,7 @@ extern {
         ASSERT => Token::IntrinsicAssert,
         ASSERT_EQ => Token::IntrinsicAssertEq,
         Hash => Token::IntrinsicHash,
+        Keccak256 => Token::IntrinsicKeccak256,
         HashTwoToOne => Token::IntrinsicHashTwoToOne,
         MEM_TRANSMUTE => Token::IntrinsicMemTransmute,
         MEM_SIZE_OF => Token::IntrinsicMemSizeOf,

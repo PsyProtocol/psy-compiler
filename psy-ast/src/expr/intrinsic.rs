@@ -174,6 +174,10 @@ pub enum IntrinsicExprNode {
         data: ExprId,
         location: Location,
     },
+    Keccak256 {
+        data: ExprId,
+        location: Location,
+    },
     HashTwoToOne {
         left: ExprId,
         right: ExprId,

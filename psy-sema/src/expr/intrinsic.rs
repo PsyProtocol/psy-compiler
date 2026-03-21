@@ -214,6 +214,11 @@ pub enum CheckedIntrinsicExprNode {
         type_id: TypeId,
         location: Location,
     },
+    Keccak256 {
+        data: ExprId,
+        type_id: TypeId,
+        location: Location,
+    },
     HashTwoToOne {
         left: ExprId,
         right: ExprId,

@@ -769,6 +769,15 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                     location,
                 }))
             }
+            IntrinsicExprNode::Keccak256 { data, location } => {
+                let data = self.visit_expr(data, ctx)?;
+
+                Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::Keccak256 {
+                    data: self.program.exprs.alloc_item(data),
+                    type_id: HASH_TYPE,
+                    location,
+                }))
+            }
             IntrinsicExprNode::HashTwoToOne { left, right, location } => {
                 let left = self.visit_expr(left, ctx)?;
                 let right = self.visit_expr(right, ctx)?;
@@ -890,11 +899,13 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
             IntrinsicExprNode::GetCheckpointUserRegistrationTreeRoot { checkpoint_id, location } => {
                 let checkpoint_id = self.visit_expr(checkpoint_id, ctx)?;
-                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::GetCheckpointUserRegistrationTreeRoot {
-                    checkpoint_id: self.program.exprs.alloc_item(checkpoint_id),
-                    type_id: UNKOWN_TYPE,
-                    location,
-                }));
+                return Ok(CheckedExprNode::Intrinsic(
+                    CheckedIntrinsicExprNode::GetCheckpointUserRegistrationTreeRoot {
+                        checkpoint_id: self.program.exprs.alloc_item(checkpoint_id),
+                        type_id: UNKOWN_TYPE,
+                        location,
+                    },
+                ));
             }
             IntrinsicExprNode::GetDeployContractsRoot { checkpoint_id, location } => {
                 let checkpoint_id = self.visit_expr(checkpoint_id, ctx)?;
@@ -1052,8 +1063,9 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             ValueNode::Struct(path, generic_args, data, location) => Ok({
                 let checked_path_node = self.visit_expr(path, ctx)?;
                 // Keep the instantiated struct type from the path. Falling back to `poly_of`
-                // here drops concrete generic arguments (for example `StorageRef<T>` in impl scope),
-                // which then causes `new Struct { ... }` to be typed as the polymorphic base type.
+                // here drops concrete generic arguments (for example `StorageRef<T>` in impl
+                // scope), which then causes `new Struct { ... }` to be typed as
+                // the polymorphic base type.
                 let struct_type_id = checked_path_node.ty();
                 let fields = ctx.symbols[struct_type_id].as_struct().unwrap().fields.clone();
                 let generic_parameters = ctx.symbols[struct_type_id].generic_parameters();
@@ -1117,7 +1129,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         }
 
         if matches!(binary_node.operator, BinaryOperator::Eq | BinaryOperator::Neq) {
-            // Primitive equality keeps builtin semantics. For other types, route to `eq` trait method.
+            // Primitive equality keeps builtin semantics. For other types, route to `eq`
+            // trait method.
             if self.unify(lhs_ty, rhs_ty, ctx)
                 && (self.unify(lhs_ty, BOOL_TYPE, ctx) || self.unify(lhs_ty, FELT_TYPE, ctx) || self.unify(lhs_ty, U32_TYPE, ctx))
             {
@@ -1131,14 +1144,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
 
             let eq_ident = Identifier::new(ctx.intern("eq"), binary_node.location);
-            let method_ty = self.find_member(
-                lhs_ty,
-                None,
-                Some(binary_node.location),
-                eq_ident,
-                Some(&[lhs_ty, rhs_ty]),
-                ctx,
-            )?;
+            let method_ty = self.find_member(lhs_ty, None, Some(binary_node.location), eq_ident, Some(&[lhs_ty, rhs_ty]), ctx)?;
             let signature = ctx.symbols[method_ty].signature();
 
             if signature.parameters.len() != 2 {
@@ -1709,14 +1715,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         };
 
         let method_ident = Identifier::new(ctx.intern(assign_method), assignment_node.location);
-        let method_ty = self.find_member(
-            lhs_ty,
-            None,
-            Some(assignment_node.location),
-            method_ident,
-            Some(&[lhs_ty, rhs_ty]),
-            ctx,
-        )?;
+        let method_ty = self.find_member(lhs_ty, None, Some(assignment_node.location), method_ident, Some(&[lhs_ty, rhs_ty]), ctx)?;
         let signature = ctx.symbols[method_ty].signature();
 
         let callee_target = self.program.exprs.alloc_item(checked_lhs.clone());
@@ -1853,7 +1852,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 let lhs_ty = checked_lhs.ty();
                 let rhs_ty = checked_rhs.ty();
 
-                // Primitive equality keeps builtin semantics. For other types, route to `eq` trait method.
+                // Primitive equality keeps builtin semantics. For other types, route to `eq`
+                // trait method.
                 let checked_eq = if self.unify(lhs_ty, rhs_ty, ctx)
                     && (self.unify(lhs_ty, BOOL_TYPE, ctx) || self.unify(lhs_ty, FELT_TYPE, ctx) || self.unify(lhs_ty, U32_TYPE, ctx))
                 {

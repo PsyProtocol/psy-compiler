@@ -107,6 +107,7 @@ impl<F> CheckedExprNode<F> {
                 CheckedIntrinsicExprNode::StorageRead { type_id, .. } => type_id.clone(),
                 CheckedIntrinsicExprNode::StorageWrite { type_id, .. } => type_id.clone(),
                 CheckedIntrinsicExprNode::Hash { type_id, .. } => type_id.clone(),
+                CheckedIntrinsicExprNode::Keccak256 { type_id, .. } => type_id.clone(),
                 CheckedIntrinsicExprNode::HashTwoToOne { type_id, .. } => type_id.clone(),
                 CheckedIntrinsicExprNode::MemTransmute { target_type, .. } => target_type.clone(),
                 CheckedIntrinsicExprNode::MemSizeOf { type_id, .. } => type_id.clone(),
@@ -182,6 +183,7 @@ impl<F> CheckedExprNode<F> {
                 CheckedIntrinsicExprNode::StorageRead { location, .. } => location.clone(),
                 CheckedIntrinsicExprNode::StorageWrite { location, .. } => location.clone(),
                 CheckedIntrinsicExprNode::Hash { location, .. } => location.clone(),
+                CheckedIntrinsicExprNode::Keccak256 { location, .. } => location.clone(),
                 CheckedIntrinsicExprNode::HashTwoToOne { location, .. } => location.clone(),
                 CheckedIntrinsicExprNode::MemTransmute { location, .. } => location.clone(),
                 CheckedIntrinsicExprNode::MemSizeOf {

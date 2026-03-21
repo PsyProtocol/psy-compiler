@@ -890,10 +890,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         CheckedValueRef::from_vec(type_id.clone(), self.context.imt_insert(key, new_value, base_offset, capacity))
                     }
                     CheckedIntrinsicExprNode::ImtContains {
-                        key,
-                        base_offset,
-                        capacity,
-                        ..
+                        key, base_offset, capacity, ..
                     } => {
                         let key = self.interpret_expr(program, key.clone(), ctx)?.to_array();
                         let base_offset = self.interpret_expr(program, base_offset.clone(), ctx)?.to_felt();
@@ -929,6 +926,13 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     CheckedIntrinsicExprNode::Hash { data, type_id, .. } => {
                         let data = self.interpret_expr(program, data.clone(), ctx)?;
                         return Ok(CheckedValueRef::from_vec(type_id.clone(), self.context.hash(&data.to_felts())));
+                    }
+                    CheckedIntrinsicExprNode::Keccak256 { data, type_id, .. } => {
+                        let data = self.interpret_expr(program, data.clone(), ctx)?;
+                        return Ok(CheckedValueRef::from_vec(
+                            type_id.clone(),
+                            self.context.keccak256(&data.to_felts()).to_vec(),
+                        ));
                     }
                     CheckedIntrinsicExprNode::HashTwoToOne { left, right, type_id, .. } => {
                         let left = self.interpret_expr(program, left.clone(), ctx)?;
@@ -1655,12 +1659,12 @@ mod tests {
     };
 
     use insta::assert_snapshot;
+    use kvq::memory::simple::KVQSimpleMemoryBackingStore;
     use plonky2::field::{goldilocks_field::GoldilocksField, types::Field};
     use psy_common::data::qhashout::QHashOut;
     use psy_common_circuit::circuits::zk_signature3::manager::SimplePsyZKSignatureManager;
     use psy_config::network_constants::GLOBAL_USER_TREE_HEIGHT;
     use psy_crypto::signature::zk::wallet::SimplePsyPrivateKey;
-    use kvq::memory::simple::KVQSimpleMemoryBackingStore;
     use psy_data::{
         config::store_config::{PsyFelt, PsyHasher, C, D},
         qblock::{cmds::register_user::QBCRegisterUser, process::simple::SimpleBlockProcessor},
@@ -1819,10 +1823,7 @@ mod tests {
     fn test_reject_nested_multiple_maps_in_contract_storage() {
         psy_common::setup_logging().ok();
 
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let path = std::env::temp_dir().join(format!("psy_nested_multi_map_{unique}.psy"));
         let source = r#"
 #[derive(Storage)]

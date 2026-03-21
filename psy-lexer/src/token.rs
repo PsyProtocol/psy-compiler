@@ -53,6 +53,8 @@ pub enum Token<'input> {
     IntrinsicAssertEq,
     #[token("hash")]
     IntrinsicHash,
+    #[token("keccak256")]
+    IntrinsicKeccak256,
     #[token("hash_two_to_one")]
     IntrinsicHashTwoToOne,
     #[token("__mem_transmute")]

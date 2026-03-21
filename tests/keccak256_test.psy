@@ -1,0 +1,6 @@
+// input:
+// output:
+fn main() -> Hash {
+    let data: Hash = [1, 2, 3, 4];
+    keccak256(data)
+}

@@ -726,6 +726,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                     *data = self.rewrite_expr(*data, ctx)?;
                     *type_id = self.substitute_all(*type_id, ctx)?;
                 }
+                CheckedIntrinsicExprNode::Keccak256 { data, type_id, .. } => {
+                    *data = self.rewrite_expr(*data, ctx)?;
+                    *type_id = self.substitute_all(*type_id, ctx)?;
+                }
                 CheckedIntrinsicExprNode::HashTwoToOne { left, right, type_id, .. } => {
                     *left = self.rewrite_expr(*left, ctx)?;
                     *right = self.rewrite_expr(*right, ctx)?;
