@@ -38,10 +38,7 @@ impl<'a> StorageProcessor<'a> {
         struct_node: &StructNode,
         ctx: &mut V,
     ) -> bool {
-        struct_node
-            .fields
-            .values()
-            .any(|field| self.is_map_ref_type(&field.ty, ctx))
+        struct_node.fields.values().any(|field| self.is_map_ref_type(&field.ty, ctx))
     }
 
     fn find_struct_definition<
@@ -53,13 +50,10 @@ impl<'a> StorageProcessor<'a> {
         struct_id: IdentId,
         ctx: &mut V,
     ) -> Option<StructNode> {
-        ctx.program()
-            .defs
-            .iter()
-            .find_map(|def| match def {
-                DefinitionNode::Struct(s) if s.name.id == struct_id => Some(s.clone()),
-                _ => None,
-            })
+        ctx.program().defs.iter().find_map(|def| match def {
+            DefinitionNode::Struct(s) if s.name.id == struct_id => Some(s.clone()),
+            _ => None,
+        })
     }
 
     fn count_maps_in_type<
@@ -81,20 +75,12 @@ impl<'a> StorageProcessor<'a> {
                 }
                 let total = self
                     .find_struct_definition(ident.id, ctx)
-                    .map(|s| {
-                        s.fields
-                            .values()
-                            .map(|field| self.count_maps_in_type(&field.ty, ctx, visiting))
-                            .sum()
-                    })
+                    .map(|s| s.fields.values().map(|field| self.count_maps_in_type(&field.ty, ctx, visiting)).sum())
                     .unwrap_or(0);
                 visiting.remove(&ident.id);
                 total
             }
-            UncheckedType::Generic(_, params, _) => params
-                .iter()
-                .map(|param| self.count_maps_in_type(param, ctx, visiting))
-                .sum(),
+            UncheckedType::Generic(_, params, _) => params.iter().map(|param| self.count_maps_in_type(param, ctx, visiting)).sum(),
             _ => 0,
         }
     }
@@ -307,11 +293,7 @@ impl<'a> StorageProcessor<'a> {
                         if params.len() != 3 {
                             panic!("Map must have exactly three generic parameters");
                         }
-                        UncheckedType::Generic(
-                            Identifier::new(ctx.intern("MapRef"), attr.location),
-                            params.clone(),
-                            attr.location,
-                        )
+                        UncheckedType::Generic(Identifier::new(ctx.intern("MapRef"), attr.location), params.clone(), attr.location)
                     }
                     UncheckedType::Array(elem_ty, size, _) => UncheckedType::Generic(
                         Identifier::new(ctx.intern("ArrayRef"), attr.location),
@@ -354,7 +336,8 @@ impl<'a> StorageProcessor<'a> {
                     .iter()
                     .filter(|a| {
                         !a.is_derive()
-                            || !a.properties
+                            || !a
+                                .properties
                                 .iter()
                                 .any(|p| p.id == ctx.intern("StorageRef") || p.id == ctx.intern("Storage"))
                     })
@@ -697,11 +680,7 @@ impl<'a> StorageProcessor<'a> {
         TraitImplNode {
             associated_types: IndexMap::new(),
             generic_parameters: ref_struct.generic_parameters.clone(),
-            trait_ty: UncheckedType::Generic(
-                Identifier::new(ctx.intern("EqAssign"), attr.location),
-                vec![base_ty],
-                attr.location,
-            ),
+            trait_ty: UncheckedType::Generic(Identifier::new(ctx.intern("EqAssign"), attr.location), vec![base_ty], attr.location),
             ty: UncheckedType::Basic(ref_struct.name),
             body: vec![ctx.alloc_definition(DefinitionNode::Function(eq_assign_fn))],
             comments: vec![],
@@ -825,11 +804,7 @@ impl<'a> StorageProcessor<'a> {
         TraitImplNode {
             associated_types: IndexMap::new(),
             generic_parameters: ref_struct.generic_parameters.clone(),
-            trait_ty: UncheckedType::Generic(
-                Identifier::new(ctx.intern("Eq"), attr.location),
-                vec![base_ty],
-                attr.location,
-            ),
+            trait_ty: UncheckedType::Generic(Identifier::new(ctx.intern("Eq"), attr.location), vec![base_ty], attr.location),
             ty: UncheckedType::Basic(ref_struct.name),
             body: vec![ctx.alloc_definition(DefinitionNode::Function(eq_fn))],
             comments: vec![],

@@ -1,0 +1,32 @@
+#[contract]
+#[derive(Storage)]
+pub struct IfMapWriteContract {
+    pub balances: Map<Hash, Hash, 128u32>,
+    pub tail: Felt,
+}
+
+#[test]
+fn test_if_else_map_write_paths() {
+    let c = IfMapWriteContractRef::new(ContractMetadata::current());
+    let key: Hash = [7777, 0, 0, 0];
+    let v_then: Hash = [10, 20, 30, 40];
+    let v_else: Hash = [50, 60, 70, 80];
+    let cond_true: Felt = 1;
+    if cond_true == 1 {
+        c.balances.insert(key, v_then);
+    }    
+    else {
+        c.balances.insert(key, v_else);
+    };
+    assert_eq(c.balances.get(key), v_then, "then branch write should persist");
+    let cond_false: Felt = 0;
+    if cond_false == 1 {
+        c.balances.set(key, v_then);
+    }    
+    else {
+        c.balances.set(key, v_else);
+    };
+    assert_eq(c.balances.get(key), v_else, "else branch write should persist");
+    c.tail = 123;
+    assert_eq(c.tail, 123, "tail field should remain intact");
+}

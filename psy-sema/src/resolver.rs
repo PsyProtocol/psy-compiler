@@ -42,14 +42,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                                 location: path.segments[0].location(),
                                 segment: format!("{:?}", path.segments[0]),
                             })?;
-                            let mut root_ty_id = self.find_member(
-                                impl_ty_id,
-                                Some(trait_type_id),
-                                Some(segment.location),
-                                segment,
-                                None,
-                                ctx,
-                            )?;
+                            let mut root_ty_id = self.find_member(impl_ty_id, Some(trait_type_id), Some(segment.location), segment, None, ctx)?;
                             let root_ty_id_clone = root_ty_id;
                             for segment in path.segments.iter().skip(1) {
                                 let segment = segment.basic_target().ok_or(Error::InvalidPathSegment {
@@ -63,15 +56,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                                 location: path.segments[0].location(),
                                 segment: format!("{:?}", path.segments[0]),
                             })?;
-                            let member_ty_id = self.find_member_with_flags(
-                                root_ty_id,
-                                None,
-                                Some(path_target.location),
-                                path_target,
-                                None,
-                                is_function,
-                                ctx,
-                            )?;
+                            let member_ty_id =
+                                self.find_member_with_flags(root_ty_id, None, Some(path_target.location), path_target, None, is_function, ctx)?;
 
                             return Ok(CheckedPathNode::new(
                                 None,

@@ -4,8 +4,8 @@ use psy_vm::dpn::ops::context_trait::ContextFelt;
 use tracing::instrument;
 
 use crate::{
-    rewriter::Rewriter, AstVisualizer, CheckedFunctionNode, CheckedImplNode, CheckedTraitImplNode, Constraint, Error, Result, ScopeKind,
-    TypeChecker, TypeCheckerVisitorContext, TypeId, TypeKey,
+    rewriter::Rewriter, AstVisualizer, CheckedFunctionNode, CheckedImplNode, CheckedTraitImplNode, Constraint, Error, Result, ScopeKind, TypeChecker,
+    TypeCheckerVisitorContext, TypeId, TypeKey,
 };
 
 #[derive(Debug)]
@@ -90,11 +90,7 @@ pub trait Implementer<F: Clone + From<u32> + ContextFelt, C> {
     fn satisfies_constraint(&mut self, gen_ty: TypeId, constr_ty: TypeId, ctx: &mut TypeCheckerVisitorContext<F, C>) -> bool;
     fn satisfies_constraints(&mut self, generics: Vec<TypeId>, constraint: &Constraint, ctx: &mut TypeCheckerVisitorContext<F, C>) -> bool;
     fn poly_of(&self, type_id: TypeId, ctx: &TypeCheckerVisitorContext<F, C>) -> Option<TypeId>;
-    fn does_function_match_expected_signature(
-        &mut self,
-        function: &CheckedFunctionNode,
-        ctx: &mut TypeCheckerVisitorContext<F, C>,
-    ) -> bool;
+    fn does_function_match_expected_signature(&mut self, function: &CheckedFunctionNode, ctx: &mut TypeCheckerVisitorContext<F, C>) -> bool;
 }
 
 impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F, C> {
@@ -289,12 +285,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                         }
                     }
 
-                    if ctx.symbols[ty].is_array()
-                        && constraint
-                            .constraints
-                            .iter()
-                            .any(|c| ctx.symbols[*c].is_type_variable())
-                    {
+                    if ctx.symbols[ty].is_array() && constraint.constraints.iter().any(|c| ctx.symbols[*c].is_type_variable()) {
                         let poly_function_id = self.program[impl_id].as_trait_impl().unwrap().body[function_idx];
                         let poly_candidate = self.program[poly_function_id].as_function().unwrap().type_id;
                         if !candidate_matches!(poly_candidate) {
@@ -585,11 +576,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
         self.implementer.polys.get(&type_id).cloned().or(Some(type_id))
     }
 
-    fn does_function_match_expected_signature(
-        &mut self,
-        function: &CheckedFunctionNode,
-        ctx: &mut TypeCheckerVisitorContext<F, C>,
-    ) -> bool {
+    fn does_function_match_expected_signature(&mut self, function: &CheckedFunctionNode, ctx: &mut TypeCheckerVisitorContext<F, C>) -> bool {
         let Some(expected) = ctx.expected_signature() else {
             return true;
         };
