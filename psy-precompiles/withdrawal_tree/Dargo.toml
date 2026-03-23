@@ -1,0 +1,8 @@
+[package]
+name = "withdrawal_tree"
+type = "bin"
+authors = [""]
+
+[dependencies]
+token = { path = "../token" }
+mining_rewards = { path = "../mining_rewards" }

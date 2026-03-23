@@ -17,6 +17,8 @@
       "path": "token",
       "contract_name": "PsyTokenContractRef",
       "method_names": [
+          "withdraw",
+          "claim_deposit",
           "simple_mint",
           "simple_burn",
           "simple_transfer",
@@ -26,6 +28,19 @@
           "simple_claim_pow_rewards",
           "private_transfer",
           "private_claim"
+      ]
+    },
+    {
+      "name": "withdrawal_tree",
+      "path": "withdrawal_tree",
+      "contract_name": "PsyWithdrawalTreeContractRef",
+      "method_names": [
+          "get_root",
+          "get_next_index",
+          "get_chain_root",
+          "get_chain_next_index",
+          "append_leaf",
+          "append_withdrawal"
       ]
     }
   ]
