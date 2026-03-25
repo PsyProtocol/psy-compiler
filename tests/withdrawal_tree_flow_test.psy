@@ -12,7 +12,7 @@ fn main() -> Felt {
     PsyTokenContractRef::simple_mint(1000);
     PsyTokenContractRef::withdraw(destination_chain_id, token_address, amount, recipient, nonce);
 
-    let withdrawal_key: Hash = keccak256([2, destination_chain_id, nonce]);
+    let withdrawal_key: Hash = PsyTokenContractRef::limbs8_to_hash(keccak256([2, destination_chain_id, nonce]));
     let token_ref = PsyTokenContractRef::new(ContractMetadata::current());
     let leaf_hash: Hash = token_ref.claimed_nullifiers.get(withdrawal_key);
     assert(leaf_hash != [0, 0, 0, 0], "withdraw leaf should exist");

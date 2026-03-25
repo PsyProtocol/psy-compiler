@@ -28,12 +28,12 @@ pub struct PsyDepositTreeContract {
 }
 
 impl PsyDepositTreeContractRef {
-    fn limbs8_to_hash(x: [Felt; 8]) -> Hash {
+    fn limbs8_to_hash(x: [u32; 8]) -> Hash {
         [
-            x[0] + x[1] * 4294967296,
-            x[2] + x[3] * 4294967296,
-            x[4] + x[5] * 4294967296,
-            x[6] + x[7] * 4294967296,
+            (x[0] as Felt) + (x[1] as Felt) * 4294967296,
+            (x[2] as Felt) + (x[3] as Felt) * 4294967296,
+            (x[4] as Felt) + (x[5] as Felt) * 4294967296,
+            (x[6] as Felt) + (x[7] as Felt) * 4294967296,
         ]
     }
 
@@ -42,7 +42,7 @@ impl PsyDepositTreeContractRef {
             left[0], left[1], left[2], left[3],
             right[0], right[1], right[2], right[3]
         ];
-        Self::limbs8_to_hash(keccak256(data))
+        limbs8_to_hash(keccak256(data))
     }
 
     fn chain_frontier_offset(chain_index: Felt, level: Felt) -> Felt {

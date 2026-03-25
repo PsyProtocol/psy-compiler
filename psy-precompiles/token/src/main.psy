@@ -64,12 +64,12 @@ pub struct PsyTokenContract {
 }
 
 impl PsyTokenContractRef {
-    fn limbs8_to_hash(x: [Felt; 8]) -> Hash {
+    pub fn limbs8_to_hash(x: [u32; 8]) -> Hash {
         [
-            x[0] + x[1] * 4294967296,
-            x[2] + x[3] * 4294967296,
-            x[4] + x[5] * 4294967296,
-            x[6] + x[7] * 4294967296,
+            (x[0] as Felt) + (x[1] as Felt) * 4294967296,
+            (x[2] as Felt) + (x[3] as Felt) * 4294967296,
+            (x[4] as Felt) + (x[5] as Felt) * 4294967296,
+            (x[6] as Felt) + (x[7] as Felt) * 4294967296,
         ]
     }
 
@@ -78,7 +78,7 @@ impl PsyTokenContractRef {
             left[0], left[1], left[2], left[3],
             right[0], right[1], right[2], right[3]
         ];
-        Self::limbs8_to_hash(keccak256(data))
+        limbs8_to_hash(keccak256(data))
     }
 
     pub fn withdraw(
@@ -94,12 +94,12 @@ impl PsyTokenContractRef {
         assert(current_balance >= amount, "insufficient balance");
 
         // Prefix 2: withdrawal leaf kv (key = keccak256(2, dest_chain, nonce), value = leaf_hash).
-        let key: Hash = Self::limbs8_to_hash(keccak256([2, destination_chain_id, nonce]));
+        let key: Hash = limbs8_to_hash(keccak256([2, destination_chain_id, nonce]));
 
         c.balance = current_balance - amount;
 
         let user_id = get_user_id();
-        let leaf_hash: Hash = Self::limbs8_to_hash(keccak256([
+        let leaf_hash: Hash = limbs8_to_hash(keccak256([
             destination_chain_id,
             token_address[0], token_address[1], token_address[2], token_address[3],
             amount,
@@ -140,7 +140,7 @@ impl PsyTokenContractRef {
         assert(current == expected_root, "deposit proof root mismatch");
 
         // Prefix 3: deposit-claim nullifier, scoped by checkpoint + index + leaf.
-        let claim_key: Hash = Self::limbs8_to_hash(keccak256([
+        let claim_key: Hash = hash([
             3,
             proof.checkpoint_id,
             proof.index,
@@ -148,7 +148,7 @@ impl PsyTokenContractRef {
             leaf_hash[1],
             leaf_hash[2],
             leaf_hash[3],
-        ]));
+        ]);
         assert(c.claimed_nullifiers.contains(claim_key) == false, "deposit already claimed");
         c.claimed_nullifiers.insert(claim_key, [1, 0, 0, 0]);
 
@@ -393,13 +393,13 @@ impl PsyTokenContractRef {
         let expected_receiver: Hash = hash([get_user_id(), 1337, random0, random1]);
         assert(preimage.receiver == expected_receiver, "receiver does not match claiming user");
         // Prefix 1: private-claim nullifier marker.
-              let nullifier_key: Hash = Self::limbs8_to_hash(keccak256([
+              let nullifier_key: Hash = hash([
                   1,
                   preimage.nullifier_hash[0],
                   preimage.nullifier_hash[1],
                   preimage.nullifier_hash[2],
                   preimage.nullifier_hash[3],
-              ]));
+              ]);
         assert(c.claimed_nullifiers.contains(nullifier_key) == false, "nullifier already claimed");
         c.claimed_nullifiers.insert(nullifier_key, [1, 0, 0, 0]);
 

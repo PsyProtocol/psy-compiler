@@ -1,12 +1,13 @@
 use std::prelude::*;
 
-fn main() -> Hash {
-    let mut h: Hash = [1, 2, 3, 4];
+fn main() -> [u32; 8] {
+    let mut h: [u32; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
     for i in 0u32..40u32 {
-        let fi = i as Felt;
-        let data: [Felt; 8] = [h[0], h[1], h[2], h[3], fi, 0, 0, 0];
+        let data: [u32; 16] = [
+            h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7],
+            i, 0, 0, 0, 0, 0, 0, 0
+        ];
         h = keccak256(data);
     }
     h
 }
-

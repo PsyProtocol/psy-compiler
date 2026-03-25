@@ -3,8 +3,8 @@ use deposit_tree::PsyDepositTreeContractRef;
 
 fn main() -> Felt {
     let chain_index: Felt = 1;
-    let leaf_0: Hash = keccak256([11, 22, 33, 44]);
-    let leaf_1: Hash = keccak256([55, 66, 77, 88]);
+    let leaf_0: Hash = [11, 22, 33, 44];
+    let leaf_1: Hash = [55, 66, 77, 88];
 
     let root_after_0 = PsyDepositTreeContractRef::append_deposit(chain_index, leaf_0);
     assert(root_after_0 != [0, 0, 0, 0], "global root should be non-zero after first append");

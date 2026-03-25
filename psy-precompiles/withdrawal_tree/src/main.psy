@@ -31,12 +31,12 @@ pub struct PsyWithdrawalTreeContract {
 }
 
 impl PsyWithdrawalTreeContractRef {
-    fn limbs8_to_hash(x: [Felt; 8]) -> Hash {
+    fn limbs8_to_hash(x: [u32; 8]) -> Hash {
         [
-            x[0] + x[1] * 4294967296,
-            x[2] + x[3] * 4294967296,
-            x[4] + x[5] * 4294967296,
-            x[6] + x[7] * 4294967296,
+            (x[0] as Felt) + (x[1] as Felt) * 4294967296,
+            (x[2] as Felt) + (x[3] as Felt) * 4294967296,
+            (x[4] as Felt) + (x[5] as Felt) * 4294967296,
+            (x[6] as Felt) + (x[7] as Felt) * 4294967296,
         ]
     }
 
@@ -45,7 +45,7 @@ impl PsyWithdrawalTreeContractRef {
             left[0], left[1], left[2], left[3],
             right[0], right[1], right[2], right[3]
         ];
-        Self::limbs8_to_hash(keccak256(data))
+        limbs8_to_hash(keccak256(data))
     }
 
     fn chain_frontier_offset(chain_index: Felt, level: Felt) -> Felt {
@@ -148,12 +148,12 @@ impl PsyWithdrawalTreeContractRef {
     pub fn append_withdrawal(user_id: Felt, destination_chain_id: Felt, nonce: Felt) -> Hash {
         let token_contract_id: Felt = 0;
         let user_token = PsyTokenContractRef::new(ContractMetadata::new(token_contract_id, user_id));
-        let leaf_key: Hash = Self::limbs8_to_hash(keccak256([2, destination_chain_id, nonce]));
+        let leaf_key: Hash = limbs8_to_hash(keccak256([2, destination_chain_id, nonce]));
         let leaf_hash = user_token.claimed_nullifiers.get(leaf_key);
         assert(leaf_hash != [0, 0, 0, 0], "withdrawal not found");
 
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
-        let nullifier: Hash = Self::limbs8_to_hash(keccak256([user_id, destination_chain_id, nonce]));
+        let nullifier: Hash = hash([user_id, destination_chain_id, nonce]);
         assert(c.processed_nullifiers.contains(nullifier) == false, "already processed");
         c.processed_nullifiers.insert(nullifier, [1, 0, 0, 0]);
 

@@ -771,10 +771,13 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
             IntrinsicExprNode::Keccak256 { data, location } => {
                 let data = self.visit_expr(data, ctx)?;
+                let u32_type = UncheckedType::Basic(Identifier::new(IdentId::TYPE_U32, location));
+                let keccak_out_ty = UncheckedType::Array(Box::new(u32_type), 8, location);
+                let keccak_out_type_id = self.typecheck(&keccak_out_ty, ctx)?;
 
                 Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::Keccak256 {
                     data: self.program.exprs.alloc_item(data),
-                    type_id: HASH_TYPE,
+                    type_id: keccak_out_type_id,
                     location,
                 }))
             }
