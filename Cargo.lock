@@ -3910,6 +3910,7 @@ dependencies = [
  "psy_config",
  "psy_vm",
  "serde_json",
+ "tiny-keccak",
 ]
 
 [[package]]

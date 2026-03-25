@@ -21,9 +21,9 @@ pub struct UserInfoEvent {
 #[derive(Event)]
 pub struct WithdrawalEvent {
     pub destination_chain_id: Felt,
-    pub token_address: Hash,
+    pub token_address: [u32; 8],
     pub amount: Felt,
-    pub recipient: Hash,
+    pub recipient: [u32; 8],
     pub nonce: Felt,
 }
 
@@ -33,7 +33,7 @@ struct PrivateClaimProof {
 }
 
 struct DepositClaimProof {
-    pub siblings: [Hash; 32],
+    pub siblings: [[u32; 8]; 32],
     pub index: Felt,
     pub checkpoint_id: Felt,
 }
@@ -60,32 +60,36 @@ pub struct PsyTokenContract {
     pub note_root: Hash,
     pub last_path: [Hash; 20],
 
-    pub claimed_nullifiers: Map<Hash, Hash, 1048576u32>,
+    pub state_map: Map<Hash, Hash, 1048576u32>,
 }
 
 impl PsyTokenContractRef {
-    pub fn limbs8_to_hash(x: [u32; 8]) -> Hash {
-        [
-            (x[0] as Felt) + (x[1] as Felt) * 4294967296,
-            (x[2] as Felt) + (x[3] as Felt) * 4294967296,
-            (x[4] as Felt) + (x[5] as Felt) * 4294967296,
-            (x[6] as Felt) + (x[7] as Felt) * 4294967296,
-        ]
+    fn eq_u32x8(a: [u32; 8], b: [u32; 8]) -> bool {
+        a[0] == b[0]
+            && a[1] == b[1]
+            && a[2] == b[2]
+            && a[3] == b[3]
+            && a[4] == b[4]
+            && a[5] == b[5]
+            && a[6] == b[6]
+            && a[7] == b[7]
     }
 
-    fn keccak_two_to_one(left: Hash, right: Hash) -> Hash {
-        let data: [Felt; 8] = [
-            left[0], left[1], left[2], left[3],
-            right[0], right[1], right[2], right[3]
+    fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+        let data: [Felt; 16] = [
+            left[0] as Felt, left[1] as Felt, left[2] as Felt, left[3] as Felt,
+            left[4] as Felt, left[5] as Felt, left[6] as Felt, left[7] as Felt,
+            right[0] as Felt, right[1] as Felt, right[2] as Felt, right[3] as Felt,
+            right[4] as Felt, right[5] as Felt, right[6] as Felt, right[7] as Felt
         ];
-        limbs8_to_hash(keccak256(data))
+        keccak256(data)
     }
 
     pub fn withdraw(
-        destination_chain_id: Felt,
-        token_address: Hash,
+        destination_chain_index: Felt,
+        token_address: [u32; 8],
         amount: Felt,
-        recipient: Hash,
+        recipient: [u32; 8],
         nonce: Felt,
     ) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
@@ -93,24 +97,19 @@ impl PsyTokenContractRef {
         assert(amount > 0, "amount must be positive");
         assert(current_balance >= amount, "insufficient balance");
 
-        // Prefix 2: withdrawal leaf kv (key = keccak256(2, dest_chain, nonce), value = leaf_hash).
-        let key: Hash = limbs8_to_hash(keccak256([2, destination_chain_id, nonce]));
-
         c.balance = current_balance - amount;
 
-        let user_id = get_user_id();
-        let leaf_hash: Hash = limbs8_to_hash(keccak256([
-            destination_chain_id,
-            token_address[0], token_address[1], token_address[2], token_address[3],
+        let leaf_hash: [u32; 8] = keccak256([
+            recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
+            recipient[4] as Felt, recipient[5] as Felt, recipient[6] as Felt, recipient[7] as Felt,
+            token_address[0] as Felt, token_address[1] as Felt, token_address[2] as Felt, token_address[3] as Felt,
+            token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
             amount,
-            recipient[0], recipient[1], recipient[2], recipient[3],
             nonce,
-            user_id,
-        ]));
-        c.claimed_nullifiers.insert(key, leaf_hash);
-
+            destination_chain_index,
+        ]);
         let event_data = new WithdrawalEvent {
-            destination_chain_id,
+            destination_chain_id: destination_chain_index,
             token_address,
             amount,
             recipient,
@@ -119,17 +118,42 @@ impl PsyTokenContractRef {
         event_data.emit();
     }
 
-    pub fn claim_deposit(leaf_hash: Hash, amount: Felt, proof: DepositClaimProof) {
+    pub fn claim_deposit(
+        destination_chain_index: Felt,
+        token_address: [u32; 8],
+        amount: Felt,
+        recipient: [u32; 8],
+        nonce: Felt,
+        proof: DepositClaimProof
+    ) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         assert(amount > 0, "amount must be positive");
         assert(proof.index < 4294967296, "deposit proof index out of range");
-        assert(leaf_hash != [0, 0, 0, 0], "invalid deposit leaf");
-
-        let expected_root = get_checkpoint_deposit_tree_root(proof.checkpoint_id);
+        let leaf_hash: [u32; 8] = keccak256([
+            recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
+            recipient[4] as Felt, recipient[5] as Felt, recipient[6] as Felt, recipient[7] as Felt,
+            token_address[0] as Felt, token_address[1] as Felt, token_address[2] as Felt, token_address[3] as Felt,
+            token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
+            amount,
+            nonce,
+            destination_chain_index,
+        ]);
+        let root_slot_1: Hash = get_other_user_contract_state_hash_at(32, 524288, 2, 1);
+        let root_slot_2: Hash = get_other_user_contract_state_hash_at(32, 524288, 2, 2);
+        let expected_root: [u32; 8] = [
+            root_slot_1[0] as u32,
+            root_slot_1[1] as u32,
+            root_slot_1[2] as u32,
+            root_slot_1[3] as u32,
+            root_slot_2[0] as u32,
+            root_slot_2[1] as u32,
+            root_slot_2[2] as u32,
+            root_slot_2[3] as u32,
+        ];
         let mut current = leaf_hash;
         for i in 0u32..32u32 {
             let level_index = i as Felt;
-            let sibling: Hash = proof.siblings[level_index];
+            let sibling: [u32; 8] = proof.siblings[level_index];
             let index_bit: Felt = (proof.index >> level_index) & 1;
             if index_bit == 0 {
                 current = Self::keccak_two_to_one(current, sibling);
@@ -137,20 +161,23 @@ impl PsyTokenContractRef {
                 current = Self::keccak_two_to_one(sibling, current);
             };
         }
-        assert(current == expected_root, "deposit proof root mismatch");
+        assert(Self::eq_u32x8(current, expected_root), "deposit proof root mismatch");
 
-        // Prefix 3: deposit-claim nullifier, scoped by checkpoint + index + leaf.
         let claim_key: Hash = hash([
             3,
             proof.checkpoint_id,
             proof.index,
-            leaf_hash[0],
-            leaf_hash[1],
-            leaf_hash[2],
-            leaf_hash[3],
+            leaf_hash[0] as Felt,
+            leaf_hash[1] as Felt,
+            leaf_hash[2] as Felt,
+            leaf_hash[3] as Felt,
+            leaf_hash[4] as Felt,
+            leaf_hash[5] as Felt,
+            leaf_hash[6] as Felt,
+            leaf_hash[7] as Felt,
         ]);
-        assert(c.claimed_nullifiers.contains(claim_key) == false, "deposit already claimed");
-        c.claimed_nullifiers.insert(claim_key, [1, 0, 0, 0]);
+        assert(c.state_map.contains_ns(3, claim_key) == false, "deposit already claimed");
+        c.state_map.insert_ns(3, claim_key, [1, 0, 0, 0]);
 
         c.balance += amount;
     }
@@ -392,16 +419,9 @@ impl PsyTokenContractRef {
 
         let expected_receiver: Hash = hash([get_user_id(), 1337, random0, random1]);
         assert(preimage.receiver == expected_receiver, "receiver does not match claiming user");
-        // Prefix 1: private-claim nullifier marker.
-              let nullifier_key: Hash = hash([
-                  1,
-                  preimage.nullifier_hash[0],
-                  preimage.nullifier_hash[1],
-                  preimage.nullifier_hash[2],
-                  preimage.nullifier_hash[3],
-              ]);
-        assert(c.claimed_nullifiers.contains(nullifier_key) == false, "nullifier already claimed");
-        c.claimed_nullifiers.insert(nullifier_key, [1, 0, 0, 0]);
+        let nullifier_key: Hash = preimage.nullifier_hash;
+        assert(c.state_map.contains_ns(1, nullifier_key) == false, "nullifier already claimed");
+        c.state_map.insert_ns(1, nullifier_key, [1, 0, 0, 0]);
 
         c.balance += preimage.amount;
     }

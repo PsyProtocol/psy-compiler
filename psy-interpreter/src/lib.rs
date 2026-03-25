@@ -929,10 +929,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     }
                     CheckedIntrinsicExprNode::Keccak256 { data, type_id, .. } => {
                         let data = self.interpret_expr(program, data.clone(), ctx)?;
-                        return Ok(CheckedValueRef::from_vec(
-                            type_id.clone(),
-                            self.context.keccak256(&data.to_felts()).to_vec(),
-                        ));
+                        let limbs = self.context.keccak256(&data.to_felts()).to_vec();
+                        let values = limbs.into_iter().map(CheckedValueRef::from_u32).collect();
+                        return Ok(CheckedValueRef::new_rc(CheckedValue::Array(type_id.clone(), values)));
                     }
                     CheckedIntrinsicExprNode::HashTwoToOne { left, right, type_id, .. } => {
                         let left = self.interpret_expr(program, left.clone(), ctx)?;

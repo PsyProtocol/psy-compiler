@@ -4,63 +4,89 @@ use std::prelude::*;
 pub struct DepositLeafAppended {
     pub chain_index: Felt,
     pub index: Felt,
-    pub leaf: Hash,
-    pub new_chain_root: Hash,
-    pub new_global_root: Hash,
+    pub leaf: [u32; 8],
+    pub new_chain_root: [u32; 8],
+    pub new_global_root: [u32; 8],
 }
 
 #[contract]
 #[derive(Storage)]
 pub struct PsyDepositTreeContract {
-    // Backward-compatible chain-0 view.
     pub next_index: Felt,
-    pub root: Hash,
+    pub root: [u32; 8],
 
-    // Per-source-chain state.
-    // Flat frontier layout: frontiers[chain_index * 32 + level]
-    pub frontiers: [Hash; 8192],
+    pub frontiers: [[u32; 8]; 8192],
     pub chain_counts: [Felt; 256],
-    pub chain_roots: [Hash; 256],
+    pub chain_roots: [[u32; 8]; 256],
 
-    // Binary aggregate tree over 256 chain roots (1-indexed style kept in array slots).
-    // Leaves: [256..511], root: [1].
-    pub agg_tree: [Hash; 512],
+    pub agg_tree: [[u32; 8]; 512],
 }
 
 impl PsyDepositTreeContractRef {
-    fn limbs8_to_hash(x: [u32; 8]) -> Hash {
-        [
-            (x[0] as Felt) + (x[1] as Felt) * 4294967296,
-            (x[2] as Felt) + (x[3] as Felt) * 4294967296,
-            (x[4] as Felt) + (x[5] as Felt) * 4294967296,
-            (x[6] as Felt) + (x[7] as Felt) * 4294967296,
-        ]
-    }
-
-    pub fn keccak_two_to_one(left: Hash, right: Hash) -> Hash {
-        let data: [Felt; 8] = [
-            left[0], left[1], left[2], left[3],
-            right[0], right[1], right[2], right[3]
+    pub fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+        let data: [Felt; 16] = [
+            left[0] as Felt, left[1] as Felt, left[2] as Felt, left[3] as Felt,
+            left[4] as Felt, left[5] as Felt, left[6] as Felt, left[7] as Felt,
+            right[0] as Felt, right[1] as Felt, right[2] as Felt, right[3] as Felt,
+            right[4] as Felt, right[5] as Felt, right[6] as Felt, right[7] as Felt,
         ];
-        limbs8_to_hash(keccak256(data))
+        keccak256(data)
     }
 
     fn chain_frontier_offset(chain_index: Felt, level: Felt) -> Felt {
         chain_index * 32 + level
     }
 
-    fn append_to_chain(chain_index: Felt, leaf: Hash) -> Hash {
+    fn get_zero_hashes() -> [[u32; 8]; 32] {
+        [
+            [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32],
+            [3056087725u32, 3453220726u32, 1151697986u32, 2532382527u32, 2447652395u32, 2990541491u32, 3846789184u32, 3042949783u32],
+            [1360642484u32, 2406448277u32, 4132056164u32, 1186125340u32, 3704028736u32, 3993486975u32, 2661877378u32, 806175122u32],
+            [2746866977u32, 1063027030u32, 3055947948u32, 836748766u32, 3686444836u32, 2778422344u32, 2319049635u32, 2243606276u32],
+            [3010037733u32, 4058651434u32, 1513564138u32, 224004420u32, 3462706719u32, 3881358125u32, 2360852476u32, 1150525734u32],
+            [3206459406u32, 1344794057u32, 3386889228u32, 523052921u32, 2680951561u32, 2114802790u32, 293668224u32, 768598281u32],
+            [3173153928u32, 1087590535u32, 1715252246u32, 756088757u32, 4134788524u32, 283579568u32, 578821813u32, 1746508463u32],
+            [1459738623u32, 4234379492u32, 91932979u32, 40140559u32, 1818541875u32, 613780937u32, 3475749318u32, 2205136186u32],
+            [1607231384u32, 2473269631u32, 2128798138u32, 611590243u32, 4069577285u32, 1227307046u32, 3321779339u32, 2941712185u32],
+            [3855940302u32, 3113795592u32, 4275626407u32, 4216691121u32, 1972812290u32, 1903710296u32, 1154705673u32, 3763621903u32],
+            [2134826233u32, 1356863200u32, 861991663u32, 3567589455u32, 2182953470u32, 4112065289u32, 774786966u32, 2781069751u32],
+            [1228583416u32, 167150306u32, 866654147u32, 1838648827u32, 1467765009u32, 2720076317u32, 4149924453u32, 2465787000u32],
+            [3469119540u32, 3960096235u32, 2195882716u32, 270336915u32, 4164671431u32, 79648606u32, 171349786u32, 2631517602u32],
+            [3649232833u32, 326416580u32, 82830058u32, 3551827087u32, 1944734805u32, 2047814617u32, 1895984889u32, 3152187846u32],
+            [3618465628u32, 49531590u32, 3755895333u32, 3658789242u32, 1894305546u32, 2762164692u32, 3598841737u32, 3435063385u32],
+            [2681109466u32, 3055060558u32, 843132861u32, 3700193742u32, 3790037114u32, 2574387782u32, 708101859u32, 3525744215u32],
+            [266679079u32, 4207046226u32, 824943129u32, 4065390056u32, 4194160956u32, 3981742412u32, 2718529082u32, 530120689u32],
+            [3367359457u32, 3833704967u32, 3603315816u32, 1543068721u32, 1099357850u32, 598998238u32, 650244466u32, 2062522595u32],
+            [181284186u32, 3144187786u32, 2400147060u32, 746357617u32, 4157324078u32, 2923625471u32, 1072797208u32, 2692314236u32],
+            [3056102068u32, 4164965877u32, 1039549588u32, 1032730592u32, 2665487122u32, 3986541574u32, 1491476508u32, 2691355510u32],
+            [1167482566u32, 3062253412u32, 719184416u32, 4242360534u32, 1535003327u32, 3478010394u32, 1732703975u32, 3803705507u32],
+            [2290434548u32, 1168258541u32, 971767692u32, 4045815225u32, 1001466509u32, 3853444828u32, 899251086u32, 3655320222u32],
+            [3692469338u32, 418371072u32, 1866109879u32, 3411854989u32, 946955861u32, 3934089079u32, 3698331664u32, 2011403911u32],
+            [1078982733u32, 696388782u32, 2651248336u32, 2805567324u32, 2053609922u32, 4234662665u32, 3168994683u32, 1390808632u32],
+            [2502281165u32, 276516087u32, 4292988995u32, 1681176506u32, 4220355468u32, 1910056709u32, 565969590u32, 4011431532u32],
+            [3378167562u32, 1475191156u32, 2768897524u32, 1956437264u32, 2066155765u32, 999806777u32, 3318538162u32, 2371989742u32],
+            [74763704u32, 4030198639u32, 2385297319u32, 1678762243u32, 2038831148u32, 1786802573u32, 3649628337u32, 3498569445u32],
+            [1431735427u32, 3418759627u32, 1513828739u32, 3748991331u32, 1916245748u32, 2165369292u32, 3360338824u32, 516194684u32],
+            [3722718822u32, 3165837101u32, 2975955312u32, 79972070u32, 3067898230u32, 2366459736u32, 1571753335u32, 787185022u32],
+            [246581816u32, 1909551909u32, 3876094376u32, 2551087773u32, 2215341298u32, 1244629930u32, 3146618532u32, 581144193u32],
+            [1350312851u32, 1223587258u32, 2904706143u32, 1078065138u32, 1787682571u32, 2128594844u32, 578217418u32, 903308566u32],
+            [2340505732u32, 1648733876u32, 2660540036u32, 3759582231u32, 2389186238u32, 4049365781u32, 1653344606u32, 2840985724u32],
+        ]
+    }
+
+    fn append_to_chain(chain_index: Felt, leaf: [u32; 8]) -> [u32; 8] {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         let idx = c.chain_counts[chain_index].get();
         assert(idx < 4294967296, "deposit tree is full");
 
         let mut current = leaf;
-        let mut zero: Hash = [0, 0, 0, 0];
+        let zero_hashes = Self::get_zero_hashes();
         let mut path_index = idx;
 
         for level in 0u32..32u32 {
             let level_index = level as Felt;
             let slot = Self::chain_frontier_offset(chain_index, level_index);
+            let zero = zero_hashes[level_index];
             let is_right: Felt = path_index & 1;
             if is_right == 0 {
                 c.frontiers[slot] = current;
@@ -69,7 +95,6 @@ impl PsyDepositTreeContractRef {
                 let left = c.frontiers[slot].get();
                 current = Self::keccak_two_to_one(left, current);
             };
-            zero = Self::keccak_two_to_one(zero, zero);
             path_index = path_index >> 1;
         }
 
@@ -79,7 +104,7 @@ impl PsyDepositTreeContractRef {
         current
     }
 
-    fn update_global_root_for_chain(chain_index: Felt, chain_root: Hash) -> Hash {
+    fn update_global_root_for_chain(chain_index: Felt, chain_root: [u32; 8]) -> [u32; 8] {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         let mut node = 256 + chain_index;
         c.agg_tree[node] = chain_root;
@@ -100,7 +125,7 @@ impl PsyDepositTreeContractRef {
         global_root
     }
 
-    pub fn get_root() -> Hash {
+    pub fn get_root() -> [u32; 8] {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         c.root.get()
     }
@@ -110,7 +135,7 @@ impl PsyDepositTreeContractRef {
         c.chain_counts[0].get()
     }
 
-    pub fn get_chain_root(chain_index: Felt) -> Hash {
+    pub fn get_chain_root(chain_index: Felt) -> [u32; 8] {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         assert(chain_index < 256, "chain index out of range");
         c.chain_roots[chain_index].get()
@@ -122,12 +147,12 @@ impl PsyDepositTreeContractRef {
         c.chain_counts[chain_index].get()
     }
 
-    pub fn append_leaf(leaf: Hash) -> Hash {
+    pub fn append_leaf(leaf: [u32; 8]) -> [u32; 8] {
         let chain_index: Felt = 0;
         Self::append_deposit(chain_index, leaf)
     }
 
-    pub fn append_deposit(chain_index: Felt, leaf: Hash) -> Hash {
+    pub fn append_deposit(chain_index: Felt, leaf: [u32; 8]) -> [u32; 8] {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         assert(chain_index < 256, "chain index out of range");
         let idx = c.chain_counts[chain_index].get();
@@ -149,4 +174,5 @@ impl PsyDepositTreeContractRef {
 
         new_global_root
     }
+
 }

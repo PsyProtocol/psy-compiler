@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 serde_json = { workspace = true }
 psy_vm = { workspace = true }
+tiny-keccak = { workspace = true }
 
 [build-dependencies]
 serde_json = { workspace = true }

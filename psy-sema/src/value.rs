@@ -468,8 +468,8 @@ impl<F: Clone + From<u32> + ContextFelt> CheckedValueRef<F> {
                     elements: tuple_elements,
                 })
             }
-            _ => {
-                unreachable!()
+            (o, n) => {
+                panic!("CheckedValueRef::select unsupported variant pair: old={:?}, new={:?}", o, n)
             }
         }
     }

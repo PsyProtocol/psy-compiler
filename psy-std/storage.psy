@@ -57,8 +57,13 @@ pub struct ArrayRef<T, N: u32> {
 }
 
 pub struct Map<K, V, C: u32> {}
+pub struct NamespacedMap<K, V, C: u32> {}
 
 pub struct MapRef<K, V, C: u32> {
+    pub offset: Felt,
+    pub metadata: ContractMetadata,
+}
+pub struct NamespacedMapRef<K, V, C: u32> {
     pub offset: Felt,
     pub metadata: ContractMetadata,
 }
@@ -84,6 +89,15 @@ impl<T, N: u32> StorageNew for ArrayRef<T, N> {
 impl<K, V, C: u32> StorageNew for MapRef<K, V, C> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
         return new MapRef<K, V, C> {
+            offset,
+            metadata
+        };
+    }
+}
+
+impl<K, V, C: u32> StorageNew for NamespacedMapRef<K, V, C> {
+    pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
+        return new NamespacedMapRef<K, V, C> {
             offset,
             metadata
         };
@@ -216,6 +230,27 @@ impl<K, V, C: u32> Storage for Map<K, V, C> {
     }
 }
 
+impl<K, V, C: u32> Storage for NamespacedMap<K, V, C> {
+    pub type RefType = NamespacedMapRef<K, V, C>;
+
+    pub fn size() -> Felt {
+        C as Felt
+    }
+
+    pub fn read(
+        _contract_state_tree_height: Felt,
+        _user_id: Felt,
+        _contract_id: Felt,
+        _offset: Felt
+    ) -> Self {
+        new NamespacedMap<K, V, C> {}
+    }
+
+    pub fn write(_offset: Felt, _value: Self) {
+        assert(false, "NamespacedMap does not support whole-value write");
+    }
+}
+
 impl<T: Storage, N: u32> StorageAt<T, N> for [T; N] {
     pub fn write_at(offset: Felt, index: Felt, value: T) {
         let offset = offset + (index * T::size());
@@ -310,6 +345,88 @@ impl<K: ToHash, V: ToHash, C: u32> MapRef<K, V, C> {
 
     pub fn contains(self: Self, key: K) -> bool {
         return __imt_contains(key.to_hash(), self.offset, C as Felt);
+    }
+
+    fn key_with_namespace(namespace: Felt, key: K) -> Hash {
+        let k = key.to_hash();
+        hash([namespace, k[0], k[1], k[2], k[3]])
+    }
+
+    pub fn get_ns(self: Self, namespace: Felt, key: K) -> Hash {
+        return __imt_get(Self::key_with_namespace(namespace, key), self.offset, C as Felt);
+    }
+
+    pub fn insert_ns(self: Self, namespace: Felt, key: K, value: V) -> Hash {
+        return __imt_set(Self::key_with_namespace(namespace, key), value.to_hash(), self.offset, C as Felt);
+    }
+
+    pub fn set_ns(self: Self, namespace: Felt, key: K, value: V) -> Hash {
+        return self.insert_ns(namespace, key, value);
+    }
+
+    pub fn contains_ns(self: Self, namespace: Felt, key: K) -> bool {
+        return __imt_contains(Self::key_with_namespace(namespace, key), self.offset, C as Felt);
+    }
+}
+
+impl<K: ToHash, V: ToHash, C: u32> NamespacedMapRef<K, V, C> {
+    pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
+        return new NamespacedMapRef<K, V, C> {
+            offset,
+            metadata
+        };
+    }
+
+    pub fn size() -> Felt {
+        C as Felt
+    }
+
+    fn key_with_namespace(namespace: Felt, key: K) -> Hash {
+        let k = key.to_hash();
+        hash([namespace, k[0], k[1], k[2], k[3]])
+    }
+
+    pub fn get(self: Self, namespace: Felt, key: K) -> Hash {
+        return __imt_get(Self::key_with_namespace(namespace, key), self.offset, C as Felt);
+    }
+
+    pub fn insert(self: Self, namespace: Felt, key: K, value: V) -> Hash {
+        return __imt_set(Self::key_with_namespace(namespace, key), value.to_hash(), self.offset, C as Felt);
+    }
+
+    pub fn set(self: Self, namespace: Felt, key: K, value: V) -> Hash {
+        return self.insert(namespace, key, value);
+    }
+
+    pub fn contains(self: Self, namespace: Felt, key: K) -> bool {
+        return __imt_contains(Self::key_with_namespace(namespace, key), self.offset, C as Felt);
+    }
+}
+
+impl<K: ToHash, V: ToHash, C: u32> StorageRef<NamespacedMap<K, V, C>> {
+    fn key_with_namespace(namespace: Felt, key: K) -> Hash {
+        let k = key.to_hash();
+        hash([namespace, k[0], k[1], k[2], k[3]])
+    }
+
+    pub fn size() -> Felt {
+        C as Felt
+    }
+
+    pub fn get(self: Self, namespace: Felt, key: K) -> Hash {
+        return __imt_get(Self::key_with_namespace(namespace, key), self.offset, C as Felt);
+    }
+
+    pub fn insert(self: Self, namespace: Felt, key: K, value: V) -> Hash {
+        return __imt_set(Self::key_with_namespace(namespace, key), value.to_hash(), self.offset, C as Felt);
+    }
+
+    pub fn set(self: Self, namespace: Felt, key: K, value: V) -> Hash {
+        return self.insert(namespace, key, value);
+    }
+
+    pub fn contains(self: Self, namespace: Felt, key: K) -> bool {
+        return __imt_contains(Self::key_with_namespace(namespace, key), self.offset, C as Felt);
     }
 }
 
@@ -518,6 +635,7 @@ impl<N: u32> Eq<[u32; N]> for [u32; N] {
         same
     }
 }
+
 
 impl<N: u32> EqAssign<[Felt; N]> for [StorageRef<Felt>; N] {
     pub fn eq_assign(self: Self, rhs: [Felt; N]) {
