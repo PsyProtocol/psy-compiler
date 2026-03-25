@@ -1,0 +1,6 @@
+[package]
+name = "deposit_tree"
+type = "bin"
+authors = [""]
+
+[dependencies]

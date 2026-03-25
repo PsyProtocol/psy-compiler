@@ -1,6 +1,12 @@
-// input:
-// output:
+use std::prelude::*;
+
 fn main() -> Hash {
-    let data: Hash = [1, 2, 3, 4];
-    keccak256(data)
+    let mut h: Hash = [1, 2, 3, 4];
+    for i in 0u32..40u32 {
+        let fi = i as Felt;
+        let data: [Felt; 8] = [h[0], h[1], h[2], h[3], fi, 0, 0, 0];
+        h = keccak256(data);
+    }
+    h
 }
+

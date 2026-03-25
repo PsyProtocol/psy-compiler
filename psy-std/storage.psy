@@ -40,6 +40,12 @@ impl ToHash for Hash {
     }
 }
 
+impl<T, N: u32> ToHash for [T; N] {
+    pub fn to_hash(self) -> Hash {
+        hash(self)
+    }
+}
+
 pub struct StorageRef<T> {
     pub offset: Felt,
     pub metadata: ContractMetadata,

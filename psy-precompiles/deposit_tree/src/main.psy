@@ -1,8 +1,7 @@
 use std::prelude::*;
-use token::PsyTokenContractRef;
 
 #[derive(Event)]
-pub struct WithdrawalLeafAppended {
+pub struct DepositLeafAppended {
     pub chain_index: Felt,
     pub index: Felt,
     pub leaf: Hash,
@@ -12,12 +11,12 @@ pub struct WithdrawalLeafAppended {
 
 #[contract]
 #[derive(Storage)]
-pub struct PsyWithdrawalTreeContract {
+pub struct PsyDepositTreeContract {
     // Backward-compatible chain-0 view.
     pub next_index: Felt,
     pub root: Hash,
 
-    // Per-destination-chain state.
+    // Per-source-chain state.
     // Flat frontier layout: frontiers[chain_index * 32 + level]
     pub frontiers: [Hash; 8192],
     pub chain_counts: [Felt; 256],
@@ -26,11 +25,9 @@ pub struct PsyWithdrawalTreeContract {
     // Binary aggregate tree over 256 chain roots (1-indexed style kept in array slots).
     // Leaves: [256..511], root: [1].
     pub agg_tree: [Hash; 512],
-
-    pub processed_nullifiers: Map<Hash, Hash, 1048576u32>,
 }
 
-impl PsyWithdrawalTreeContractRef {
+impl PsyDepositTreeContractRef {
     fn limbs8_to_hash(x: [Felt; 8]) -> Hash {
         [
             x[0] + x[1] * 4294967296,
@@ -53,9 +50,9 @@ impl PsyWithdrawalTreeContractRef {
     }
 
     fn append_to_chain(chain_index: Felt, leaf: Hash) -> Hash {
-        let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
+        let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         let idx = c.chain_counts[chain_index].get();
-        assert(idx < 4294967296, "withdrawal tree is full");
+        assert(idx < 4294967296, "deposit tree is full");
 
         let mut current = leaf;
         let mut zero: Hash = [0, 0, 0, 0];
@@ -83,7 +80,7 @@ impl PsyWithdrawalTreeContractRef {
     }
 
     fn update_global_root_for_chain(chain_index: Felt, chain_root: Hash) -> Hash {
-        let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
+        let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         let mut node = 256 + chain_index;
         c.agg_tree[node] = chain_root;
 
@@ -104,72 +101,47 @@ impl PsyWithdrawalTreeContractRef {
     }
 
     pub fn get_root() -> Hash {
-        let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
+        let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         c.root.get()
     }
 
     pub fn get_next_index() -> Felt {
-        let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
+        let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         c.chain_counts[0].get()
     }
 
-    pub fn get_chain_root(destination_chain_id: Felt) -> Hash {
-        let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
-        assert(destination_chain_id < 256, "destination chain id out of range");
-        c.chain_roots[destination_chain_id].get()
+    pub fn get_chain_root(chain_index: Felt) -> Hash {
+        let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
+        assert(chain_index < 256, "chain index out of range");
+        c.chain_roots[chain_index].get()
     }
 
-    pub fn get_chain_next_index(destination_chain_id: Felt) -> Felt {
-        let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
-        assert(destination_chain_id < 256, "destination chain id out of range");
-        c.chain_counts[destination_chain_id].get()
+    pub fn get_chain_next_index(chain_index: Felt) -> Felt {
+        let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
+        assert(chain_index < 256, "chain index out of range");
+        c.chain_counts[chain_index].get()
     }
 
     pub fn append_leaf(leaf: Hash) -> Hash {
-        let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         let chain_index: Felt = 0;
-        let idx = c.chain_counts[chain_index].get();
-        let new_chain_root = Self::append_to_chain(chain_index, leaf);
-        let new_global_root = Self::update_global_root_for_chain(chain_index, new_chain_root);
-        c.next_index = c.chain_counts[chain_index].get();
-
-        let event_data = new WithdrawalLeafAppended {
-            chain_index,
-            index: idx,
-            leaf,
-            new_chain_root,
-            new_global_root,
-        };
-        event_data.emit();
-
-        new_global_root
+        Self::append_deposit(chain_index, leaf)
     }
 
-    pub fn append_withdrawal(user_id: Felt, destination_chain_id: Felt, nonce: Felt) -> Hash {
-        let token_contract_id: Felt = 0;
-        let user_token = PsyTokenContractRef::new(ContractMetadata::new(token_contract_id, user_id));
-        let leaf_key: Hash = Self::limbs8_to_hash(keccak256([2, destination_chain_id, nonce]));
-        let leaf_hash = user_token.claimed_nullifiers.get(leaf_key);
-        assert(leaf_hash != [0, 0, 0, 0], "withdrawal not found");
-
-        let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
-        let nullifier: Hash = Self::limbs8_to_hash(keccak256([user_id, destination_chain_id, nonce]));
-        assert(c.processed_nullifiers.contains(nullifier) == false, "already processed");
-        c.processed_nullifiers.insert(nullifier, [1, 0, 0, 0]);
-
-        let chain_index = destination_chain_id;
-        assert(chain_index < 256, "destination chain id out of range");
+    pub fn append_deposit(chain_index: Felt, leaf: Hash) -> Hash {
+        let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
+        assert(chain_index < 256, "chain index out of range");
         let idx = c.chain_counts[chain_index].get();
-        let new_chain_root = Self::append_to_chain(chain_index, leaf_hash);
+
+        let new_chain_root = Self::append_to_chain(chain_index, leaf);
         let new_global_root = Self::update_global_root_for_chain(chain_index, new_chain_root);
         if chain_index == 0 {
             c.next_index = c.chain_counts[0].get();
         };
 
-        let event_data = new WithdrawalLeafAppended {
+        let event_data = new DepositLeafAppended {
             chain_index,
             index: idx,
-            leaf: leaf_hash,
+            leaf,
             new_chain_root,
             new_global_root,
         };

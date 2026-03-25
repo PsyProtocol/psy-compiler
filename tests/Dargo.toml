@@ -8,3 +8,4 @@ description = "test"
 mining_rewards = { path = "../psy-precompiles/mining_rewards" }
 token = { path = "../psy-precompiles/token" }
 withdrawal_tree = { path = "../psy-precompiles/withdrawal_tree" }
+deposit_tree = { path = "../psy-precompiles/deposit_tree" }
