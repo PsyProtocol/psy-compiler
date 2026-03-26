@@ -166,5 +166,5 @@ gen-deploy-json:
 		$(PARTH_GENERIC_V1)/genesis_contracts.json \
 		$(TOKEN_CONTRACT_PATH)/target/token.json \
 		$(MINING_REWARDS_CONTRACT_PATH)/target/mining_rewards.json \
-		$(WITHDRAWAL_TREE_CONTRACT_PATH)/target/withdrawal_tree.json \
-		$(DEPOSIT_TREE_CONTRACT_PATH)/target/deposit_tree.json
+		$(DEPOSIT_TREE_CONTRACT_PATH)/target/deposit_tree.json \
+		$(WITHDRAWAL_TREE_CONTRACT_PATH)/target/withdrawal_tree.json
