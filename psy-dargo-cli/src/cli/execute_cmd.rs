@@ -71,6 +71,12 @@ pub(crate) async fn run(mut args: ExecuteCommand, workspace: Workspace) -> crate
         .zip(args.parameters.into_iter())
         .zip(circuits.into_iter())
     {
+        println!(
+            "circuit_stats method={} degree_bits={} gate_kinds={}",
+            def.name,
+            circuit.circuit_data.common.degree_bits(),
+            circuit.circuit_data.common.gates.len()
+        );
         let cfc_input = PsyEvalSessionResult::new()
             .exec_contract_call(
                 &mut lps,

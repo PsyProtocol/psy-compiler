@@ -17,6 +17,7 @@ pub struct PsyDepositTreeContract {
 
     pub frontiers: [[u32; 8]; 8192],
     pub chain_counts: [Felt; 256],
+    pub _chain_roots_padding: [Felt; 3],
     pub chain_roots: [[u32; 8]; 256],
 
     pub agg_tree: [[u32; 8]; 512],

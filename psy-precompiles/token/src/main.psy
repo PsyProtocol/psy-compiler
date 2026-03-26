@@ -197,21 +197,24 @@ impl PsyTokenContractRef {
             nonce,
         ]);
         assert(source_chain_index < 256, "source chain index out of range");
-        // Deposit tree chain root is stored under system user 524288, contract 2.
-        // Each chain root is [u32;8] => two Hash slots.
-        let chain_root_slot_1: Felt = 1 + source_chain_index * 2;
-        let chain_root_slot_2: Felt = chain_root_slot_1 + 1;
-        let root_slot_1: Hash = get_other_user_contract_state_hash_at(32, 524288, 2, chain_root_slot_1);
-        let root_slot_2: Hash = get_other_user_contract_state_hash_at(32, 524288, 2, chain_root_slot_2);
+        let source_chain_index_u32: u32 = source_chain_index as u32;
+        // Deposit tree chain_roots base hash slot index (for contract 2): 16451.
+        // With explicit padding in the deposit tree layout, each [u32; 8] root is 4-aligned
+        // and occupies exactly two Hash slots.
+        let root_slot_base: Felt = 16451 + (source_chain_index_u32 as Felt) * 2;
+
+        let root_hash_0: Hash = get_other_user_contract_state_hash_at(32, 524288, 2, root_slot_base);
+        let root_hash_1: Hash = get_other_user_contract_state_hash_at(32, 524288, 2, root_slot_base + 1);
+
         let expected_root: [u32; 8] = [
-            root_slot_1[0] as u32,
-            root_slot_1[1] as u32,
-            root_slot_1[2] as u32,
-            root_slot_1[3] as u32,
-            root_slot_2[0] as u32,
-            root_slot_2[1] as u32,
-            root_slot_2[2] as u32,
-            root_slot_2[3] as u32,
+            root_hash_0[0] as u32,
+            root_hash_0[1] as u32,
+            root_hash_0[2] as u32,
+            root_hash_0[3] as u32,
+            root_hash_1[0] as u32,
+            root_hash_1[1] as u32,
+            root_hash_1[2] as u32,
+            root_hash_1[3] as u32,
         ];
         let mut current = leaf_hash;
         for i in 0u32..32u32 {
