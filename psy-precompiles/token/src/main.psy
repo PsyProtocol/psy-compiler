@@ -85,6 +85,48 @@ impl PsyTokenContractRef {
         keccak256(data)
     }
 
+    fn hash_to_u32x8(x: Hash) -> [u32; 8] {
+        let mask: Felt = 4294967295;
+        [
+            (x[0] & mask) as u32,
+            (x[0] >> 32) as u32,
+            (x[1] & mask) as u32,
+            (x[1] >> 32) as u32,
+            (x[2] & mask) as u32,
+            (x[2] >> 32) as u32,
+            (x[3] & mask) as u32,
+            (x[3] >> 32) as u32,
+        ]
+    }
+
+    fn user_id_to_u32x8_be(user_id: Felt) -> [u32; 8] {
+        // bytes32 big-endian: high 192 bits are zero, low 64 bits are user_id.
+        // Represented as eight u32 limbs in big-endian word order.
+        [
+            0u32,
+            0u32,
+            0u32,
+            0u32,
+            0u32,
+            0u32,
+            (user_id >> 32) as u32,
+            (user_id & 4294967295) as u32,
+        ]
+    }
+
+    fn current_contract_id_u32x8() -> [u32; 8] {
+        [
+            get_contract_id() as u32,
+            0u32,
+            0u32,
+            0u32,
+            0u32,
+            0u32,
+            0u32,
+            0u32,
+        ]
+    }
+
     pub fn withdraw(
         destination_chain_index: Felt,
         token_address: [u32; 8],
@@ -119,7 +161,9 @@ impl PsyTokenContractRef {
     }
 
     pub fn claim_deposit(
-        destination_chain_index: Felt,
+        source_chain_index: Felt,
+        depositor: [u32; 8],
+        l2_token_contract_id: [u32; 8],
         token_address: [u32; 8],
         amount: Felt,
         recipient: [u32; 8],
@@ -129,17 +173,36 @@ impl PsyTokenContractRef {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         assert(amount > 0, "amount must be positive");
         assert(proof.index < 4294967296, "deposit proof index out of range");
+        let expected_l2_token_contract_id = Self::current_contract_id_u32x8();
+        assert(
+            Self::eq_u32x8(l2_token_contract_id, expected_l2_token_contract_id),
+            "l2 token contract id mismatch"
+        );
+        let caller_user_id: Felt = get_user_id();
+        let caller_recipient: [u32; 8] = Self::user_id_to_u32x8_be(caller_user_id);
+        assert(Self::eq_u32x8(recipient, caller_recipient), "recipient must be tx sender user_id (bytes32 BE)");
+        // Must match L1 Bridge leaf layout exactly:
+        // keccak256(abi.encodePacked(depositor, l2Recipient, token, l2TokenContractId, amount, chainIndex, nonce))
         let leaf_hash: [u32; 8] = keccak256([
+            depositor[0] as Felt, depositor[1] as Felt, depositor[2] as Felt, depositor[3] as Felt,
+            depositor[4] as Felt, depositor[5] as Felt, depositor[6] as Felt, depositor[7] as Felt,
             recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
             recipient[4] as Felt, recipient[5] as Felt, recipient[6] as Felt, recipient[7] as Felt,
             token_address[0] as Felt, token_address[1] as Felt, token_address[2] as Felt, token_address[3] as Felt,
             token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
+            l2_token_contract_id[0] as Felt, l2_token_contract_id[1] as Felt, l2_token_contract_id[2] as Felt, l2_token_contract_id[3] as Felt,
+            l2_token_contract_id[4] as Felt, l2_token_contract_id[5] as Felt, l2_token_contract_id[6] as Felt, l2_token_contract_id[7] as Felt,
             amount,
+            source_chain_index,
             nonce,
-            destination_chain_index,
         ]);
-        let root_slot_1: Hash = get_other_user_contract_state_hash_at(32, 524288, 2, 1);
-        let root_slot_2: Hash = get_other_user_contract_state_hash_at(32, 524288, 2, 2);
+        assert(source_chain_index < 256, "source chain index out of range");
+        // Deposit tree chain root is stored under system user 524288, contract 2.
+        // Each chain root is [u32;8] => two Hash slots.
+        let chain_root_slot_1: Felt = 1 + source_chain_index * 2;
+        let chain_root_slot_2: Felt = chain_root_slot_1 + 1;
+        let root_slot_1: Hash = get_other_user_contract_state_hash_at(32, 524288, 2, chain_root_slot_1);
+        let root_slot_2: Hash = get_other_user_contract_state_hash_at(32, 524288, 2, chain_root_slot_2);
         let expected_root: [u32; 8] = [
             root_slot_1[0] as u32,
             root_slot_1[1] as u32,
