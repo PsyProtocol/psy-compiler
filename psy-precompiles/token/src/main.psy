@@ -230,9 +230,6 @@ impl PsyTokenContractRef {
         assert(Self::eq_u32x8(current, expected_root), "deposit proof root mismatch");
 
         let claim_key: Hash = hash([
-            3,
-            proof.checkpoint_id,
-            proof.index,
             leaf_hash[0] as Felt,
             leaf_hash[1] as Felt,
             leaf_hash[2] as Felt,
