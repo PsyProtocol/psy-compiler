@@ -626,6 +626,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                 impl_map
                     .iter()
                     .filter(|(c, _)| c != &&constraint)
+                    // Only fall back to polymorphic impls. Reusing an already
+                    // instantiated concrete impl as a template can leak the
+                    // previous concrete generic arguments into a new call site.
+                    .filter(|(c, _)| c.constraints.iter().any(|ty| ctx.symbols[*ty].is_type_variable()))
                     .map(|(c, impl_set)| (c.clone(), impl_set)),
             )
         {
@@ -686,6 +690,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                 impl_map
                     .iter()
                     .filter(|(c, _)| c != &&constraint)
+                    // Only fall back to polymorphic trait impls. Concrete impl
+                    // instances must not be re-instantiated for a different
+                    // generic argument set.
+                    .filter(|(c, _)| c.constraints.iter().any(|ty| ctx.symbols[*ty].is_type_variable()))
                     .map(|(c, impl_set)| (c.clone(), impl_set)),
             )
         {
