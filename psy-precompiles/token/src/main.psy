@@ -127,6 +127,17 @@ impl PsyTokenContractRef {
         ]
     }
 
+    fn felt_u64_to_u32x2_be(x: Felt) -> [u32; 2] {
+        [
+            (x >> 32) as u32,
+            (x & 4294967295) as u32,
+        ]
+    }
+
+    fn u32x2_be_to_felt_u64(x: [u32; 2]) -> Felt {
+        (x[0] as Felt) * 4294967296 + (x[1] as Felt)
+    }
+
     pub fn withdraw(
         destination_chain_index: Felt,
         token_address: [u32; 8],
@@ -165,12 +176,13 @@ impl PsyTokenContractRef {
         depositor: [u32; 8],
         l2_token_contract_id: [u32; 8],
         token_address: [u32; 8],
-        amount: Felt,
+        amount_u64: [u32; 2],
         recipient: [u32; 8],
         nonce: Felt,
         proof: DepositClaimProof
     ) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
+        let amount: Felt = Self::u32x2_be_to_felt_u64(amount_u64);
         assert(amount > 0, "amount must be positive");
         assert(proof.index < 4294967296, "deposit proof index out of range");
         let expected_l2_token_contract_id = Self::current_contract_id_u32x8();
@@ -181,8 +193,11 @@ impl PsyTokenContractRef {
         let caller_user_id: Felt = get_user_id();
         let caller_recipient: [u32; 8] = Self::user_id_to_u32x8_be(caller_user_id);
         assert(Self::eq_u32x8(recipient, caller_recipient), "recipient must be tx sender user_id (bytes32 BE)");
-        // Must match L1 Bridge leaf layout exactly:
-        // keccak256(abi.encodePacked(depositor, l2Recipient, token, l2TokenContractId, amount, chainIndex, nonce))
+        assert(source_chain_index < 4294967296, "source chain index out of range");
+        assert(nonce < 4294967296, "deposit nonce out of range");
+        let source_chain_index_u32: u32 = source_chain_index as u32;
+        let nonce_u32: u32 = nonce as u32;
+        // keccak256(abi.encodePacked(depositor, l2Recipient, token, l2TokenContractId, amount(uint64), chainIndex(uint32), nonce(uint32)))
         let leaf_hash: [u32; 8] = keccak256([
             depositor[0] as Felt, depositor[1] as Felt, depositor[2] as Felt, depositor[3] as Felt,
             depositor[4] as Felt, depositor[5] as Felt, depositor[6] as Felt, depositor[7] as Felt,
@@ -192,15 +207,13 @@ impl PsyTokenContractRef {
             token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
             l2_token_contract_id[0] as Felt, l2_token_contract_id[1] as Felt, l2_token_contract_id[2] as Felt, l2_token_contract_id[3] as Felt,
             l2_token_contract_id[4] as Felt, l2_token_contract_id[5] as Felt, l2_token_contract_id[6] as Felt, l2_token_contract_id[7] as Felt,
-            amount,
-            source_chain_index,
-            nonce,
+            amount_u64[0] as Felt,
+            amount_u64[1] as Felt,
+            source_chain_index_u32 as Felt,
+            nonce_u32 as Felt,
         ]);
         assert(source_chain_index < 256, "source chain index out of range");
-        let source_chain_index_u32: u32 = source_chain_index as u32;
-        // Deposit tree chain_roots base hash slot index (for contract 2): 16451.
-        // With explicit padding in the deposit tree layout, each [u32; 8] root is 4-aligned
-        // and occupies exactly two Hash slots.
+        // Each [u32; 8] root occupies two consecutive Hash slots.
         let root_slot_base: Felt = 16451 + (source_chain_index_u32 as Felt) * 2;
 
         let root_hash_0: Hash = get_other_user_contract_state_hash_at(32, 524288, 2, root_slot_base);
