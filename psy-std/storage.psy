@@ -34,6 +34,10 @@ pub trait ToHash {
     pub fn to_hash(self) -> Hash;
 }
 
+pub fn namespaced_key_hash(namespace: Felt, key_hash: Hash) -> Hash {
+    return hash([namespace, key_hash[0], key_hash[1], key_hash[2], key_hash[3]]);
+}
+
 impl ToHash for Hash {
     pub fn to_hash(self) -> Hash {
         self
@@ -349,7 +353,7 @@ impl<K: ToHash, V: ToHash, C: u32> MapRef<K, V, C> {
 
     fn key_with_namespace(namespace: Felt, key: K) -> Hash {
         let k = key.to_hash();
-        hash([namespace, k[0], k[1], k[2], k[3]])
+        return namespaced_key_hash(namespace, k);
     }
 
     pub fn get_ns(self: Self, namespace: Felt, key: K) -> Hash {
@@ -383,7 +387,7 @@ impl<K: ToHash, V: ToHash, C: u32> NamespacedMapRef<K, V, C> {
 
     fn key_with_namespace(namespace: Felt, key: K) -> Hash {
         let k = key.to_hash();
-        hash([namespace, k[0], k[1], k[2], k[3]])
+        return namespaced_key_hash(namespace, k);
     }
 
     pub fn get(self: Self, namespace: Felt, key: K) -> Hash {
@@ -406,7 +410,7 @@ impl<K: ToHash, V: ToHash, C: u32> NamespacedMapRef<K, V, C> {
 impl<K: ToHash, V: ToHash, C: u32> StorageRef<NamespacedMap<K, V, C>> {
     fn key_with_namespace(namespace: Felt, key: K) -> Hash {
         let k = key.to_hash();
-        hash([namespace, k[0], k[1], k[2], k[3]])
+        return namespaced_key_hash(namespace, k);
     }
 
     pub fn size() -> Felt {
