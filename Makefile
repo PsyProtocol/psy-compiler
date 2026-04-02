@@ -161,7 +161,7 @@ compile-deposit-tree-abi:
 
 PARTH_GENERIC_V1 ?= $(PWD)/../parth-generic-v1
 
-gen-deploy-json:
+gen-deploy-json: compile-token-contract compile-mining-rewards-contract compile-deposit-tree-contract compile-withdrawal-tree-contract
 	@cargo run --release --package dargo --example gen_deploy_json -- \
 		$(PARTH_GENERIC_V1)/genesis_contracts.json \
 		$(TOKEN_CONTRACT_PATH)/target/token.json \
