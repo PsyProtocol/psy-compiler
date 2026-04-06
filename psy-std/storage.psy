@@ -371,6 +371,50 @@ impl<K: ToHash, V: ToHash, C: u32> MapRef<K, V, C> {
     pub fn contains_ns(self: Self, namespace: Felt, key: K) -> bool {
         return __imt_contains(Self::key_with_namespace(namespace, key), self.offset, C as Felt);
     }
+
+    pub fn get_other(self: Self, key: K) -> Hash {
+        return __imt_get_other_user(
+            self.metadata.contract_state_tree_height,
+            self.metadata.user_id,
+            self.metadata.contract_id,
+            key.to_hash(),
+            self.offset,
+            C as Felt
+        );
+    }
+
+    pub fn contains_other(self: Self, key: K) -> bool {
+        return context::imt_contains_other_user(
+            self.metadata.contract_state_tree_height,
+            self.metadata.user_id,
+            self.metadata.contract_id,
+            key.to_hash(),
+            self.offset,
+            C as Felt
+        );
+    }
+
+    pub fn get_ns_other(self: Self, namespace: Felt, key: K) -> Hash {
+        return __imt_get_other_user(
+            self.metadata.contract_state_tree_height,
+            self.metadata.user_id,
+            self.metadata.contract_id,
+            Self::key_with_namespace(namespace, key),
+            self.offset,
+            C as Felt
+        );
+    }
+
+    pub fn contains_ns_other(self: Self, namespace: Felt, key: K) -> bool {
+        return context::imt_contains_other_user(
+            self.metadata.contract_state_tree_height,
+            self.metadata.user_id,
+            self.metadata.contract_id,
+            Self::key_with_namespace(namespace, key),
+            self.offset,
+            C as Felt
+        );
+    }
 }
 
 impl<K: ToHash, V: ToHash, C: u32> NamespacedMapRef<K, V, C> {
@@ -404,6 +448,28 @@ impl<K: ToHash, V: ToHash, C: u32> NamespacedMapRef<K, V, C> {
 
     pub fn contains(self: Self, namespace: Felt, key: K) -> bool {
         return __imt_contains(Self::key_with_namespace(namespace, key), self.offset, C as Felt);
+    }
+
+    pub fn get_other(self: Self, namespace: Felt, key: K) -> Hash {
+        return __imt_get_other_user(
+            self.metadata.contract_state_tree_height,
+            self.metadata.user_id,
+            self.metadata.contract_id,
+            Self::key_with_namespace(namespace, key),
+            self.offset,
+            C as Felt
+        );
+    }
+
+    pub fn contains_other(self: Self, namespace: Felt, key: K) -> bool {
+        return context::imt_contains_other_user(
+            self.metadata.contract_state_tree_height,
+            self.metadata.user_id,
+            self.metadata.contract_id,
+            Self::key_with_namespace(namespace, key),
+            self.offset,
+            C as Felt
+        );
     }
 }
 

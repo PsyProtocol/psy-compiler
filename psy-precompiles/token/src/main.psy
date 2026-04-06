@@ -1,5 +1,6 @@
 use std::prelude::*;
 use mining_rewards::PsyPOWMiningRewardsClaimContractRef;
+use deposit_tree::PsyDepositTreeContractRef;
 
 #[derive(Storage)]
 struct OtherUserInfo {
@@ -33,7 +34,7 @@ struct PrivateClaimProof {
 }
 
 struct DepositClaimProof {
-    pub siblings: [[u32; 8]; 32],
+    pub siblings: [u32; 256],
     pub index: Felt,
     pub checkpoint_id: Felt,
 }
@@ -64,6 +65,8 @@ pub struct PsyTokenContract {
 }
 
 impl PsyTokenContractRef {
+    fn deposit_tree_contract_id() -> Felt { 2 }
+    fn deposit_tree_user_id() -> Felt { 524288 }
     fn eq_u32x8(a: [u32; 8], b: [u32; 8]) -> bool {
         a[0] == b[0]
             && a[1] == b[1]
@@ -213,26 +216,28 @@ impl PsyTokenContractRef {
             nonce_u32 as Felt,
         ]);
         assert(source_chain_index < 256, "source chain index out of range");
-        // Each [u32; 8] root occupies two consecutive Hash slots.
-        let root_slot_base: Felt = 16451 + (source_chain_index_u32 as Felt) * 2;
-
-        let root_hash_0: Hash = get_other_user_contract_state_hash_at(32, 524288, 2, root_slot_base);
-        let root_hash_1: Hash = get_other_user_contract_state_hash_at(32, 524288, 2, root_slot_base + 1);
-
-        let expected_root: [u32; 8] = [
-            root_hash_0[0] as u32,
-            root_hash_0[1] as u32,
-            root_hash_0[2] as u32,
-            root_hash_0[3] as u32,
-            root_hash_1[0] as u32,
-            root_hash_1[1] as u32,
-            root_hash_1[2] as u32,
-            root_hash_1[3] as u32,
-        ];
         let mut current = leaf_hash;
         for i in 0u32..32u32 {
             let level_index = i as Felt;
-            let sibling: [u32; 8] = proof.siblings[level_index];
+            let base = (i as Felt) * 8;
+            let i0 = base;
+            let i1 = base + 1;
+            let i2 = base + 2;
+            let i3 = base + 3;
+            let i4 = base + 4;
+            let i5 = base + 5;
+            let i6 = base + 6;
+            let i7 = base + 7;
+            let sibling: [u32; 8] = [
+                proof.siblings[i0],
+                proof.siblings[i1],
+                proof.siblings[i2],
+                proof.siblings[i3],
+                proof.siblings[i4],
+                proof.siblings[i5],
+                proof.siblings[i6],
+                proof.siblings[i7],
+            ];
             let index_bit: Felt = (proof.index >> level_index) & 1;
             if index_bit == 0 {
                 current = Self::keccak_two_to_one(current, sibling);
@@ -240,7 +245,16 @@ impl PsyTokenContractRef {
                 current = Self::keccak_two_to_one(sibling, current);
             };
         }
-        assert(Self::eq_u32x8(current, expected_root), "deposit proof root mismatch");
+        let known_key: Hash = hash([
+            current[0] as Felt, current[1] as Felt, current[2] as Felt, current[3] as Felt,
+            current[4] as Felt, current[5] as Felt, current[6] as Felt, current[7] as Felt,
+        ]);
+        let deposit_tree = PsyDepositTreeContractRef::new(ContractMetadata::new(
+            Self::deposit_tree_contract_id(),
+            Self::deposit_tree_user_id(),
+        ));
+        let known: bool = deposit_tree.known_roots.contains_ns_other(source_chain_index, known_key);
+        assert(known, "deposit root is not known");
 
         let claim_key: Hash = hash([
             leaf_hash[0] as Felt,
