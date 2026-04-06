@@ -651,6 +651,24 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                     *capacity = self.rewrite_expr(*capacity, ctx)?;
                     *type_id = self.substitute_all(*type_id, ctx)?;
                 }
+                CheckedIntrinsicExprNode::ImtGetOtherUser {
+                    contract_state_tree_height,
+                    user_id,
+                    contract_id,
+                    key,
+                    base_offset,
+                    capacity,
+                    type_id,
+                    ..
+                } => {
+                    *contract_state_tree_height = self.rewrite_expr(*contract_state_tree_height, ctx)?;
+                    *user_id = self.rewrite_expr(*user_id, ctx)?;
+                    *contract_id = self.rewrite_expr(*contract_id, ctx)?;
+                    *key = self.rewrite_expr(*key, ctx)?;
+                    *base_offset = self.rewrite_expr(*base_offset, ctx)?;
+                    *capacity = self.rewrite_expr(*capacity, ctx)?;
+                    *type_id = self.substitute_all(*type_id, ctx)?;
+                }
                 CheckedIntrinsicExprNode::GetOtherContractStateHashAt {
                     contract_state_tree_height,
                     contract_id,
@@ -708,6 +726,24 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                     type_id,
                     ..
                 } => {
+                    *key = self.rewrite_expr(*key, ctx)?;
+                    *base_offset = self.rewrite_expr(*base_offset, ctx)?;
+                    *capacity = self.rewrite_expr(*capacity, ctx)?;
+                    *type_id = self.substitute_all(*type_id, ctx)?;
+                }
+                CheckedIntrinsicExprNode::ImtContainsOtherUser {
+                    contract_state_tree_height,
+                    user_id,
+                    contract_id,
+                    key,
+                    base_offset,
+                    capacity,
+                    type_id,
+                    ..
+                } => {
+                    *contract_state_tree_height = self.rewrite_expr(*contract_state_tree_height, ctx)?;
+                    *user_id = self.rewrite_expr(*user_id, ctx)?;
+                    *contract_id = self.rewrite_expr(*contract_id, ctx)?;
                     *key = self.rewrite_expr(*key, ctx)?;
                     *base_offset = self.rewrite_expr(*base_offset, ctx)?;
                     *capacity = self.rewrite_expr(*capacity, ctx)?;

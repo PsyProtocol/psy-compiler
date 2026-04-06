@@ -1020,6 +1020,46 @@ IntrinsicExpression: ExprNode<F> = {
             }
         )
     },
+    <l:@L> <variable:IMT_GET_OTHER_USER> "("
+        <contract_state_tree_height: Expression> ","
+        <user_id: Expression> ","
+        <contract_id: Expression> ","
+        <key: Expression> ","
+        <base_offset: Expression> ","
+        <capacity: Expression>
+    ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::ImtGetOtherUser {
+                contract_state_tree_height: expr_nodes.alloc_item(contract_state_tree_height),
+                user_id: expr_nodes.alloc_item(user_id),
+                contract_id: expr_nodes.alloc_item(contract_id),
+                key: expr_nodes.alloc_item(key),
+                base_offset: expr_nodes.alloc_item(base_offset),
+                capacity: expr_nodes.alloc_item(capacity),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
+    <l:@L> <variable:IMT_CONTAINS_OTHER_USER> "("
+        <contract_state_tree_height: Expression> ","
+        <user_id: Expression> ","
+        <contract_id: Expression> ","
+        <key: Expression> ","
+        <base_offset: Expression> ","
+        <capacity: Expression>
+    ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::ImtContainsOtherUser {
+                contract_state_tree_height: expr_nodes.alloc_item(contract_state_tree_height),
+                user_id: expr_nodes.alloc_item(user_id),
+                contract_id: expr_nodes.alloc_item(contract_id),
+                key: expr_nodes.alloc_item(key),
+                base_offset: expr_nodes.alloc_item(base_offset),
+                capacity: expr_nodes.alloc_item(capacity),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
     <l:@L> <variable:CTX_GET_OTHER_CONTRACT_STATE_HASH_AT> "(" <contract_state_tree_height: Expression> "," <contract_id: Expression> "," <slot_index: Expression> ")" <r:@R> => {
         ExprNode::Intrinsic(
             IntrinsicExprNode::GetOtherContractStateHashAt {
@@ -1438,6 +1478,8 @@ extern {
         CTX_GET_OTHER_USER_CONTRACT_STATE_HASH_AT => Token::IntrinsicCtxGetOtherUserContractStateHashAt,
         CTX_SET_STATE_HASH_AT => Token::IntrinsicCtxSetStateHashAt,
         IMT_GET => Token::IntrinsicImtGet,
+        IMT_GET_OTHER_USER => Token::IntrinsicImtGetOtherUser,
+        IMT_CONTAINS_OTHER_USER => Token::IntrinsicImtContainsOtherUser,
         IMT_SET => Token::IntrinsicImtSet,
         IMT_CONTAINS => Token::IntrinsicImtContains,
 
