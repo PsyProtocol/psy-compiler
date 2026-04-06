@@ -111,6 +111,10 @@ pub enum Token<'input> {
     IntrinsicCtxSetStateHashAt,
     #[token("__imt_get")]
     IntrinsicImtGet,
+    #[token("__imt_get_other_user")]
+    IntrinsicImtGetOtherUser,
+    #[token("__imt_contains_other_user")]
+    IntrinsicImtContainsOtherUser,
     #[token("__imt_set")]
     IntrinsicImtSet,
     #[token("__imt_contains")]

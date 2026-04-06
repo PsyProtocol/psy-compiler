@@ -831,6 +831,29 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let capacity = self.interpret_expr(program, capacity.clone(), ctx)?.to_felt();
                         CheckedValueRef::from_vec(type_id.clone(), self.context.imt_get_value(key, base_offset, capacity))
                     }
+                    CheckedIntrinsicExprNode::ImtGetOtherUser {
+                        contract_state_tree_height,
+                        user_id,
+                        contract_id,
+                        key,
+                        base_offset,
+                        capacity,
+                        type_id,
+                        ..
+                    } => {
+                        let contract_state_tree_height =
+                            self.interpret_expr(program, contract_state_tree_height.clone(), ctx)?.to_felt();
+                        let user_id = self.interpret_expr(program, user_id.clone(), ctx)?.to_felt();
+                        let contract_id = self.interpret_expr(program, contract_id.clone(), ctx)?.to_felt();
+                        let key = self.interpret_expr(program, key.clone(), ctx)?.to_array();
+                        let base_offset = self.interpret_expr(program, base_offset.clone(), ctx)?.to_felt();
+                        let capacity = self.interpret_expr(program, capacity.clone(), ctx)?.to_felt();
+                        CheckedValueRef::from_vec(
+                            type_id.clone(),
+                            self.context
+                                .imt_get_other_user_value(contract_state_tree_height, user_id, contract_id, key, base_offset, capacity),
+                        )
+                    }
                     CheckedIntrinsicExprNode::GetOtherContractStateHashAt {
                         contract_state_tree_height,
                         contract_id,
@@ -896,6 +919,27 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let base_offset = self.interpret_expr(program, base_offset.clone(), ctx)?.to_felt();
                         let capacity = self.interpret_expr(program, capacity.clone(), ctx)?.to_felt();
                         CheckedValueRef::from_bool(self.context.imt_contains(key, base_offset, capacity))
+                    }
+                    CheckedIntrinsicExprNode::ImtContainsOtherUser {
+                        contract_state_tree_height,
+                        user_id,
+                        contract_id,
+                        key,
+                        base_offset,
+                        capacity,
+                        ..
+                    } => {
+                        let contract_state_tree_height =
+                            self.interpret_expr(program, contract_state_tree_height.clone(), ctx)?.to_felt();
+                        let user_id = self.interpret_expr(program, user_id.clone(), ctx)?.to_felt();
+                        let contract_id = self.interpret_expr(program, contract_id.clone(), ctx)?.to_felt();
+                        let key = self.interpret_expr(program, key.clone(), ctx)?.to_array();
+                        let base_offset = self.interpret_expr(program, base_offset.clone(), ctx)?.to_felt();
+                        let capacity = self.interpret_expr(program, capacity.clone(), ctx)?.to_felt();
+                        CheckedValueRef::from_bool(
+                            self.context
+                                .imt_contains_other_user(contract_state_tree_height, user_id, contract_id, key, base_offset, capacity),
+                        )
                     }
                     CheckedIntrinsicExprNode::StorageRead {
                         contract_state_tree_height,

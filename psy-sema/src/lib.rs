@@ -386,6 +386,74 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                     location,
                 }));
             }
+            IntrinsicExprNode::ImtGetOtherUser {
+                contract_state_tree_height,
+                user_id,
+                contract_id,
+                key,
+                base_offset,
+                capacity,
+                location,
+            } => {
+                let contract_state_tree_height = self.visit_expr(contract_state_tree_height, ctx)?;
+                let user_id = self.visit_expr(user_id, ctx)?;
+                let contract_id = self.visit_expr(contract_id, ctx)?;
+                let key = self.visit_expr(key, ctx)?;
+                let base_offset = self.visit_expr(base_offset, ctx)?;
+                let capacity = self.visit_expr(capacity, ctx)?;
+                if !self.unify(contract_state_tree_height.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: contract_state_tree_height.location(),
+                        expected: vec![FELT_TYPE],
+                        found: contract_state_tree_height.ty(),
+                    });
+                }
+                if !self.unify(user_id.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: user_id.location(),
+                        expected: vec![FELT_TYPE],
+                        found: user_id.ty(),
+                    });
+                }
+                if !self.unify(contract_id.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: contract_id.location(),
+                        expected: vec![FELT_TYPE],
+                        found: contract_id.ty(),
+                    });
+                }
+                if !self.unify(key.ty(), HASH_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: key.location(),
+                        expected: vec![HASH_TYPE],
+                        found: key.ty(),
+                    });
+                }
+                if !self.unify(base_offset.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: base_offset.location(),
+                        expected: vec![FELT_TYPE],
+                        found: base_offset.ty(),
+                    });
+                }
+                if !self.unify(capacity.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: capacity.location(),
+                        expected: vec![FELT_TYPE],
+                        found: capacity.ty(),
+                    });
+                }
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::ImtGetOtherUser {
+                    contract_state_tree_height: self.program.exprs.alloc_item(contract_state_tree_height),
+                    user_id: self.program.exprs.alloc_item(user_id),
+                    contract_id: self.program.exprs.alloc_item(contract_id),
+                    key: self.program.exprs.alloc_item(key),
+                    base_offset: self.program.exprs.alloc_item(base_offset),
+                    capacity: self.program.exprs.alloc_item(capacity),
+                    type_id: HASH_TYPE,
+                    location,
+                }));
+            }
             IntrinsicExprNode::GetOtherContractStateHashAt {
                 contract_state_tree_height,
                 contract_id,
@@ -551,6 +619,76 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                     base_offset: self.program.exprs.alloc_item(base_offset),
                     capacity: self.program.exprs.alloc_item(capacity),
                     type_id: HASH_TYPE,
+                    location,
+                }));
+            }
+            IntrinsicExprNode::ImtContainsOtherUser {
+                contract_state_tree_height,
+                user_id,
+                contract_id,
+                key,
+                base_offset,
+                capacity,
+                location,
+            } => {
+                let contract_state_tree_height = self.visit_expr(contract_state_tree_height, ctx)?;
+                let user_id = self.visit_expr(user_id, ctx)?;
+                let contract_id = self.visit_expr(contract_id, ctx)?;
+                let key = self.visit_expr(key, ctx)?;
+                let base_offset = self.visit_expr(base_offset, ctx)?;
+                let capacity = self.visit_expr(capacity, ctx)?;
+
+                if !self.unify(contract_state_tree_height.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: contract_state_tree_height.location(),
+                        expected: vec![FELT_TYPE],
+                        found: contract_state_tree_height.ty(),
+                    });
+                }
+                if !self.unify(user_id.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: user_id.location(),
+                        expected: vec![FELT_TYPE],
+                        found: user_id.ty(),
+                    });
+                }
+                if !self.unify(contract_id.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: contract_id.location(),
+                        expected: vec![FELT_TYPE],
+                        found: contract_id.ty(),
+                    });
+                }
+                if !self.unify(key.ty(), HASH_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: key.location(),
+                        expected: vec![HASH_TYPE],
+                        found: key.ty(),
+                    });
+                }
+                if !self.unify(base_offset.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: base_offset.location(),
+                        expected: vec![FELT_TYPE],
+                        found: base_offset.ty(),
+                    });
+                }
+                if !self.unify(capacity.ty(), FELT_TYPE, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location: capacity.location(),
+                        expected: vec![FELT_TYPE],
+                        found: capacity.ty(),
+                    });
+                }
+
+                return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::ImtContainsOtherUser {
+                    contract_state_tree_height: self.program.exprs.alloc_item(contract_state_tree_height),
+                    user_id: self.program.exprs.alloc_item(user_id),
+                    contract_id: self.program.exprs.alloc_item(contract_id),
+                    key: self.program.exprs.alloc_item(key),
+                    base_offset: self.program.exprs.alloc_item(base_offset),
+                    capacity: self.program.exprs.alloc_item(capacity),
+                    type_id: BOOL_TYPE,
                     location,
                 }));
             }

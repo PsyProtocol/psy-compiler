@@ -862,6 +862,23 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
                 self.visit_expr(base_offset.clone(), ctx)?,
                 self.visit_expr(capacity.clone(), ctx)?
             )),
+            IntrinsicExprNode::ImtGetOtherUser {
+                contract_state_tree_height,
+                user_id,
+                contract_id,
+                key,
+                base_offset,
+                capacity,
+                ..
+            } => Ok(format!(
+                "__imt_get_other_user({}, {}, {}, {}, {}, {})",
+                self.visit_expr(contract_state_tree_height.clone(), ctx)?,
+                self.visit_expr(user_id.clone(), ctx)?,
+                self.visit_expr(contract_id.clone(), ctx)?,
+                self.visit_expr(key.clone(), ctx)?,
+                self.visit_expr(base_offset.clone(), ctx)?,
+                self.visit_expr(capacity.clone(), ctx)?,
+            )),
             IntrinsicExprNode::GetOtherContractStateHashAt {
                 contract_state_tree_height,
                 contract_id,
@@ -908,6 +925,23 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
                 key, base_offset, capacity, ..
             } => Ok(format!(
                 "__imt_contains({}, {}, {})",
+                self.visit_expr(key.clone(), ctx)?,
+                self.visit_expr(base_offset.clone(), ctx)?,
+                self.visit_expr(capacity.clone(), ctx)?
+            )),
+            IntrinsicExprNode::ImtContainsOtherUser {
+                contract_state_tree_height,
+                user_id,
+                contract_id,
+                key,
+                base_offset,
+                capacity,
+                ..
+            } => Ok(format!(
+                "__imt_contains_other_user({}, {}, {}, {}, {}, {})",
+                self.visit_expr(contract_state_tree_height.clone(), ctx)?,
+                self.visit_expr(user_id.clone(), ctx)?,
+                self.visit_expr(contract_id.clone(), ctx)?,
                 self.visit_expr(key.clone(), ctx)?,
                 self.visit_expr(base_offset.clone(), ctx)?,
                 self.visit_expr(capacity.clone(), ctx)?

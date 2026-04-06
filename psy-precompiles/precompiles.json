@@ -39,6 +39,8 @@
           "get_next_index",
           "get_chain_root",
           "get_chain_next_index",
+          "is_known_root_hash",
+          "is_known_root",
           "append_leaf",
           "append_deposit"
       ]

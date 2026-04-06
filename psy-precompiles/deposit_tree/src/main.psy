@@ -21,6 +21,7 @@ pub struct PsyDepositTreeContract {
     pub chain_roots: [[u32; 8]; 256],
 
     pub agg_tree: [[u32; 8]; 512],
+    pub known_roots: Map<Hash, Hash, 1048576u32>,
 }
 
 impl PsyDepositTreeContractRef {
@@ -36,6 +37,20 @@ impl PsyDepositTreeContractRef {
 
     fn chain_frontier_offset(chain_index: Felt, level: Felt) -> Felt {
         chain_index * 32 + level
+    }
+
+    fn known_root_key(root: [u32; 8]) -> Hash {
+        hash([
+            root[0] as Felt, root[1] as Felt, root[2] as Felt, root[3] as Felt,
+            root[4] as Felt, root[5] as Felt, root[6] as Felt, root[7] as Felt,
+        ])
+    }
+
+    fn known_root_key_hash_halves(root_lo: Hash, root_hi: Hash) -> Hash {
+        hash([
+            root_lo[0], root_lo[1], root_lo[2], root_lo[3],
+            root_hi[0], root_hi[1], root_hi[2], root_hi[3],
+        ])
     }
 
     fn get_zero_hashes() -> [[u32; 8]; 32] {
@@ -159,6 +174,8 @@ impl PsyDepositTreeContractRef {
         let idx = c.chain_counts[chain_index].get();
 
         let new_chain_root = Self::append_to_chain(chain_index, leaf);
+        let known_key = Self::known_root_key(new_chain_root);
+        c.known_roots.insert_ns(chain_index, known_key, [1, 0, 0, 0]);
         let new_global_root = Self::update_global_root_for_chain(chain_index, new_chain_root);
         if chain_index == 0 {
             c.next_index = c.chain_counts[0].get();
@@ -174,6 +191,30 @@ impl PsyDepositTreeContractRef {
         event_data.emit();
 
         new_global_root
+    }
+
+    pub fn is_known_root(chain_index: Felt, root: [u32; 8]) -> Felt {
+        let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
+        let mut result: Felt = 0;
+        if chain_index < 256 {
+            let known_key = Self::known_root_key(root);
+            if c.known_roots.contains_ns(chain_index, known_key) {
+                result = 1;
+            };
+        };
+        result
+    }
+
+    pub fn is_known_root_hash(chain_index: Felt, root_lo: Hash, root_hi: Hash) -> Felt {
+        let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
+        let mut result: Felt = 0;
+        if chain_index < 256 {
+            let known_key = Self::known_root_key_hash_halves(root_lo, root_hi);
+            if c.known_roots.contains_ns(chain_index, known_key) {
+                result = 1;
+            };
+        };
+        result
     }
 
 }
