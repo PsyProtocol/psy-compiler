@@ -245,16 +245,12 @@ impl PsyTokenContractRef {
                 current = Self::keccak_two_to_one(sibling, current);
             };
         }
-        let known_key: Hash = hash([
-            current[0] as Felt, current[1] as Felt, current[2] as Felt, current[3] as Felt,
-            current[4] as Felt, current[5] as Felt, current[6] as Felt, current[7] as Felt,
-        ]);
         let deposit_tree = PsyDepositTreeContractRef::new(ContractMetadata::new(
             Self::deposit_tree_contract_id(),
             Self::deposit_tree_user_id(),
         ));
-        let known: bool = deposit_tree.known_roots.contains_ns_other(source_chain_index, known_key);
-        assert(known, "deposit root is not known");
+        let known_root: Felt = deposit_tree.is_known_root(source_chain_index, current);
+        assert(known_root == 1, "deposit root is not known");
 
         let claim_key: Hash = hash([
             leaf_hash[0] as Felt,

@@ -143,8 +143,7 @@ pub fn imt_contains_other_user(
     base_offset: Felt,
     capacity: Felt,
 ) -> bool {
-    let value = __imt_get_other_user(contract_state_tree_height, user_id, contract_id, key, base_offset, capacity);
-    value[0] != 0 || value[1] != 0 || value[2] != 0 || value[3] != 0
+    __imt_contains_other_user(contract_state_tree_height, user_id, contract_id, key, base_offset, capacity)
 }
 
 pub fn invoke_sync<T, U>(contract_id: Felt, method_id: Felt, inputs: U) -> T {
