@@ -23,7 +23,7 @@ pub struct UserInfoEvent {
 pub struct WithdrawalEvent {
     pub destination_chain_id: Felt,
     pub token_address: [u32; 8],
-    pub amount: Felt,
+    pub amount: [u32; 8],
     pub recipient: [u32; 8],
     pub nonce: Felt,
 }
@@ -31,12 +31,6 @@ pub struct WithdrawalEvent {
 struct PrivateClaimProof {
     pub siblings: [Hash; 16],
     pub index: Felt,
-}
-
-struct DepositClaimProof {
-    pub siblings: [u32; 256],
-    pub index: Felt,
-    pub checkpoint_id: Felt,
 }
 
 struct ProofPublicInputsPreimage {
@@ -131,39 +125,79 @@ impl PsyTokenContractRef {
     }
 
     fn felt_u64_to_u32x2_be(x: Felt) -> [u32; 2] {
-        [
-            (x >> 32) as u32,
-            (x & 4294967295) as u32,
-        ]
+        [(x >> 32) as u32, (x & 4294967295) as u32]
+    }
+
+    fn felt_u64_to_u32x8_be(x: Felt) -> [u32; 8] {
+        [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, (x >> 32) as u32, (x & 4294967295) as u32]
     }
 
     fn u32x2_be_to_felt_u64(x: [u32; 2]) -> Felt {
         (x[0] as Felt) * 4294967296 + (x[1] as Felt)
     }
 
+    fn u32x8_be_to_felt_u64(x: [u32; 8]) -> Felt {
+        assert(
+            x[0] == 0u32 && x[1] == 0u32 && x[2] == 0u32 && x[3] == 0u32 &&
+            x[4] == 0u32 && x[5] == 0u32,
+            "amount exceeds uint64 range"
+        );
+        (x[6] as Felt) * 4294967296 + (x[7] as Felt)
+    }
+
+    fn u32x8_to_hash(x: [u32; 8]) -> Hash {
+        [
+            (x[0] as Felt) + ((x[1] as Felt) << 32),
+            (x[2] as Felt) + ((x[3] as Felt) << 32),
+            (x[4] as Felt) + ((x[5] as Felt) << 32),
+            (x[6] as Felt) + ((x[7] as Felt) << 32),
+        ]
+    }
+
+    fn poseidon_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+        Self::hash_to_u32x8(hash_two_to_one(Self::u32x8_to_hash(left), Self::u32x8_to_hash(right)))
+    }
+
+    fn poseidon_merkle_verify(leaf: [u32; 8], index: Felt, siblings: [[u32; 8]; 32]) -> [u32; 8] {
+        let mut current = leaf;
+        for i in 0u32..32u32 {
+            let level_index = i as Felt;
+            let sibling = siblings[level_index];
+            let index_bit: Felt = (index >> level_index) & 1;
+            if index_bit == 0 {
+                current = Self::poseidon_two_to_one(current, sibling);
+            } else {
+                current = Self::poseidon_two_to_one(sibling, current);
+            };
+        }
+        current
+    }
+
     pub fn withdraw(
         destination_chain_index: Felt,
         token_address: [u32; 8],
-        amount: Felt,
+        amount: [u32; 8],
         recipient: [u32; 8],
         nonce: Felt,
     ) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
+        let amount_felt = Self::u32x8_be_to_felt_u64(amount);
         let current_balance = c.balance.get();
-        assert(amount > 0, "amount must be positive");
-        assert(current_balance >= amount, "insufficient balance");
+        assert(amount_felt > 0, "amount must be positive");
+        assert(current_balance >= amount_felt, "insufficient balance");
 
-        c.balance = current_balance - amount;
+        c.balance = current_balance - amount_felt;
 
-        let leaf_hash: [u32; 8] = keccak256([
+        let leaf_hash: [u32; 8] = Self::hash_to_u32x8(hash([
             recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
             recipient[4] as Felt, recipient[5] as Felt, recipient[6] as Felt, recipient[7] as Felt,
             token_address[0] as Felt, token_address[1] as Felt, token_address[2] as Felt, token_address[3] as Felt,
             token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
-            amount,
+            amount[0] as Felt, amount[1] as Felt, amount[2] as Felt, amount[3] as Felt,
+            amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
             nonce,
             destination_chain_index,
-        ]);
+        ]));
         let event_data = new WithdrawalEvent {
             destination_chain_id: destination_chain_index,
             token_address,
@@ -175,19 +209,21 @@ impl PsyTokenContractRef {
     }
 
     pub fn claim_deposit(
-        source_chain_index: Felt,
         depositor: [u32; 8],
-        l2_token_contract_id: [u32; 8],
+        l2_recipient: [u32; 8],
         token_address: [u32; 8],
-        amount_u64: [u32; 2],
-        recipient: [u32; 8],
+        l2_token_contract_id: [u32; 8],
+        amount: [u32; 8],
+        source_chain_index: Felt,
         nonce: Felt,
-        proof: DepositClaimProof
+        deposit_index: Felt,
+        siblings: [[u32; 8]; 32],
+        deposit_root: [u32; 8],
     ) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
-        let amount: Felt = Self::u32x2_be_to_felt_u64(amount_u64);
-        assert(amount > 0, "amount must be positive");
-        assert(proof.index < 4294967296, "deposit proof index out of range");
+        let amount_felt: Felt = Self::u32x8_be_to_felt_u64(amount);
+        assert(amount_felt > 0, "amount must be positive");
+        assert(deposit_index < 4294967296, "deposit proof index out of range");
         let expected_l2_token_contract_id = Self::current_contract_id_u32x8();
         assert(
             Self::eq_u32x8(l2_token_contract_id, expected_l2_token_contract_id),
@@ -195,59 +231,27 @@ impl PsyTokenContractRef {
         );
         let caller_user_id: Felt = get_user_id();
         let caller_recipient: [u32; 8] = Self::user_id_to_u32x8_be(caller_user_id);
-        assert(Self::eq_u32x8(recipient, caller_recipient), "recipient must be tx sender user_id (bytes32 BE)");
+        assert(Self::eq_u32x8(l2_recipient, caller_recipient), "recipient must be tx sender user_id (bytes32 BE)");
         assert(source_chain_index < 4294967296, "source chain index out of range");
         assert(nonce < 4294967296, "deposit nonce out of range");
-        let source_chain_index_u32: u32 = source_chain_index as u32;
-        let nonce_u32: u32 = nonce as u32;
-        // keccak256(abi.encodePacked(depositor, l2Recipient, token, l2TokenContractId, amount(uint64), chainIndex(uint32), nonce(uint32)))
-        let leaf_hash: [u32; 8] = keccak256([
+        let leaf_hash: [u32; 8] = Self::hash_to_u32x8(hash([
             depositor[0] as Felt, depositor[1] as Felt, depositor[2] as Felt, depositor[3] as Felt,
             depositor[4] as Felt, depositor[5] as Felt, depositor[6] as Felt, depositor[7] as Felt,
-            recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
-            recipient[4] as Felt, recipient[5] as Felt, recipient[6] as Felt, recipient[7] as Felt,
+            l2_recipient[0] as Felt, l2_recipient[1] as Felt, l2_recipient[2] as Felt, l2_recipient[3] as Felt,
+            l2_recipient[4] as Felt, l2_recipient[5] as Felt, l2_recipient[6] as Felt, l2_recipient[7] as Felt,
             token_address[0] as Felt, token_address[1] as Felt, token_address[2] as Felt, token_address[3] as Felt,
             token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
             l2_token_contract_id[0] as Felt, l2_token_contract_id[1] as Felt, l2_token_contract_id[2] as Felt, l2_token_contract_id[3] as Felt,
             l2_token_contract_id[4] as Felt, l2_token_contract_id[5] as Felt, l2_token_contract_id[6] as Felt, l2_token_contract_id[7] as Felt,
-            amount_u64[0] as Felt,
-            amount_u64[1] as Felt,
-            source_chain_index_u32 as Felt,
-            nonce_u32 as Felt,
-        ]);
+            amount[0] as Felt, amount[1] as Felt, amount[2] as Felt, amount[3] as Felt,
+            amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
+            source_chain_index,
+            nonce,
+        ]));
         assert(source_chain_index < 256, "source chain index out of range");
-        let mut current = leaf_hash;
-        for i in 0u32..32u32 {
-            let level_index = i as Felt;
-            let base = (i as Felt) * 8;
-            let i0 = base;
-            let i1 = base + 1;
-            let i2 = base + 2;
-            let i3 = base + 3;
-            let i4 = base + 4;
-            let i5 = base + 5;
-            let i6 = base + 6;
-            let i7 = base + 7;
-            let sibling: [u32; 8] = [
-                proof.siblings[i0],
-                proof.siblings[i1],
-                proof.siblings[i2],
-                proof.siblings[i3],
-                proof.siblings[i4],
-                proof.siblings[i5],
-                proof.siblings[i6],
-                proof.siblings[i7],
-            ];
-            let index_bit: Felt = (proof.index >> level_index) & 1;
-            if index_bit == 0 {
-                current = Self::keccak_two_to_one(current, sibling);
-            } else {
-                current = Self::keccak_two_to_one(sibling, current);
-            };
-        }
         let known_key: Hash = hash([
-            current[0] as Felt, current[1] as Felt, current[2] as Felt, current[3] as Felt,
-            current[4] as Felt, current[5] as Felt, current[6] as Felt, current[7] as Felt,
+            deposit_root[0] as Felt, deposit_root[1] as Felt, deposit_root[2] as Felt, deposit_root[3] as Felt,
+            deposit_root[4] as Felt, deposit_root[5] as Felt, deposit_root[6] as Felt, deposit_root[7] as Felt,
         ]);
         let deposit_tree = PsyDepositTreeContractRef::new(ContractMetadata::new(
             Self::deposit_tree_contract_id(),
@@ -255,21 +259,17 @@ impl PsyTokenContractRef {
         ));
         let known: bool = deposit_tree.known_roots.contains_ns_other(source_chain_index, known_key);
         assert(known, "deposit root is not known");
+        let computed_root = Self::poseidon_merkle_verify(leaf_hash, deposit_index, siblings);
+        assert(Self::eq_u32x8(computed_root, deposit_root), "deposit root mismatch");
 
         let claim_key: Hash = hash([
-            leaf_hash[0] as Felt,
-            leaf_hash[1] as Felt,
-            leaf_hash[2] as Felt,
-            leaf_hash[3] as Felt,
-            leaf_hash[4] as Felt,
-            leaf_hash[5] as Felt,
-            leaf_hash[6] as Felt,
-            leaf_hash[7] as Felt,
+            leaf_hash[0] as Felt, leaf_hash[1] as Felt, leaf_hash[2] as Felt, leaf_hash[3] as Felt,
+            leaf_hash[4] as Felt, leaf_hash[5] as Felt, leaf_hash[6] as Felt, leaf_hash[7] as Felt,
         ]);
         assert(c.state_map.contains_ns(3, claim_key) == false, "deposit already claimed");
         c.state_map.insert_ns(3, claim_key, [1, 0, 0, 0]);
 
-        c.balance += amount;
+        c.balance += amount_felt;
     }
 
     pub fn simple_mint(amount: Felt) {

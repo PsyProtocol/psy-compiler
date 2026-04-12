@@ -25,55 +25,45 @@ pub struct PsyWithdrawalTreeContract {
 }
 
 impl PsyWithdrawalTreeContractRef {
-    pub fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
-        let data: [Felt; 16] = [
-            left[0] as Felt, left[1] as Felt, left[2] as Felt, left[3] as Felt,
-            left[4] as Felt, left[5] as Felt, left[6] as Felt, left[7] as Felt,
-            right[0] as Felt, right[1] as Felt, right[2] as Felt, right[3] as Felt,
-            right[4] as Felt, right[5] as Felt, right[6] as Felt, right[7] as Felt,
-        ];
-        keccak256(data)
+    fn hash_to_u32x8(x: Hash) -> [u32; 8] {
+        let mask: Felt = 4294967295;
+        [
+            (x[0] & mask) as u32,
+            (x[0] >> 32) as u32,
+            (x[1] & mask) as u32,
+            (x[1] >> 32) as u32,
+            (x[2] & mask) as u32,
+            (x[2] >> 32) as u32,
+            (x[3] & mask) as u32,
+            (x[3] >> 32) as u32,
+        ]
+    }
+
+    fn u32x8_to_hash(x: [u32; 8]) -> Hash {
+        [
+            (x[0] as Felt) + ((x[1] as Felt) << 32),
+            (x[2] as Felt) + ((x[3] as Felt) << 32),
+            (x[4] as Felt) + ((x[5] as Felt) << 32),
+            (x[6] as Felt) + ((x[7] as Felt) << 32),
+        ]
+    }
+
+    fn poseidon_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+        Self::hash_to_u32x8(hash_two_to_one(Self::u32x8_to_hash(left), Self::u32x8_to_hash(right)))
     }
 
     fn chain_frontier_offset(chain_index: Felt, level: Felt) -> Felt {
         chain_index * 32 + level
     }
 
-    fn get_zero_hashes() -> [[u32; 8]; 32] {
-        [
-            [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32],
-            [2905745590u32, 1995953101u32, 1115989316u32, 1058533782u32, 725017745u32, 3003793586u32, 1079527909u32, 2545573813u32],
-            [3032553809u32, 2507960207u32, 1680624374u32, 483832390u32, 1090438876u32, 2143684590u32, 2181474718u32, 2453736752u32],
-            [568179107u32, 1451318335u32, 2886739638u32, 3737509681u32, 615496411u32, 1214028709u32, 2749577610u32, 79149701u32],
-            [3850856883u32, 706472689u32, 3928438618u32, 1141463565u32, 532047054u32, 768825575u32, 4240422796u32, 648123204u32],
-            [246423231u32, 3387762512u32, 215277513u32, 2032610591u32, 152292511u32, 1716784510u32, 2147844369u32, 165793581u32],
-            [2289836733u32, 2270221120u32, 380386406u32, 3053391917u32, 2900194294u32, 2954159888u32, 3038674978u32, 2946111848u32],
-            [4292280663u32, 3833619452u32, 868841989u32, 260006914u32, 868181100u32, 3381499172u32, 3334024143u32, 984969091u32],
-            [2556939359u32, 2132372371u32, 3135365758u32, 1663071268u32, 1171427570u32, 641214281u32, 2337603269u32, 972510895u32],
-            [3472544997u32, 146839737u32, 2816596222u32, 2979616251u32, 45782645u32, 1481668721u32, 157930308u32, 256922848u32],
-            [4191960703u32, 3759595600u32, 4025638963u32, 1327015380u32, 4265155970u32, 153295349u32, 2521771566u32, 3082929061u32],
-            [4172364361u32, 3800233481u32, 3273107507u32, 4220360557u32, 290552919u32, 487727522u32, 1708284663u32, 2028796050u32],
-            [881903310u32, 3947170540u32, 3699565186u32, 2466454800u32, 3352771576u32, 1582808836u32, 446117386u32, 2730875292u32],
-            [3252650713u32, 3300422675u32, 3940740868u32, 2408887507u32, 1431104115u32, 3643477882u32, 4184736369u32, 3331449531u32],
-            [1550298583u32, 3335189250u32, 627760863u32, 2058425562u32, 181397616u32, 3561595812u32, 2314699222u32, 1508425420u32],
-            [3665546911u32, 1317410998u32, 3173990706u32, 3464072412u32, 2053171169u32, 1175089817u32, 3821417514u32, 1469458130u32],
-            [657712399u32, 1382990586u32, 430058289u32, 3907866866u32, 1020395001u32, 1284592877u32, 980814242u32, 4060059679u32],
-            [3788748232u32, 129139172u32, 1748813526u32, 828176731u32, 2598274625u32, 3741102883u32, 1928446246u32, 3818450810u32],
-            [1512951306u32, 2323605691u32, 1951797135u32, 1904442412u32, 784059383u32, 4294656686u32, 412545343u32, 2088008096u32],
-            [3026856118u32, 4116005112u32, 2487547453u32, 3761737277u32, 303816862u32, 114073069u32, 471918168u32, 1993566880u32],
-            [3328087621u32, 1682409142u32, 551738666u32, 3595099644u32, 3209330267u32, 440028879u32, 3891676775u32, 2750461922u32],
-            [4097934728u32, 3979715141u32, 2365582137u32, 3107792625u32, 2368385339u32, 3706105573u32, 2390464821u32, 2663571417u32],
-            [1520178908u32, 14085912u32, 3079879279u32, 2378587339u32, 1432777016u32, 2003795434u32, 269512924u32, 2274812791u32],
-            [1308118848u32, 2920055337u32, 3503687326u32, 1552890279u32, 3264833402u32, 164849660u32, 2063983548u32, 940500562u32],
-            [3452380565u32, 4148984592u32, 1137762815u32, 3132568676u32, 2357431803u32, 86497649u32, 3053632545u32, 1821776367u32],
-            [180312777u32, 1956769111u32, 4093971109u32, 282958964u32, 4110952315u32, 970430267u32, 3001011397u32, 4004536717u32],
-            [3100472324u32, 1878210544u32, 2814323854u32, 65081188u32, 739804793u32, 2373025898u32, 2984806617u32, 3857614800u32],
-            [2207012437u32, 3407988427u32, 2201041754u32, 1662088671u32, 4103485298u32, 3437826177u32, 2293451464u32, 2088879134u32],
-            [1714349277u32, 769110716u32, 1887003057u32, 3863397380u32, 1986649270u32, 1481575821u32, 1997385565u32, 2122181422u32],
-            [948613646u32, 628347249u32, 2827028711u32, 2642546328u32, 4067167108u32, 2861248330u32, 2761330107u32, 2173608738u32],
-            [2468576336u32, 3128290888u32, 1598825133u32, 4076290368u32, 199200106u32, 2630344574u32, 3404035618u32, 375772981u32],
-            [2219344267u32, 3031319906u32, 2224985246u32, 397154016u32, 3189139598u32, 359357681u32, 1577684066u32, 2080396969u32],
-        ]
+    fn zero_hash(level: Felt) -> [u32; 8] {
+        let mut current: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
+        let mut i: Felt = 0;
+        while i < level {
+            current = Self::poseidon_two_to_one(current, current);
+            i += 1;
+        }
+        current
     }
 
     fn append_to_chain(chain_index: Felt, leaf: [u32; 8]) -> [u32; 8] {
@@ -82,21 +72,21 @@ impl PsyWithdrawalTreeContractRef {
         assert(idx < 4294967296, "withdrawal tree is full");
 
         let mut current = leaf;
-        let zero_hashes = Self::get_zero_hashes();
+        let mut zero: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
         let mut path_index = idx;
 
         for level in 0u32..32u32 {
             let level_index = level as Felt;
             let slot = Self::chain_frontier_offset(chain_index, level_index);
-            let zero = zero_hashes[level_index];
             let is_right: Felt = path_index & 1;
             if is_right == 0 {
                 c.frontiers[slot] = current;
-                current = Self::keccak_two_to_one(current, zero);
+                current = Self::poseidon_two_to_one(current, zero);
             } else {
                 let left = c.frontiers[slot].get();
-                current = Self::keccak_two_to_one(left, current);
+                current = Self::poseidon_two_to_one(left, current);
             };
+            zero = Self::poseidon_two_to_one(zero, zero);
             path_index = path_index >> 1;
         }
 
@@ -117,7 +107,7 @@ impl PsyWithdrawalTreeContractRef {
             let left = if is_right == 0 { node } else { node - 1 };
             let right = left + 1;
             let parent = node >> 1;
-            let parent_hash = Self::keccak_two_to_one(c.agg_tree[left].get(), c.agg_tree[right].get());
+            let parent_hash = Self::poseidon_two_to_one(c.agg_tree[left].get(), c.agg_tree[right].get());
             c.agg_tree[parent] = parent_hash;
             node = parent;
         }
@@ -172,21 +162,24 @@ impl PsyWithdrawalTreeContractRef {
     pub fn append_withdrawal(
         destination_chain_index: Felt,
         token_address: [u32; 8],
-        amount: Felt,
+        amount: [u32; 8],
         recipient: [u32; 8],
         nonce: Felt
     ) -> [u32; 8] {
-        // Align with L1 Bridge.claimWithdrawal leaf:
-        // keccak256(abi.encodePacked(recipient, token, amount, nonce, chainIndex))
-        let leaf_hash: [u32; 8] = keccak256([
+        assert((nonce >> 32) == 0, "withdrawal nonce out of uint32 range");
+        assert((destination_chain_index >> 32) == 0, "destination chain id out of uint32 range");
+        let nonce_u32: u32 = nonce as u32;
+        let destination_chain_index_u32: u32 = destination_chain_index as u32;
+        let leaf_hash: [u32; 8] = Self::hash_to_u32x8(hash([
             recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
             recipient[4] as Felt, recipient[5] as Felt, recipient[6] as Felt, recipient[7] as Felt,
             token_address[0] as Felt, token_address[1] as Felt, token_address[2] as Felt, token_address[3] as Felt,
             token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
-            amount,
-            nonce,
-            destination_chain_index,
-        ]);
+            amount[0] as Felt, amount[1] as Felt, amount[2] as Felt, amount[3] as Felt,
+            amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
+            nonce_u32 as Felt,
+            destination_chain_index_u32 as Felt,
+        ]));
         assert(hash(leaf_hash) != [0, 0, 0, 0], "withdrawal leaf is zero");
 
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
