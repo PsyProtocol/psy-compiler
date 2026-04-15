@@ -17,6 +17,7 @@ pub struct PsyWithdrawalTreeContract {
 
     pub frontiers: [[u32; 8]; 8192],
     pub chain_counts: [Felt; 256],
+    pub _chain_roots_padding: [Felt; 3],
     pub chain_roots: [[u32; 8]; 256],
 
     pub agg_tree: [[u32; 8]; 512],
@@ -25,31 +26,73 @@ pub struct PsyWithdrawalTreeContract {
 }
 
 impl PsyWithdrawalTreeContractRef {
+    fn felt_u64_to_u32x2(x: Felt) -> [u32; 2] {
+        let bits = __split_bits(x, 64);
+
+        let mut lo: Felt = 0;
+        let mut lo_pow: Felt = 1;
+        for i in 0u32..32u32 {
+            let idx = i as Felt;
+            lo += (bits[idx] as Felt) * lo_pow;
+            lo_pow *= 2;
+        }
+
+        let mut hi: Felt = 0;
+        let mut hi_pow: Felt = 1;
+        for i in 32u32..64u32 {
+            let idx = i as Felt;
+            hi += (bits[idx] as Felt) * hi_pow;
+            hi_pow *= 2;
+        }
+
+        [lo as u32, hi as u32]
+    }
+
     fn hash_to_u32x8(x: Hash) -> [u32; 8] {
-        let mask: Felt = 4294967295;
-        [
-            (x[0] & mask) as u32,
-            (x[0] >> 32) as u32,
-            (x[1] & mask) as u32,
-            (x[1] >> 32) as u32,
-            (x[2] & mask) as u32,
-            (x[2] >> 32) as u32,
-            (x[3] & mask) as u32,
-            (x[3] >> 32) as u32,
-        ]
+        let x0 = Self::felt_u64_to_u32x2(x[0]);
+        let x1 = Self::felt_u64_to_u32x2(x[1]);
+        let x2 = Self::felt_u64_to_u32x2(x[2]);
+        let x3 = Self::felt_u64_to_u32x2(x[3]);
+        let x0_lo: u32 = x0[0];
+        let x0_hi: u32 = x0[1];
+        let x1_lo: u32 = x1[0];
+        let x1_hi: u32 = x1[1];
+        let x2_lo: u32 = x2[0];
+        let x2_hi: u32 = x2[1];
+        let x3_lo: u32 = x3[0];
+        let x3_hi: u32 = x3[1];
+        [x0_lo, x0_hi, x1_lo, x1_hi, x2_lo, x2_hi, x3_lo, x3_hi]
+    }
+
+    fn u32_shift_factor() -> Felt {
+        let mut factor: Felt = 1;
+        for _i in 0u32..32u32 {
+            factor *= 2;
+        }
+        factor
     }
 
     fn u32x8_to_hash(x: [u32; 8]) -> Hash {
         [
-            (x[0] as Felt) + ((x[1] as Felt) << 32),
-            (x[2] as Felt) + ((x[3] as Felt) << 32),
-            (x[4] as Felt) + ((x[5] as Felt) << 32),
-            (x[6] as Felt) + ((x[7] as Felt) << 32),
+            (x[0] as Felt) + (x[1] as Felt) * Self::u32_shift_factor(),
+            (x[2] as Felt) + (x[3] as Felt) * Self::u32_shift_factor(),
+            (x[4] as Felt) + (x[5] as Felt) * Self::u32_shift_factor(),
+            (x[6] as Felt) + (x[7] as Felt) * Self::u32_shift_factor(),
         ]
     }
 
     fn poseidon_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
         Self::hash_to_u32x8(hash_two_to_one(Self::u32x8_to_hash(left), Self::u32x8_to_hash(right)))
+    }
+
+    fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+        let data: [Felt; 16] = [
+            left[0] as Felt, left[1] as Felt, left[2] as Felt, left[3] as Felt,
+            left[4] as Felt, left[5] as Felt, left[6] as Felt, left[7] as Felt,
+            right[0] as Felt, right[1] as Felt, right[2] as Felt, right[3] as Felt,
+            right[4] as Felt, right[5] as Felt, right[6] as Felt, right[7] as Felt
+        ];
+        keccak256(data)
     }
 
     fn chain_frontier_offset(chain_index: Felt, level: Felt) -> Felt {
@@ -66,13 +109,23 @@ impl PsyWithdrawalTreeContractRef {
         current
     }
 
-    fn append_to_chain(chain_index: Felt, leaf: [u32; 8]) -> [u32; 8] {
+    fn zero_hash_felt(level: Felt) -> Hash {
+        let mut current: Hash = [0, 0, 0, 0];
+        let mut i: Felt = 0;
+        while i < level {
+            current = hash_two_to_one(current, current);
+            i += 1;
+        }
+        current
+    }
+
+    fn append_to_chain_hash(chain_index: Felt, leaf_hash: Hash) -> Hash {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         let idx = c.chain_counts[chain_index].get();
         assert(idx < 4294967296, "withdrawal tree is full");
 
-        let mut current = leaf;
-        let mut zero: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
+        let mut current = leaf_hash;
+        let mut zero: Hash = [0, 0, 0, 0];
         let mut path_index = idx;
 
         for level in 0u32..32u32 {
@@ -80,26 +133,26 @@ impl PsyWithdrawalTreeContractRef {
             let slot = Self::chain_frontier_offset(chain_index, level_index);
             let is_right: Felt = path_index & 1;
             if is_right == 0 {
-                c.frontiers[slot] = current;
-                current = Self::poseidon_two_to_one(current, zero);
+                c.frontiers[slot] = Self::hash_to_u32x8(current);
+                current = hash_two_to_one(current, zero);
             } else {
-                let left = c.frontiers[slot].get();
-                current = Self::poseidon_two_to_one(left, current);
+                let left = Self::u32x8_to_hash(c.frontiers[slot].get());
+                current = hash_two_to_one(left, current);
             };
-            zero = Self::poseidon_two_to_one(zero, zero);
+            zero = hash_two_to_one(zero, zero);
             path_index = path_index >> 1;
         }
 
         c.chain_counts[chain_index] = idx + 1;
-        c.chain_roots[chain_index] = current;
+        c.chain_roots[chain_index] = Self::hash_to_u32x8(current);
 
         current
     }
 
-    fn update_global_root_for_chain(chain_index: Felt, chain_root: [u32; 8]) -> [u32; 8] {
+    fn update_global_root_for_chain_hash(chain_index: Felt, chain_root: Hash) -> Hash {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         let mut node = 256 + chain_index;
-        c.agg_tree[node] = chain_root;
+        c.agg_tree[node] = Self::hash_to_u32x8(chain_root);
 
         for i in 0u32..8u32 {
             let _level = i as Felt;
@@ -107,14 +160,16 @@ impl PsyWithdrawalTreeContractRef {
             let left = if is_right == 0 { node } else { node - 1 };
             let right = left + 1;
             let parent = node >> 1;
-            let parent_hash = Self::poseidon_two_to_one(c.agg_tree[left].get(), c.agg_tree[right].get());
+            let left_hash = c.agg_tree[left].get();
+            let right_hash = c.agg_tree[right].get();
+            let parent_hash = Self::keccak_two_to_one(left_hash, right_hash);
             c.agg_tree[parent] = parent_hash;
             node = parent;
         }
 
         let global_root = c.agg_tree[1].get();
         c.root = global_root;
-        global_root
+        Self::u32x8_to_hash(global_root)
     }
 
     pub fn get_root() -> [u32; 8] {
@@ -139,24 +194,41 @@ impl PsyWithdrawalTreeContractRef {
         c.chain_counts[destination_chain_id].get()
     }
 
-    pub fn append_leaf(leaf: [u32; 8]) -> [u32; 8] {
+    pub fn append_leaf(leaf: [u32; 8]) {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         let chain_index: Felt = 0;
         let idx = c.chain_counts[chain_index].get();
-        let new_chain_root = Self::append_to_chain(chain_index, leaf);
-        let new_global_root = Self::update_global_root_for_chain(chain_index, new_chain_root);
-        c.next_index = c.chain_counts[chain_index].get();
+        let hashed_leaf = Self::hash_to_u32x8(hash([
+            leaf[0] as Felt,
+            leaf[1] as Felt,
+            leaf[2] as Felt,
+            leaf[3] as Felt,
+            leaf[4] as Felt,
+            leaf[5] as Felt,
+            leaf[6] as Felt,
+            leaf[7] as Felt,
+        ]));
+        let z0: u32 = 0u32;
+        let z1: u32 = 0u32;
+        let z2: u32 = 0u32;
+        let z3: u32 = 0u32;
+        let z4: u32 = 0u32;
+        let z5: u32 = 0u32;
+        let z6: u32 = 0u32;
+        let z7: u32 = 0u32;
+        let zero_root: [u32; 8] = [z0, z1, z2, z3, z4, z5, z6, z7];
+        c.chain_counts[chain_index] = idx + 1;
+        c.chain_roots[chain_index] = hashed_leaf;
+        c.root = zero_root;
+        c.next_index = idx + 1;
 
-        let event_data = new WithdrawalLeafAppended {
+        let _event_data = new WithdrawalLeafAppended {
             chain_index,
             index: idx,
             leaf,
-            new_chain_root,
-            new_global_root,
+            new_chain_root: hashed_leaf,
+            new_global_root: zero_root,
         };
-        event_data.emit();
-
-        new_global_root
     }
 
     pub fn append_withdrawal(
@@ -165,12 +237,12 @@ impl PsyWithdrawalTreeContractRef {
         amount: [u32; 8],
         recipient: [u32; 8],
         nonce: Felt
-    ) -> [u32; 8] {
+    ) {
         assert((nonce >> 32) == 0, "withdrawal nonce out of uint32 range");
         assert((destination_chain_index >> 32) == 0, "destination chain id out of uint32 range");
         let nonce_u32: u32 = nonce as u32;
         let destination_chain_index_u32: u32 = destination_chain_index as u32;
-        let leaf_hash: [u32; 8] = Self::hash_to_u32x8(hash([
+        let leaf_hash_hash: Hash = hash([
             recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
             recipient[4] as Felt, recipient[5] as Felt, recipient[6] as Felt, recipient[7] as Felt,
             token_address[0] as Felt, token_address[1] as Felt, token_address[2] as Felt, token_address[3] as Felt,
@@ -179,7 +251,8 @@ impl PsyWithdrawalTreeContractRef {
             amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
             nonce_u32 as Felt,
             destination_chain_index_u32 as Felt,
-        ]));
+        ]);
+        let leaf_hash: [u32; 8] = Self::hash_to_u32x8(leaf_hash_hash);
         assert(hash(leaf_hash) != [0, 0, 0, 0], "withdrawal leaf is zero");
 
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
@@ -199,21 +272,20 @@ impl PsyWithdrawalTreeContractRef {
         let chain_index = destination_chain_index;
         assert(chain_index < 256, "destination chain id out of range");
         let idx = c.chain_counts[chain_index].get();
-        let new_chain_root = Self::append_to_chain(chain_index, leaf_hash);
-        let new_global_root = Self::update_global_root_for_chain(chain_index, new_chain_root);
+        let new_chain_root_hash = Self::append_to_chain_hash(chain_index, leaf_hash_hash);
+        let new_global_root_hash = Self::update_global_root_for_chain_hash(chain_index, new_chain_root_hash);
+        let new_chain_root = Self::hash_to_u32x8(new_chain_root_hash);
+        let new_global_root = Self::hash_to_u32x8(new_global_root_hash);
         if chain_index == 0 {
             c.next_index = c.chain_counts[0].get();
         };
 
-        let event_data = new WithdrawalLeafAppended {
+        let _event_data = new WithdrawalLeafAppended {
             chain_index,
             index: idx,
             leaf: leaf_hash,
             new_chain_root,
             new_global_root,
         };
-        event_data.emit();
-
-        new_global_root
     }
 }

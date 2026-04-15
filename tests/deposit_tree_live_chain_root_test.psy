@@ -1,0 +1,78 @@
+fn felt_u64_to_u32x2(x: Felt) -> [u32; 2] {
+    let bits = __split_bits(x, 64);
+
+    let mut lo: Felt = 0;
+    let mut lo_pow: Felt = 1;
+    for i in 0u32..32u32 {
+        let idx = i as Felt;
+        lo += (bits[idx] as Felt) * lo_pow;
+        lo_pow *= 2;
+    }
+
+    let mut hi: Felt = 0;
+    let mut hi_pow: Felt = 1;
+    for i in 32u32..64u32 {
+        let idx = i as Felt;
+        hi += (bits[idx] as Felt) * hi_pow;
+        hi_pow *= 2;
+    }
+
+    [lo as u32, hi as u32]
+}
+
+fn hash_to_u32x8(x: Hash) -> [u32; 8] {
+    let x0 = felt_u64_to_u32x2(x[0]);
+    let x1 = felt_u64_to_u32x2(x[1]);
+    let x2 = felt_u64_to_u32x2(x[2]);
+    let x3 = felt_u64_to_u32x2(x[3]);
+    [
+        x0[0], x0[1],
+        x1[0], x1[1],
+        x2[0], x2[1],
+        x3[0], x3[1],
+    ]
+}
+
+fn u32x8_to_hash(x: [u32; 8]) -> Hash {
+    [
+        (x[0] as Felt) + ((x[1] as Felt) << 32),
+        (x[2] as Felt) + ((x[3] as Felt) << 32),
+        (x[4] as Felt) + ((x[5] as Felt) << 32),
+        (x[6] as Felt) + ((x[7] as Felt) << 32),
+    ]
+}
+
+#[test]
+fn single_leaf_root_matches_live_chain_vector() {
+    let leaf: [u32; 8] = [
+        2927886362u32, 1982019561u32,
+        3957609106u32, 241233646u32,
+        46542132u32, 2532064914u32,
+        3380856023u32, 3959365882u32,
+    ];
+
+    let expected_root: [u32; 8] = [
+        1801511096u32, 2994402262u32,
+        1068339503u32, 1169780450u32,
+        2714259951u32, 3441636794u32,
+        4212619176u32, 1902822594u32,
+    ];
+
+    let mut current = u32x8_to_hash(leaf);
+    let mut zero: Hash = [0, 0, 0, 0];
+
+    for _level in 0u32..32u32 {
+        current = hash_two_to_one(current, zero);
+        zero = hash_two_to_one(zero, zero);
+    }
+
+    let got = hash_to_u32x8(current);
+    assert(got[0] == expected_root[0], "root[0] mismatch");
+    assert(got[1] == expected_root[1], "root[1] mismatch");
+    assert(got[2] == expected_root[2], "root[2] mismatch");
+    assert(got[3] == expected_root[3], "root[3] mismatch");
+    assert(got[4] == expected_root[4], "root[4] mismatch");
+    assert(got[5] == expected_root[5], "root[5] mismatch");
+    assert(got[6] == expected_root[6], "root[6] mismatch");
+    assert(got[7] == expected_root[7], "root[7] mismatch");
+}

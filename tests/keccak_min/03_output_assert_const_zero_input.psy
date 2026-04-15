@@ -1,0 +1,7 @@
+#[test]
+fn output_assert_const_zero_input() {
+    let data: [u32; 16] = [0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32];
+    let h = keccak256(data);
+    // keccak256(64 zero bytes) => ad3228b6...
+    assert_eq(h[0], 2905745590u32, "k0");
+}

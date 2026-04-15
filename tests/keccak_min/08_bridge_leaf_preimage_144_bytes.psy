@@ -1,0 +1,27 @@
+#[test]
+fn bridge_leaf_preimage_144_bytes_matches_cast_keccak() {
+    let data: [u32; 36] = [
+        0u32, 0u32, 0u32, 4087338725u32, 447580406u32, 4107168440u32, 2188540367u32, 4290323046u32,
+        0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32,
+        0u32, 0u32, 0u32, 187722745u32, 365221445u32, 4284051025u32, 2410626966u32, 1773760534u32,
+        0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32,
+        0u32, 1000000000u32,
+        0u32,
+        1775065240u32,
+    ];
+
+    let got = keccak256(data);
+    let want: [u32; 8] = [
+        2736994441u32, 1423316865u32, 3205553885u32, 1673352103u32,
+        3260963857u32, 2632697317u32, 2945147575u32, 3079543414u32,
+    ];
+
+    assert_eq(got[0], want[0], "leaf limb0");
+    assert_eq(got[1], want[1], "leaf limb1");
+    assert_eq(got[2], want[2], "leaf limb2");
+    assert_eq(got[3], want[3], "leaf limb3");
+    assert_eq(got[4], want[4], "leaf limb4");
+    assert_eq(got[5], want[5], "leaf limb5");
+    assert_eq(got[6], want[6], "leaf limb6");
+    assert_eq(got[7], want[7], "leaf limb7");
+}

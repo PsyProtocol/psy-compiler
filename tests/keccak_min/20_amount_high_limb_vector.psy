@@ -1,0 +1,24 @@
+#[test]
+fn bridge_leaf_amount_high_limb_one_vector() {
+    let data: [u32; 36] = [
+        0u32, 0u32, 0u32, 4087338725u32, 447580406u32, 4107168440u32, 2188540367u32, 4290323046u32,
+        0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32,
+        0u32, 0u32, 0u32, 187722745u32, 365221445u32, 4284051025u32, 2410626966u32, 1773760534u32,
+        0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32,
+        1u32, 1000000000u32, 0u32, 1775065240u32,
+    ];
+    let got = keccak256(data);
+    let want: [u32; 8] = [
+        1545530314u32, 1668816908u32, 1343103637u32, 1063672969u32,
+        2553380136u32, 328018865u32, 3546504535u32, 3220108852u32,
+    ];
+
+    assert_eq(got[0], want[0], "amount_hi limb0");
+    assert_eq(got[1], want[1], "amount_hi limb1");
+    assert_eq(got[2], want[2], "amount_hi limb2");
+    assert_eq(got[3], want[3], "amount_hi limb3");
+    assert_eq(got[4], want[4], "amount_hi limb4");
+    assert_eq(got[5], want[5], "amount_hi limb5");
+    assert_eq(got[6], want[6], "amount_hi limb6");
+    assert_eq(got[7], want[7], "amount_hi limb7");
+}

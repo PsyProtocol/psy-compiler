@@ -1,0 +1,40 @@
+fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+    let data: [u32; 16] = [
+        left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7],
+        right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7],
+    ];
+    keccak256(data)
+}
+
+#[test]
+fn single_leaf_index0_root_fixture2_vector() {
+    let mut zs: [[u32; 8]; 32] = [[0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32]; 32];
+    for i in 1u32..32u32 {
+        let idx = i as Felt;
+        let prev_idx = idx - 1;
+        let prev = zs[prev_idx];
+        zs[idx] = keccak_two_to_one(prev, prev);
+    }
+
+    let mut current: [u32; 8] = [
+        2683544489u32, 2454940143u32, 2050008364u32, 1739699562u32,
+        2935668357u32, 2452856596u32, 3331948753u32, 2252314101u32,
+    ];
+    for i in 0u32..32u32 {
+        current = keccak_two_to_one(current, zs[i as Felt]);
+    }
+
+    let want: [u32; 8] = [
+        1124205776u32, 1843615030u32, 2459737901u32, 2191103515u32,
+        4199051270u32, 1734641662u32, 3320947635u32, 1664178927u32,
+    ];
+
+    assert_eq(current[0], want[0], "root2 limb0");
+    assert_eq(current[1], want[1], "root2 limb1");
+    assert_eq(current[2], want[2], "root2 limb2");
+    assert_eq(current[3], want[3], "root2 limb3");
+    assert_eq(current[4], want[4], "root2 limb4");
+    assert_eq(current[5], want[5], "root2 limb5");
+    assert_eq(current[6], want[6], "root2 limb6");
+    assert_eq(current[7], want[7], "root2 limb7");
+}

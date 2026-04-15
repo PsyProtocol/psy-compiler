@@ -1,0 +1,19 @@
+#[test]
+fn leaf38_const_literal() {
+  let depositor:[u32;8]=[0u32,0u32,0u32,4087346917u32,447580406u32,4107160248u32,2188532175u32,4290327142u32];
+  let recipient:[u32;8]=[0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32];
+  let token:[u32;8]=[0u32,0u32,0u32,187722745u32,365221445u32,4284057169u32,2410626966u32,1773762582u32];
+  let l2:[u32;8]=[0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32];
+  let amt:[u32;2]=[0u32,1000000000u32];
+  let chain:[u32;2]=[0u32,0u32];
+  let nonce:[u32;2]=[0u32,439041101u32];
+  let d:[u32;38]=[
+    depositor[0],depositor[1],depositor[2],depositor[3],depositor[4],depositor[5],depositor[6],depositor[7],
+    recipient[0],recipient[1],recipient[2],recipient[3],recipient[4],recipient[5],recipient[6],recipient[7],
+    token[0],token[1],token[2],token[3],token[4],token[5],token[6],token[7],
+    l2[0],l2[1],l2[2],l2[3],l2[4],l2[5],l2[6],l2[7],
+    amt[0],amt[1],chain[0],chain[1],nonce[0],nonce[1]
+  ];
+  let h=keccak256(d);
+  assert_eq(h[0], 1843497415u32, "leaf38_lit");
+}

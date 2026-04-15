@@ -1,0 +1,6 @@
+#[test]
+fn zero16_const_literal() {
+  let d:[u32;16]=[0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32];
+  let h=keccak256(d);
+  assert_eq(h[0], 2905745590u32, "z16_lit");
+}

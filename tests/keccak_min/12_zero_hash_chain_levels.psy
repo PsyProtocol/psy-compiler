@@ -1,0 +1,55 @@
+fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+    let data: [u32; 16] = [
+        left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7],
+        right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7],
+    ];
+    keccak256(data)
+}
+
+#[test]
+fn zero_hash_level1_level2_level3_vectors() {
+    let z0: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
+    let z1 = keccak_two_to_one(z0, z0);
+    let z2 = keccak_two_to_one(z1, z1);
+    let z3 = keccak_two_to_one(z2, z2);
+
+    let want1: [u32; 8] = [
+        2905745590u32, 1995953101u32, 1115989316u32, 1058533782u32,
+        725017745u32, 3003793586u32, 1079527909u32, 2545573813u32,
+    ];
+    let want2: [u32; 8] = [
+        3032553809u32, 2507960207u32, 1680624374u32, 483832390u32,
+        1090438876u32, 2143684590u32, 2181474718u32, 2453736752u32,
+    ];
+    let want3: [u32; 8] = [
+        568179107u32, 1451318335u32, 2886739638u32, 3737509681u32,
+        615496411u32, 1214028709u32, 2749577610u32, 79149701u32,
+    ];
+
+    assert_eq(z1[0], want1[0], "z1 limb0");
+    assert_eq(z1[1], want1[1], "z1 limb1");
+    assert_eq(z1[2], want1[2], "z1 limb2");
+    assert_eq(z1[3], want1[3], "z1 limb3");
+    assert_eq(z1[4], want1[4], "z1 limb4");
+    assert_eq(z1[5], want1[5], "z1 limb5");
+    assert_eq(z1[6], want1[6], "z1 limb6");
+    assert_eq(z1[7], want1[7], "z1 limb7");
+
+    assert_eq(z2[0], want2[0], "z2 limb0");
+    assert_eq(z2[1], want2[1], "z2 limb1");
+    assert_eq(z2[2], want2[2], "z2 limb2");
+    assert_eq(z2[3], want2[3], "z2 limb3");
+    assert_eq(z2[4], want2[4], "z2 limb4");
+    assert_eq(z2[5], want2[5], "z2 limb5");
+    assert_eq(z2[6], want2[6], "z2 limb6");
+    assert_eq(z2[7], want2[7], "z2 limb7");
+
+    assert_eq(z3[0], want3[0], "z3 limb0");
+    assert_eq(z3[1], want3[1], "z3 limb1");
+    assert_eq(z3[2], want3[2], "z3 limb2");
+    assert_eq(z3[3], want3[3], "z3 limb3");
+    assert_eq(z3[4], want3[4], "z3 limb4");
+    assert_eq(z3[5], want3[5], "z3 limb5");
+    assert_eq(z3[6], want3[6], "z3 limb6");
+    assert_eq(z3[7], want3[7], "z3 limb7");
+}

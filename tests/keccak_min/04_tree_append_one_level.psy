@@ -1,0 +1,14 @@
+fn two_to_one(left: [u32;8], right: [u32;8]) -> [u32;8] {
+    let d: [u32;16] = [
+        left[0],left[1],left[2],left[3],left[4],left[5],left[6],left[7],
+        right[0],right[1],right[2],right[3],right[4],right[5],right[6],right[7],
+    ];
+    keccak256(d)
+}
+
+#[test]
+fn tree_append_one_level() {
+    let z: [u32;8] = [0u32,0u32,0u32,0u32,0u32,0u32,0u32,0u32];
+    let parent = two_to_one(z, z);
+    assert_eq(parent[0], 2905745590u32, "z1_0");
+}

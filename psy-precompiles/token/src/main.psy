@@ -84,16 +84,15 @@ impl PsyTokenContractRef {
 
     fn hash_to_u32x8(x: Hash) -> [u32; 8] {
         let mask: Felt = 4294967295;
-        [
-            (x[0] & mask) as u32,
-            (x[0] >> 32) as u32,
-            (x[1] & mask) as u32,
-            (x[1] >> 32) as u32,
-            (x[2] & mask) as u32,
-            (x[2] >> 32) as u32,
-            (x[3] & mask) as u32,
-            (x[3] >> 32) as u32,
-        ]
+        let x0_lo: u32 = (x[0] & mask) as u32;
+        let x0_hi: u32 = (x[0] >> 32) as u32;
+        let x1_lo: u32 = (x[1] & mask) as u32;
+        let x1_hi: u32 = (x[1] >> 32) as u32;
+        let x2_lo: u32 = (x[2] & mask) as u32;
+        let x2_hi: u32 = (x[2] >> 32) as u32;
+        let x3_lo: u32 = (x[3] & mask) as u32;
+        let x3_hi: u32 = (x[3] >> 32) as u32;
+        [x0_lo, x0_hi, x1_lo, x1_hi, x2_lo, x2_hi, x3_lo, x3_hi]
     }
 
     fn user_id_to_u32x8_be(user_id: Felt) -> [u32; 8] {
@@ -132,8 +131,16 @@ impl PsyTokenContractRef {
         [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, (x >> 32) as u32, (x & 4294967295) as u32]
     }
 
+    fn u32_shift_factor() -> Felt {
+        let mut factor: Felt = 1;
+        for _i in 0u32..32u32 {
+            factor *= 2;
+        }
+        factor
+    }
+
     fn u32x2_be_to_felt_u64(x: [u32; 2]) -> Felt {
-        (x[0] as Felt) * 4294967296 + (x[1] as Felt)
+        (x[0] as Felt) * Self::u32_shift_factor() + (x[1] as Felt)
     }
 
     fn u32x8_be_to_felt_u64(x: [u32; 8]) -> Felt {
@@ -142,15 +149,15 @@ impl PsyTokenContractRef {
             x[4] == 0u32 && x[5] == 0u32,
             "amount exceeds uint64 range"
         );
-        (x[6] as Felt) * 4294967296 + (x[7] as Felt)
+        (x[6] as Felt) * Self::u32_shift_factor() + (x[7] as Felt)
     }
 
     fn u32x8_to_hash(x: [u32; 8]) -> Hash {
         [
-            (x[0] as Felt) + ((x[1] as Felt) << 32),
-            (x[2] as Felt) + ((x[3] as Felt) << 32),
-            (x[4] as Felt) + ((x[5] as Felt) << 32),
-            (x[6] as Felt) + ((x[7] as Felt) << 32),
+            (x[0] as Felt) + (x[1] as Felt) * Self::u32_shift_factor(),
+            (x[2] as Felt) + (x[3] as Felt) * Self::u32_shift_factor(),
+            (x[4] as Felt) + (x[5] as Felt) * Self::u32_shift_factor(),
+            (x[6] as Felt) + (x[7] as Felt) * Self::u32_shift_factor(),
         ]
     }
 
@@ -168,6 +175,28 @@ impl PsyTokenContractRef {
                 current = Self::poseidon_two_to_one(current, sibling);
             } else {
                 current = Self::poseidon_two_to_one(sibling, current);
+            };
+        }
+        current
+    }
+
+    fn eq_hash(a: Hash, b: Hash) -> bool {
+        a[0] == b[0]
+            && a[1] == b[1]
+            && a[2] == b[2]
+            && a[3] == b[3]
+    }
+
+    fn poseidon_merkle_verify_hash(leaf: Hash, index: Felt, siblings: [[u32; 8]; 32]) -> Hash {
+        let mut current = leaf;
+        for i in 0u32..32u32 {
+            let level_index = i as Felt;
+            let sibling = Self::u32x8_to_hash(siblings[level_index]);
+            let index_bit: Felt = (index >> level_index) & 1;
+            if index_bit == 0 {
+                current = hash_two_to_one(current, sibling);
+            } else {
+                current = hash_two_to_one(sibling, current);
             };
         }
         current
@@ -234,7 +263,7 @@ impl PsyTokenContractRef {
         assert(Self::eq_u32x8(l2_recipient, caller_recipient), "recipient must be tx sender user_id (bytes32 BE)");
         assert(source_chain_index < 4294967296, "source chain index out of range");
         assert(nonce < 4294967296, "deposit nonce out of range");
-        let leaf_hash: [u32; 8] = Self::hash_to_u32x8(hash([
+        let leaf_hash: Hash = hash([
             depositor[0] as Felt, depositor[1] as Felt, depositor[2] as Felt, depositor[3] as Felt,
             depositor[4] as Felt, depositor[5] as Felt, depositor[6] as Felt, depositor[7] as Felt,
             l2_recipient[0] as Felt, l2_recipient[1] as Felt, l2_recipient[2] as Felt, l2_recipient[3] as Felt,
@@ -247,24 +276,19 @@ impl PsyTokenContractRef {
             amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
             source_chain_index,
             nonce,
-        ]));
-        assert(source_chain_index < 256, "source chain index out of range");
-        let known_key: Hash = hash([
-            deposit_root[0] as Felt, deposit_root[1] as Felt, deposit_root[2] as Felt, deposit_root[3] as Felt,
-            deposit_root[4] as Felt, deposit_root[5] as Felt, deposit_root[6] as Felt, deposit_root[7] as Felt,
         ]);
+        assert(source_chain_index < 256, "source chain index out of range");
         let deposit_tree = PsyDepositTreeContractRef::new(ContractMetadata::new(
             Self::deposit_tree_contract_id(),
             Self::deposit_tree_user_id(),
         ));
-        let known: bool = deposit_tree.known_roots.contains_ns_other(source_chain_index, known_key);
-        assert(known, "deposit root is not known");
-        let computed_root = Self::poseidon_merkle_verify(leaf_hash, deposit_index, siblings);
-        assert(Self::eq_u32x8(computed_root, deposit_root), "deposit root mismatch");
+        let current_root = deposit_tree.chain_roots[source_chain_index].get();
+        assert(Self::eq_u32x8(current_root, deposit_root), "deposit root is not current chain root");
+        let computed_root = Self::poseidon_merkle_verify_hash(leaf_hash, deposit_index, siblings);
+        assert(Self::eq_hash(computed_root, Self::u32x8_to_hash(deposit_root)), "deposit root mismatch");
 
         let claim_key: Hash = hash([
-            leaf_hash[0] as Felt, leaf_hash[1] as Felt, leaf_hash[2] as Felt, leaf_hash[3] as Felt,
-            leaf_hash[4] as Felt, leaf_hash[5] as Felt, leaf_hash[6] as Felt, leaf_hash[7] as Felt,
+            leaf_hash[0], leaf_hash[1], leaf_hash[2], leaf_hash[3],
         ]);
         assert(c.state_map.contains_ns(3, claim_key) == false, "deposit already claimed");
         c.state_map.insert_ns(3, claim_key, [1, 0, 0, 0]);

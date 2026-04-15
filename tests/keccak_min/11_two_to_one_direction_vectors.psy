@@ -1,0 +1,51 @@
+fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+    let data: [u32; 16] = [
+        left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7],
+        right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7],
+    ];
+    keccak256(data)
+}
+
+#[test]
+fn two_to_one_left_right_matches_cast_vector() {
+    let leaf: [u32; 8] = [
+        2736994441u32, 1423316865u32, 3205553885u32, 1673352103u32,
+        3260963857u32, 2632697317u32, 2945147575u32, 3079543414u32,
+    ];
+    let zero: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
+    let got = keccak_two_to_one(leaf, zero);
+    let want: [u32; 8] = [
+        2880886858u32, 2337786726u32, 93896281u32, 2880656329u32,
+        2270651901u32, 2799529383u32, 3576479964u32, 1609318747u32,
+    ];
+    assert_eq(got[0], want[0], "lr limb0");
+    assert_eq(got[1], want[1], "lr limb1");
+    assert_eq(got[2], want[2], "lr limb2");
+    assert_eq(got[3], want[3], "lr limb3");
+    assert_eq(got[4], want[4], "lr limb4");
+    assert_eq(got[5], want[5], "lr limb5");
+    assert_eq(got[6], want[6], "lr limb6");
+    assert_eq(got[7], want[7], "lr limb7");
+}
+
+#[test]
+fn two_to_one_right_left_matches_cast_vector() {
+    let leaf: [u32; 8] = [
+        2736994441u32, 1423316865u32, 3205553885u32, 1673352103u32,
+        3260963857u32, 2632697317u32, 2945147575u32, 3079543414u32,
+    ];
+    let zero: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
+    let got = keccak_two_to_one(zero, leaf);
+    let want: [u32; 8] = [
+        2541157393u32, 1245417082u32, 3833689161u32, 659531446u32,
+        2756101948u32, 3587278723u32, 4100945906u32, 3568595913u32,
+    ];
+    assert_eq(got[0], want[0], "rl limb0");
+    assert_eq(got[1], want[1], "rl limb1");
+    assert_eq(got[2], want[2], "rl limb2");
+    assert_eq(got[3], want[3], "rl limb3");
+    assert_eq(got[4], want[4], "rl limb4");
+    assert_eq(got[5], want[5], "rl limb5");
+    assert_eq(got[6], want[6], "rl limb6");
+    assert_eq(got[7], want[7], "rl limb7");
+}

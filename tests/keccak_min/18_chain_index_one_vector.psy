@@ -1,0 +1,24 @@
+#[test]
+fn bridge_leaf_chain_index_one_vector() {
+    let data: [u32; 36] = [
+        0u32, 0u32, 0u32, 4087338725u32, 447580406u32, 4107168440u32, 2188540367u32, 4290323046u32,
+        0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32,
+        0u32, 0u32, 0u32, 187722745u32, 365221445u32, 4284051025u32, 2410626966u32, 1773760534u32,
+        0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32,
+        0u32, 1000000000u32, 1u32, 1775065240u32,
+    ];
+    let got = keccak256(data);
+    let want: [u32; 8] = [
+        2576074131u32, 1798132723u32, 363232092u32, 2546412282u32,
+        3300262878u32, 1690108684u32, 3177640880u32, 3640743867u32,
+    ];
+
+    assert_eq(got[0], want[0], "chain1 limb0");
+    assert_eq(got[1], want[1], "chain1 limb1");
+    assert_eq(got[2], want[2], "chain1 limb2");
+    assert_eq(got[3], want[3], "chain1 limb3");
+    assert_eq(got[4], want[4], "chain1 limb4");
+    assert_eq(got[5], want[5], "chain1 limb5");
+    assert_eq(got[6], want[6], "chain1 limb6");
+    assert_eq(got[7], want[7], "chain1 limb7");
+}

@@ -1,0 +1,24 @@
+#[test]
+fn bridge_leaf_nonce_plus_one_vector() {
+    let data: [u32; 36] = [
+        0u32, 0u32, 0u32, 4087338725u32, 447580406u32, 4107168440u32, 2188540367u32, 4290323046u32,
+        0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32,
+        0u32, 0u32, 0u32, 187722745u32, 365221445u32, 4284051025u32, 2410626966u32, 1773760534u32,
+        0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32,
+        0u32, 1000000000u32, 0u32, 1775065241u32,
+    ];
+    let got = keccak256(data);
+    let want: [u32; 8] = [
+        59333739u32, 2185368146u32, 4013690341u32, 1788424931u32,
+        4198099883u32, 180067872u32, 580662720u32, 755597910u32,
+    ];
+
+    assert_eq(got[0], want[0], "nonce+1 limb0");
+    assert_eq(got[1], want[1], "nonce+1 limb1");
+    assert_eq(got[2], want[2], "nonce+1 limb2");
+    assert_eq(got[3], want[3], "nonce+1 limb3");
+    assert_eq(got[4], want[4], "nonce+1 limb4");
+    assert_eq(got[5], want[5], "nonce+1 limb5");
+    assert_eq(got[6], want[6], "nonce+1 limb6");
+    assert_eq(got[7], want[7], "nonce+1 limb7");
+}

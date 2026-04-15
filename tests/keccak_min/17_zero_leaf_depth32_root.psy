@@ -1,0 +1,29 @@
+fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+    let data: [u32; 16] = [
+        left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7],
+        right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7],
+    ];
+    keccak256(data)
+}
+
+#[test]
+fn zero_leaf_depth32_root_vector() {
+    let mut current: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
+    for _i in 0u32..32u32 {
+        current = keccak_two_to_one(current, current);
+    }
+
+    let want: [u32; 8] = [
+        665738144u32, 2373095881u32, 1821162972u32, 3242770248u32,
+        2799078521u32, 1958298454u32, 4114044143u32, 1634850647u32,
+    ];
+
+    assert_eq(current[0], want[0], "zero32 limb0");
+    assert_eq(current[1], want[1], "zero32 limb1");
+    assert_eq(current[2], want[2], "zero32 limb2");
+    assert_eq(current[3], want[3], "zero32 limb3");
+    assert_eq(current[4], want[4], "zero32 limb4");
+    assert_eq(current[5], want[5], "zero32 limb5");
+    assert_eq(current[6], want[6], "zero32 limb6");
+    assert_eq(current[7], want[7], "zero32 limb7");
+}

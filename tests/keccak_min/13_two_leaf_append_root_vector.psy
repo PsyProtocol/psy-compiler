@@ -1,0 +1,68 @@
+fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+    let data: [u32; 16] = [
+        left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7],
+        right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7],
+    ];
+    keccak256(data)
+}
+
+#[test]
+fn append_two_leaves_index0_index1_root_vector() {
+    let mut zs: [[u32; 8]; 32] = [[0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32]; 32];
+    for i in 1u32..32u32 {
+        let idx = i as Felt;
+        let prev_idx = idx - 1;
+        let prev = zs[prev_idx];
+        zs[idx] = keccak_two_to_one(prev, prev);
+    }
+
+    let mut frontiers: [[u32; 8]; 32] = [[0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32]; 32];
+
+    let leaf0: [u32; 8] = [
+        2616736942u32, 889138134u32, 633395102u32, 103044223u32,
+        3341657709u32, 517704264u32, 1166213228u32, 1125777119u32,
+    ];
+    let leaf1: [u32; 8] = [
+        2744940282u32, 2316820200u32, 3310581918u32, 579113994u32,
+        3134062632u32, 3051381702u32, 213591286u32, 1516383443u32,
+    ];
+
+    let mut current = leaf0;
+    let mut path_index: Felt = 0;
+    for i in 0u32..32u32 {
+        let level = i as Felt;
+        if (path_index & 1) == 0 {
+            frontiers[level] = current;
+            current = keccak_two_to_one(current, zs[level]);
+        } else {
+            current = keccak_two_to_one(frontiers[level], current);
+        };
+        path_index = path_index >> 1;
+    }
+
+    current = leaf1;
+    path_index = 1;
+    for i in 0u32..32u32 {
+        let level = i as Felt;
+        if (path_index & 1) == 0 {
+            frontiers[level] = current;
+            current = keccak_two_to_one(current, zs[level]);
+        } else {
+            current = keccak_two_to_one(frontiers[level], current);
+        };
+        path_index = path_index >> 1;
+    }
+
+    let want: [u32; 8] = [
+        3767492367u32, 1770963790u32, 2197771268u32, 1340099796u32,
+        815178283u32, 1060491345u32, 184675233u32, 2598937493u32,
+    ];
+    assert_eq(current[0], want[0], "root limb0");
+    assert_eq(current[1], want[1], "root limb1");
+    assert_eq(current[2], want[2], "root limb2");
+    assert_eq(current[3], want[3], "root limb3");
+    assert_eq(current[4], want[4], "root limb4");
+    assert_eq(current[5], want[5], "root limb5");
+    assert_eq(current[6], want[6], "root limb6");
+    assert_eq(current[7], want[7], "root limb7");
+}

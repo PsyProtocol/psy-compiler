@@ -1,0 +1,152 @@
+fn assert_u32x8_eq(got: [u32; 8], want: [u32; 8]) {
+    assert_eq(got[0], want[0], "u32x8[0] mismatch");
+    assert_eq(got[1], want[1], "u32x8[1] mismatch");
+    assert_eq(got[2], want[2], "u32x8[2] mismatch");
+    assert_eq(got[3], want[3], "u32x8[3] mismatch");
+    assert_eq(got[4], want[4], "u32x8[4] mismatch");
+    assert_eq(got[5], want[5], "u32x8[5] mismatch");
+    assert_eq(got[6], want[6], "u32x8[6] mismatch");
+    assert_eq(got[7], want[7], "u32x8[7] mismatch");
+}
+
+fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+    let data: [u32; 16] = [
+        left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7],
+        right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7],
+    ];
+    keccak256(data)
+}
+
+fn build_zero_hashes() -> [[u32; 8]; 32] {
+    let mut zs: [[u32; 8]; 32] = [[0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32]; 32];
+    for i in 1u32..32u32 {
+        let idx = i as Felt;
+        let prev_idx = idx - 1;
+        let prev = zs[prev_idx];
+        zs[idx] = keccak_two_to_one(prev, prev);
+    }
+    zs
+}
+
+fn append_single_leaf_root(leaf: [u32; 8]) -> [u32; 8] {
+    let zs = build_zero_hashes();
+    let mut current = leaf;
+    for i in 0u32..32u32 {
+        current = keccak_two_to_one(current, zs[i as Felt]);
+    }
+    current
+}
+
+fn append_two_leaves_root(leaf0: [u32; 8], leaf1: [u32; 8]) -> [u32; 8] {
+    let zs = build_zero_hashes();
+    let mut frontiers: [[u32; 8]; 32] = [[0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32]; 32];
+
+    let mut current = leaf0;
+    let mut path_index: Felt = 0;
+    for i in 0u32..32u32 {
+        let level = i as Felt;
+        let is_right = path_index & 1;
+        if is_right == 0 {
+            frontiers[level] = current;
+            current = keccak_two_to_one(current, zs[level]);
+        } else {
+            current = keccak_two_to_one(frontiers[level], current);
+        };
+        path_index = path_index >> 1;
+    }
+
+    current = leaf1;
+    path_index = 1;
+    for i in 0u32..32u32 {
+        let level = i as Felt;
+        let is_right = path_index & 1;
+        if is_right == 0 {
+            frontiers[level] = current;
+            current = keccak_two_to_one(current, zs[level]);
+        } else {
+            current = keccak_two_to_one(frontiers[level], current);
+        };
+        path_index = path_index >> 1;
+    }
+    current
+}
+
+fn compute_deposit_leaf_hash(
+    depositor: [u32; 8],
+    recipient: [u32; 8],
+    token: [u32; 8],
+    l2_token_contract_id: [u32; 8],
+    amount_u64_be: [u32; 2],
+    chain_index_u64_be: [u32; 2],
+    nonce_u64_be: [u32; 2],
+) -> [u32; 8] {
+    let data: [u32; 38] = [
+        depositor[0], depositor[1], depositor[2], depositor[3], depositor[4], depositor[5], depositor[6], depositor[7],
+        recipient[0], recipient[1], recipient[2], recipient[3], recipient[4], recipient[5], recipient[6], recipient[7],
+        token[0], token[1], token[2], token[3], token[4], token[5], token[6], token[7],
+        l2_token_contract_id[0], l2_token_contract_id[1], l2_token_contract_id[2], l2_token_contract_id[3],
+        l2_token_contract_id[4], l2_token_contract_id[5], l2_token_contract_id[6], l2_token_contract_id[7],
+        amount_u64_be[0], amount_u64_be[1], chain_index_u64_be[0], chain_index_u64_be[1], nonce_u64_be[0], nonce_u64_be[1],
+    ];
+    keccak256(data)
+}
+
+#[test]
+fn test_keccak_zero_level1_matches_cast() {
+    let z1 = keccak_two_to_one(
+        [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32],
+        [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32],
+    );
+    let want = [2905745590u32, 1995953101u32, 1115989316u32, 1058533782u32, 725017745u32, 3003793586u32, 1079527909u32, 2545573813u32];
+    assert_u32x8_eq(z1, want);
+}
+
+#[test]
+fn test_deposit_leaf_hash_matches_cast_vector_nonce_0x1a2b3c4d() {
+    let depositor = [0u32, 0u32, 0u32, 4087346917u32, 447580406u32, 4107160248u32, 2188532175u32, 4290327142u32];
+    let recipient = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
+    let token = [0u32, 0u32, 0u32, 187722745u32, 365221445u32, 4284057169u32, 2410626966u32, 1773762582u32];
+    let l2_token_contract_id = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
+    let amount_u64 = [0u32, 1000000000u32];
+    let chain_u64 = [0u32, 0u32];
+    let nonce_u64 = [0u32, 439041101u32];
+
+    let got = compute_deposit_leaf_hash(depositor, recipient, token, l2_token_contract_id, amount_u64, chain_u64, nonce_u64);
+    // cast keccak over Bridge packing:
+    // bytes32(depositor) | bytes32(l2Recipient) | bytes32(token) | bytes32(l2TokenContractId)
+    // | uint64(amount) | uint64(chainIndex) | uint64(nonce)
+    let want = [1843497415u32, 4291050723u32, 3230442926u32, 2546656633u32, 3394749259u32, 3049679469u32, 845402853u32, 969618988u32];
+    assert_u32x8_eq(got, want);
+}
+
+#[test]
+fn test_deposit_leaf_hash_matches_current_local_sample_nonce_1775030470() {
+    let depositor = [0u32, 0u32, 0u32, 4087346917u32, 447580406u32, 4107160248u32, 2188532175u32, 4290327142u32];
+    let recipient = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
+    let token = [0u32, 0u32, 0u32, 187722745u32, 365221445u32, 4284057169u32, 2410626966u32, 1773762582u32];
+    let l2_token_contract_id = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
+    let amount_u64 = [0u32, 1000000000u32];
+    let chain_u64 = [0u32, 0u32];
+    let nonce_u64 = [0u32, 1775030470u32];
+
+    let got = compute_deposit_leaf_hash(depositor, recipient, token, l2_token_contract_id, amount_u64, chain_u64, nonce_u64);
+    let want = [1505303517u32, 2303571379u32, 3194340162u32, 3487325515u32, 3346282813u32, 2604415461u32, 2230249719u32, 1402575137u32];
+    assert_u32x8_eq(got, want);
+}
+
+#[test]
+fn test_append_single_leaf_root_matches_cast_folded_root() {
+    let leaf0 = [2616736942u32, 889138134u32, 633395102u32, 103044223u32, 3341657709u32, 517704264u32, 1166213228u32, 1125777119u32];
+    let got = append_single_leaf_root(leaf0);
+    let want = [1680415800u32, 159459499u32, 251752901u32, 4015956865u32, 1236431582u32, 3092964508u32, 2679801100u32, 3827721773u32];
+    assert_u32x8_eq(got, want);
+}
+
+#[test]
+fn test_append_two_leaves_root_matches_cast_folded_root() {
+    let leaf0 = [2616736942u32, 889138134u32, 633395102u32, 103044223u32, 3341657709u32, 517704264u32, 1166213228u32, 1125777119u32];
+    let leaf1 = [2744940282u32, 2316820200u32, 3310581918u32, 579113994u32, 3134062632u32, 3051381702u32, 213591286u32, 1516383443u32];
+    let got = append_two_leaves_root(leaf0, leaf1);
+    let want = [3767492367u32, 1770963790u32, 2197771268u32, 1340099796u32, 815178283u32, 1060491345u32, 184675233u32, 2598937493u32];
+    assert_u32x8_eq(got, want);
+}

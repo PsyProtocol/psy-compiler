@@ -1,0 +1,62 @@
+fn leaf_hash(amount_hi: u32, amount_lo: u32, chain_index: u32, nonce: u32) -> [u32; 8] {
+    let data: [u32; 36] = [
+        0u32, 0u32, 0u32, 4087338725u32, 447580406u32, 4107168440u32, 2188540367u32, 4290323046u32,
+        0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32,
+        0u32, 0u32, 0u32, 187722745u32, 365221445u32, 4284051025u32, 2410626966u32, 1773760534u32,
+        0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32,
+        amount_hi, amount_lo, chain_index, nonce,
+    ];
+    keccak256(data)
+}
+
+fn assert_u32x8_eq(got: [u32; 8], want: [u32; 8], label: Felt) {
+    assert_eq(got[0], want[0], "limb0");
+    assert_eq(got[1], want[1], "limb1");
+    assert_eq(got[2], want[2], "limb2");
+    assert_eq(got[3], want[3], "limb3");
+    assert_eq(got[4], want[4], "limb4");
+    assert_eq(got[5], want[5], "limb5");
+    assert_eq(got[6], want[6], "limb6");
+    assert_eq(got[7], want[7], "limb7");
+    assert_eq(label, label, "label");
+}
+
+#[test]
+fn bridge_leaf_nonce_zero_vector() {
+    let got = leaf_hash(0u32, 1000000000u32, 0u32, 0u32);
+    let want: [u32; 8] = [
+        1348749585u32, 4125316367u32, 3756793758u32, 4252752296u32,
+        4246222390u32, 2471605473u32, 3297958693u32, 88699977u32,
+    ];
+    assert_u32x8_eq(got, want, 1);
+}
+
+#[test]
+fn bridge_leaf_amount_u64_max_vector() {
+    let got = leaf_hash(4294967295u32, 4294967295u32, 0u32, 0u32);
+    let want: [u32; 8] = [
+        2470534845u32, 2909367116u32, 1599215787u32, 1943971639u32,
+        2464029936u32, 3406891543u32, 3499381686u32, 2398969984u32,
+    ];
+    assert_u32x8_eq(got, want, 2);
+}
+
+#[test]
+fn bridge_leaf_amount_zero_vector() {
+    let got = leaf_hash(0u32, 0u32, 0u32, 0u32);
+    let want: [u32; 8] = [
+        1033768013u32, 612379412u32, 3258222201u32, 3802146265u32,
+        2461508919u32, 2615745470u32, 1355037171u32, 2012020570u32,
+    ];
+    assert_u32x8_eq(got, want, 4);
+}
+
+#[test]
+fn bridge_leaf_chain_nonce_u32_max_vector() {
+    let got = leaf_hash(0u32, 1000000000u32, 4294967295u32, 4294967295u32);
+    let want: [u32; 8] = [
+        2608725922u32, 584292507u32, 199429435u32, 2861155757u32,
+        604531491u32, 1239969709u32, 2118527140u32, 2782489603u32,
+    ];
+    assert_u32x8_eq(got, want, 3);
+}

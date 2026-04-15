@@ -1,0 +1,37 @@
+fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+    let data: [u32; 16] = [
+        left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7],
+        right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7],
+    ];
+    keccak256(data)
+}
+
+#[test]
+fn deposit_index0_root_matches_cast_fold() {
+    // leaf from bridge_leaf_preimage_144_bytes test
+    let mut current: [u32; 8] = [
+        2736994441u32, 1423316865u32, 3205553885u32, 1673352103u32,
+        3260963857u32, 2632697317u32, 2945147575u32, 3079543414u32,
+    ];
+    let mut zero: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
+
+    // index=0 append fold: root = fold_{l=0..31} H(cur_l, zero_l), zero_{l+1}=H(zero_l, zero_l)
+    for _i in 0u32..32u32 {
+        current = keccak_two_to_one(current, zero);
+        zero = keccak_two_to_one(zero, zero);
+    }
+
+    let want: [u32; 8] = [
+        3086919181u32, 1122993825u32, 583744363u32, 487828614u32,
+        3183023088u32, 895181666u32, 145211159u32, 3292863088u32,
+    ];
+
+    assert_eq(current[0], want[0], "root limb0");
+    assert_eq(current[1], want[1], "root limb1");
+    assert_eq(current[2], want[2], "root limb2");
+    assert_eq(current[3], want[3], "root limb3");
+    assert_eq(current[4], want[4], "root limb4");
+    assert_eq(current[5], want[5], "root limb5");
+    assert_eq(current[6], want[6], "root limb6");
+    assert_eq(current[7], want[7], "root limb7");
+}
