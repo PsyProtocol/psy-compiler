@@ -222,13 +222,14 @@ impl PsyWithdrawalTreeContractRef {
         c.root = zero_root;
         c.next_index = idx + 1;
 
-        let _event_data = new WithdrawalLeafAppended {
+        let event_data = new WithdrawalLeafAppended {
             chain_index,
             index: idx,
             leaf,
             new_chain_root: hashed_leaf,
             new_global_root: zero_root,
         };
+        event_data.emit();
     }
 
     pub fn append_withdrawal(
@@ -280,12 +281,13 @@ impl PsyWithdrawalTreeContractRef {
             c.next_index = c.chain_counts[0].get();
         };
 
-        let _event_data = new WithdrawalLeafAppended {
+        let event_data = new WithdrawalLeafAppended {
             chain_index,
             index: idx,
             leaf: leaf_hash,
             new_chain_root,
             new_global_root,
         };
+        event_data.emit();
     }
 }
