@@ -282,10 +282,14 @@ impl PsyTokenContractRef {
             Self::deposit_tree_contract_id(),
             Self::deposit_tree_user_id(),
         ));
-        let current_root = deposit_tree.chain_roots[source_chain_index].get();
-        assert(Self::eq_u32x8(current_root, deposit_root), "deposit root is not current chain root");
         let computed_root = Self::poseidon_merkle_verify_hash(leaf_hash, deposit_index, siblings);
         assert(Self::eq_hash(computed_root, Self::u32x8_to_hash(deposit_root)), "deposit root mismatch");
+        let known_key: Hash = hash([
+            deposit_root[0] as Felt, deposit_root[1] as Felt, deposit_root[2] as Felt, deposit_root[3] as Felt,
+            deposit_root[4] as Felt, deposit_root[5] as Felt, deposit_root[6] as Felt, deposit_root[7] as Felt,
+        ]);
+        let known: bool = deposit_tree.known_roots.contains_ns_other(source_chain_index, known_key);
+        assert(known, "deposit root is not known");
 
         let claim_key: Hash = hash([
             leaf_hash[0], leaf_hash[1], leaf_hash[2], leaf_hash[3],
