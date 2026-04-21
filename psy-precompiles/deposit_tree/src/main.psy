@@ -12,8 +12,8 @@ pub struct DepositLeafAppended {
 #[contract]
 #[derive(Storage)]
 pub struct PsyDepositTreeContract {
-    pub next_index: Felt,
     pub root: [u32; 8],
+    pub next_index: Felt,
 
     pub frontiers: [[u32; 8]; 8192],
     pub chain_counts: [Felt; 256],
