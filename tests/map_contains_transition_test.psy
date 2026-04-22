@@ -1,0 +1,18 @@
+#[contract]
+#[derive(Storage)]
+pub struct ContainsContract {
+    pub balances: Map<Hash, Hash, 128u32>,
+}
+
+#[test]
+fn test_contains_reflects_insert() {
+    let c = ContainsContractRef::new(ContractMetadata::current());
+    let key: Hash = [2001, 0, 0, 0];
+    let value: Hash = [1, 2, 3, 4];
+
+    assert_eq(c.balances.contains(key), false, "absent before insert");
+    c.balances.insert(key, value);
+    assert_eq(c.balances.contains(key), true, "present after insert");
+    c.balances.set(key, [5, 6, 7, 8]);
+    assert_eq(c.balances.contains(key), true, "still present after set");
+}

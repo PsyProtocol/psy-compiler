@@ -1,0 +1,21 @@
+#[contract]
+#[derive(Storage)]
+pub struct MultiKeyContract {
+    pub balances: Map<Hash, Hash, 128u32>,
+}
+
+#[test]
+fn test_multiple_keys_independent() {
+    let c = MultiKeyContractRef::new(ContractMetadata::current());
+    let k1: Hash = [3001, 0, 0, 0];
+    let k2: Hash = [3002, 0, 0, 0];
+    let k3: Hash = [3003, 0, 0, 0];
+
+    c.balances.insert(k1, [10, 20, 30, 40]);
+    c.balances.insert(k2, [50, 60, 70, 80]);
+    c.balances.insert(k3, [90, 100, 110, 120]);
+
+    assert_eq(c.balances.get(k1), [10, 20, 30, 40], "k1 unchanged");
+    assert_eq(c.balances.get(k2), [50, 60, 70, 80], "k2 unchanged");
+    assert_eq(c.balances.get(k3), [90, 100, 110, 120], "k3 unchanged");
+}

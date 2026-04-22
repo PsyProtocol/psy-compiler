@@ -1,0 +1,36 @@
+#[contract]
+#[derive(Storage)]
+pub struct MapEdgeSemanticsContract {
+    pub balances: Map<Hash, Hash, 128u32>,
+}
+
+#[test]
+fn test_absent_set_returns_zero_and_writes_value() {
+    let c = MapEdgeSemanticsContractRef::new(ContractMetadata::current());
+    let key: Hash = [5001, 0, 0, 0];
+    let value: Hash = [11, 22, 33, 44];
+
+    let old = c.balances.set(key, value);
+    assert_eq(old, [0, 0, 0, 0], "set on absent key returns zero old value");
+    assert_eq(c.balances.get(key), value, "set on absent key writes value");
+    assert_eq(c.balances.contains(key), true, "set on absent key creates membership");
+}
+
+#[test]
+fn test_repeated_insert_returns_previous_values() {
+    let c = MapEdgeSemanticsContractRef::new(ContractMetadata::current());
+    let key: Hash = [5002, 0, 0, 0];
+    let v0: Hash = [1, 2, 3, 4];
+    let v1: Hash = [5, 6, 7, 8];
+    let v2: Hash = [9, 10, 11, 12];
+
+    let old0 = c.balances.insert(key, v0);
+    assert_eq(old0, [0, 0, 0, 0], "first insert returns zero old value");
+
+    let old1 = c.balances.insert(key, v1);
+    assert_eq(old1, v0, "second insert returns first value");
+
+    let old2 = c.balances.insert(key, v2);
+    assert_eq(old2, v1, "third insert returns second value");
+    assert_eq(c.balances.get(key), v2, "latest insert wins");
+}
