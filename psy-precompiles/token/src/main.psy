@@ -33,12 +33,27 @@ struct PrivateClaimProof {
     pub index: Felt,
 }
 
+struct ShieldClaimProof {
+    pub siblings: [Hash; 16],
+    pub index: Felt,
+}
+
 struct ProofPublicInputsPreimage {
     pub receiver: Hash,
     pub amount: Felt,
     pub user_tree_root: Hash,
     pub checkpoint_id: Felt,
     pub note_root_slot: Felt,
+    pub nullifier_hash: Hash,
+}
+
+struct ShieldClaimPublicInputsPreimage {
+    pub shield_address: Hash,
+    pub amount: [u32; 8],
+    pub token_address: [u32; 8],
+    pub l2_token_contract_id: [u32; 8],
+    pub source_chain_index: Felt,
+    pub deposit_root: Hash,
     pub nullifier_hash: Hash,
 }
 
@@ -110,17 +125,8 @@ impl PsyTokenContractRef {
         ]
     }
 
-    fn current_contract_id_u32x8() -> [u32; 8] {
-        [
-            get_contract_id() as u32,
-            0u32,
-            0u32,
-            0u32,
-            0u32,
-            0u32,
-            0u32,
-            0u32,
-        ]
+    fn current_contract_id_u32x8_be() -> [u32; 8] {
+        Self::felt_u64_to_u32x8_be(get_contract_id())
     }
 
     fn felt_u64_to_u32x2_be(x: Felt) -> [u32; 2] {
@@ -238,52 +244,31 @@ impl PsyTokenContractRef {
     }
 
     pub fn claim_deposit(
-        depositor: [u32; 8],
-        l2_recipient: [u32; 8],
+        nullifier_hash: Hash,
+        shield_address: Hash,
         token_address: [u32; 8],
-        l2_token_contract_id: [u32; 8],
         amount: [u32; 8],
         source_chain_index: Felt,
-        nonce: Felt,
-        deposit_index: Felt,
-        siblings: [[u32; 8]; 32],
         deposit_root: [u32; 8],
+        r0: Felt,
+        r1: Felt,
+        proof: ShieldClaimProof
     ) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         let amount_felt: Felt = Self::u32x8_be_to_felt_u64(amount);
         assert(amount_felt > 0, "amount must be positive");
-        assert(deposit_index < 4294967296, "deposit proof index out of range");
-        let expected_l2_token_contract_id = Self::current_contract_id_u32x8();
-        assert(
-            Self::eq_u32x8(l2_token_contract_id, expected_l2_token_contract_id),
-            "l2 token contract id mismatch"
-        );
-        let caller_user_id: Felt = get_user_id();
-        let caller_recipient: [u32; 8] = Self::user_id_to_u32x8_be(caller_user_id);
-        assert(Self::eq_u32x8(l2_recipient, caller_recipient), "recipient must be tx sender user_id (bytes32 BE)");
-        assert(source_chain_index < 4294967296, "source chain index out of range");
-        assert(nonce < 4294967296, "deposit nonce out of range");
-        let leaf_hash: Hash = hash([
-            depositor[0] as Felt, depositor[1] as Felt, depositor[2] as Felt, depositor[3] as Felt,
-            depositor[4] as Felt, depositor[5] as Felt, depositor[6] as Felt, depositor[7] as Felt,
-            l2_recipient[0] as Felt, l2_recipient[1] as Felt, l2_recipient[2] as Felt, l2_recipient[3] as Felt,
-            l2_recipient[4] as Felt, l2_recipient[5] as Felt, l2_recipient[6] as Felt, l2_recipient[7] as Felt,
-            token_address[0] as Felt, token_address[1] as Felt, token_address[2] as Felt, token_address[3] as Felt,
-            token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
-            l2_token_contract_id[0] as Felt, l2_token_contract_id[1] as Felt, l2_token_contract_id[2] as Felt, l2_token_contract_id[3] as Felt,
-            l2_token_contract_id[4] as Felt, l2_token_contract_id[5] as Felt, l2_token_contract_id[6] as Felt, l2_token_contract_id[7] as Felt,
-            amount[0] as Felt, amount[1] as Felt, amount[2] as Felt, amount[3] as Felt,
-            amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
-            source_chain_index,
-            nonce,
+        let expected_shield_address: Hash = hash([
+            get_user_id(),
+            1337,
+            r0,
+            r1,
         ]);
-        assert(source_chain_index < 256, "source chain index out of range");
+        assert(Self::eq_hash(shield_address, expected_shield_address), "shield address mismatch");
         let deposit_tree = PsyDepositTreeContractRef::new(ContractMetadata::new(
             Self::deposit_tree_contract_id(),
             Self::deposit_tree_user_id(),
         ));
-        let computed_root = Self::poseidon_merkle_verify_hash(leaf_hash, deposit_index, siblings);
-        assert(Self::eq_hash(computed_root, Self::u32x8_to_hash(deposit_root)), "deposit root mismatch");
+        let deposit_root_hash = Self::u32x8_to_hash(deposit_root);
         let known_key: Hash = hash([
             deposit_root[0] as Felt, deposit_root[1] as Felt, deposit_root[2] as Felt, deposit_root[3] as Felt,
             deposit_root[4] as Felt, deposit_root[5] as Felt, deposit_root[6] as Felt, deposit_root[7] as Felt,
@@ -291,12 +276,52 @@ impl PsyTokenContractRef {
         let known: bool = deposit_tree.known_roots.contains_ns_other(source_chain_index, known_key);
         assert(known, "deposit root is not known");
 
-        let claim_key: Hash = hash([
-            leaf_hash[0], leaf_hash[1], leaf_hash[2], leaf_hash[3],
+        let preimage = new ShieldClaimPublicInputsPreimage {
+            shield_address,
+            amount,
+            token_address,
+            l2_token_contract_id: Self::current_contract_id_u32x8_be(),
+            source_chain_index,
+            deposit_root: deposit_root_hash,
+            nullifier_hash,
+        };
+        let public_inputs_hash: Hash = hash([
+            preimage.shield_address[0], preimage.shield_address[1], preimage.shield_address[2], preimage.shield_address[3],
+            preimage.amount[0] as Felt, preimage.amount[1] as Felt, preimage.amount[2] as Felt, preimage.amount[3] as Felt,
+            preimage.amount[4] as Felt, preimage.amount[5] as Felt, preimage.amount[6] as Felt, preimage.amount[7] as Felt,
+            preimage.token_address[0] as Felt, preimage.token_address[1] as Felt, preimage.token_address[2] as Felt, preimage.token_address[3] as Felt,
+            preimage.token_address[4] as Felt, preimage.token_address[5] as Felt, preimage.token_address[6] as Felt, preimage.token_address[7] as Felt,
+            preimage.l2_token_contract_id[0] as Felt, preimage.l2_token_contract_id[1] as Felt, preimage.l2_token_contract_id[2] as Felt, preimage.l2_token_contract_id[3] as Felt,
+            preimage.l2_token_contract_id[4] as Felt, preimage.l2_token_contract_id[5] as Felt, preimage.l2_token_contract_id[6] as Felt, preimage.l2_token_contract_id[7] as Felt,
+            preimage.source_chain_index,
+            preimage.deposit_root[0], preimage.deposit_root[1], preimage.deposit_root[2], preimage.deposit_root[3],
+            preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
         ]);
-        assert(c.state_map.contains_ns(3, claim_key) == false, "deposit already claimed");
-        c.state_map.insert_ns(3, claim_key, [1, 0, 0, 0]);
+        let shield_claim_fingerprint: Hash = [
+            16651423046427878571,
+            17956526902712529845,
+            12234363989615933533,
+            11830032520362101932
+        ];
+        let leaf: Hash = hash_two_to_one(shield_claim_fingerprint, public_inputs_hash);
+        let mut current: Hash = leaf;
+        for i in 0u32..16u32 {
+            let level_index = i as Felt;
+            let sibling: Hash = proof.siblings[level_index];
+            let index_bit: Felt = (proof.index >> level_index) & 1;
 
+            if index_bit == 0 {
+                current = hash_two_to_one(current, sibling);
+            } else {
+                current = hash_two_to_one(sibling, current);
+            };
+        }
+
+        let expected_root: Hash = get_session_proof_tree_root();
+        assert(current == expected_root, "proof tree root mismatch");
+
+        assert(c.state_map.contains_ns(4, nullifier_hash) == false, "shield claim already used");
+        c.state_map.insert_ns(4, nullifier_hash, [1, 0, 0, 0]);
         c.balance += amount_felt;
     }
 
