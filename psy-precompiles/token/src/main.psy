@@ -298,10 +298,10 @@ impl PsyTokenContractRef {
             preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
         ]);
         let shield_claim_fingerprint: Hash = [
-            16651423046427878571,
-            17956526902712529845,
-            12234363989615933533,
-            11830032520362101932
+            9035274454396793746,
+            3283101489055486651,
+            5463948716196243646,
+            10960400114419786825
         ];
         let leaf: Hash = hash_two_to_one(shield_claim_fingerprint, public_inputs_hash);
         let mut current: Hash = leaf;
