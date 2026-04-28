@@ -1,0 +1,8 @@
+[package]
+name = "usdt_token"
+type = "bin"
+authors = [""]
+
+[dependencies]
+mining_rewards = { path = "../mining_rewards" }
+deposit_tree = { path = "../deposit_tree" }

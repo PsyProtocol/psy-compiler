@@ -6118,6 +6118,7 @@ dependencies = [
  "serde_with 3.16.0",
  "strum 0.27.2",
  "strum_macros 0.27.2",
+ "tiny-keccak",
  "tokio",
  "tracing",
 ]

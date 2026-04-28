@@ -1,0 +1,571 @@
+use std::prelude::*;
+use mining_rewards::PsyPOWMiningRewardsClaimContractRef;
+use deposit_tree::PsyDepositTreeContractRef;
+
+#[derive(Storage)]
+struct OtherUserInfo {
+    pub amount_sent: Felt,
+    pub amount_claimed: Felt,
+}
+
+#[derive(Event)]
+pub struct TransferEvent {
+    pub to: Felt,
+    pub amount: Felt,
+}
+
+#[derive(Event)]
+pub struct UserInfoEvent {
+    pub balance: Felt,
+}
+
+#[derive(Event)]
+pub struct WithdrawalEvent {
+    pub destination_chain_id: Felt,
+    pub token_address: [u32; 8],
+    pub amount: [u32; 8],
+    pub recipient: [u32; 8],
+    pub nonce: Felt,
+}
+
+struct PrivateClaimProof {
+    pub siblings: [Hash; 16],
+    pub index: Felt,
+}
+
+struct ShieldClaimProof {
+    pub siblings: [Hash; 16],
+    pub index: Felt,
+}
+
+struct ProofPublicInputsPreimage {
+    pub receiver: Hash,
+    pub amount: Felt,
+    pub user_tree_root: Hash,
+    pub checkpoint_id: Felt,
+    pub note_root_slot: Felt,
+    pub nullifier_hash: Hash,
+}
+
+struct ShieldClaimPublicInputsPreimage {
+    pub shield_address: Hash,
+    pub amount: [u32; 8],
+    pub token_address: [u32; 8],
+    pub l2_token_contract_id: [u32; 8],
+    pub source_chain_index: Felt,
+    pub deposit_root: Hash,
+    pub nullifier_hash: Hash,
+}
+
+#[contract]
+#[derive(Storage)]
+pub struct USDTTokenContract {
+    pub balance: Felt,
+    pub last_claimed_pow_rewards_checkpoint_id: Felt,
+    pub claimed_rewards: Felt,
+    pub other_user_info: [OtherUserInfo; 16777216],
+
+    pub note_count: Felt,
+
+    pub note_root: Hash,
+    pub last_path: [Hash; 20],
+
+    pub state_map: Map<Hash, Hash, 1048576u32>,
+}
+
+impl USDTTokenContractRef {
+    fn deposit_tree_contract_id() -> Felt { 2 }
+    fn deposit_tree_user_id() -> Felt { 524288 }
+    fn eq_u32x8(a: [u32; 8], b: [u32; 8]) -> bool {
+        a[0] == b[0]
+            && a[1] == b[1]
+            && a[2] == b[2]
+            && a[3] == b[3]
+            && a[4] == b[4]
+            && a[5] == b[5]
+            && a[6] == b[6]
+            && a[7] == b[7]
+    }
+
+    fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+        let data: [Felt; 16] = [
+            left[0] as Felt, left[1] as Felt, left[2] as Felt, left[3] as Felt,
+            left[4] as Felt, left[5] as Felt, left[6] as Felt, left[7] as Felt,
+            right[0] as Felt, right[1] as Felt, right[2] as Felt, right[3] as Felt,
+            right[4] as Felt, right[5] as Felt, right[6] as Felt, right[7] as Felt
+        ];
+        keccak256(data)
+    }
+
+    fn hash_to_u32x8(x: Hash) -> [u32; 8] {
+        let mask: Felt = 4294967295;
+        let x0_lo: u32 = (x[0] & mask) as u32;
+        let x0_hi: u32 = (x[0] >> 32) as u32;
+        let x1_lo: u32 = (x[1] & mask) as u32;
+        let x1_hi: u32 = (x[1] >> 32) as u32;
+        let x2_lo: u32 = (x[2] & mask) as u32;
+        let x2_hi: u32 = (x[2] >> 32) as u32;
+        let x3_lo: u32 = (x[3] & mask) as u32;
+        let x3_hi: u32 = (x[3] >> 32) as u32;
+        [x0_lo, x0_hi, x1_lo, x1_hi, x2_lo, x2_hi, x3_lo, x3_hi]
+    }
+
+    fn user_id_to_u32x8_be(user_id: Felt) -> [u32; 8] {
+        // bytes32 big-endian: high 192 bits are zero, low 64 bits are user_id.
+        // Represented as eight u32 limbs in big-endian word order.
+        [
+            0u32,
+            0u32,
+            0u32,
+            0u32,
+            0u32,
+            0u32,
+            (user_id >> 32) as u32,
+            (user_id & 4294967295) as u32,
+        ]
+    }
+
+    fn current_contract_id_u32x8_be() -> [u32; 8] {
+        Self::felt_u64_to_u32x8_be(get_contract_id())
+    }
+
+    fn felt_u64_to_u32x2_be(x: Felt) -> [u32; 2] {
+        [(x >> 32) as u32, (x & 4294967295) as u32]
+    }
+
+    fn felt_u64_to_u32x8_be(x: Felt) -> [u32; 8] {
+        [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, (x >> 32) as u32, (x & 4294967295) as u32]
+    }
+
+    fn u32_shift_factor() -> Felt {
+        let mut factor: Felt = 1;
+        for _i in 0u32..32u32 {
+            factor *= 2;
+        }
+        factor
+    }
+
+    fn u32x2_be_to_felt_u64(x: [u32; 2]) -> Felt {
+        (x[0] as Felt) * Self::u32_shift_factor() + (x[1] as Felt)
+    }
+
+    fn u32x8_be_to_felt_u64(x: [u32; 8]) -> Felt {
+        assert(
+            x[0] == 0u32 && x[1] == 0u32 && x[2] == 0u32 && x[3] == 0u32 &&
+            x[4] == 0u32 && x[5] == 0u32,
+            "amount exceeds uint64 range"
+        );
+        (x[6] as Felt) * Self::u32_shift_factor() + (x[7] as Felt)
+    }
+
+    fn u32x8_to_hash(x: [u32; 8]) -> Hash {
+        [
+            (x[0] as Felt) + (x[1] as Felt) * Self::u32_shift_factor(),
+            (x[2] as Felt) + (x[3] as Felt) * Self::u32_shift_factor(),
+            (x[4] as Felt) + (x[5] as Felt) * Self::u32_shift_factor(),
+            (x[6] as Felt) + (x[7] as Felt) * Self::u32_shift_factor(),
+        ]
+    }
+
+    fn poseidon_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+        Self::hash_to_u32x8(hash_two_to_one(Self::u32x8_to_hash(left), Self::u32x8_to_hash(right)))
+    }
+
+    fn poseidon_merkle_verify(leaf: [u32; 8], index: Felt, siblings: [[u32; 8]; 32]) -> [u32; 8] {
+        let mut current = leaf;
+        for i in 0u32..32u32 {
+            let level_index = i as Felt;
+            let sibling = siblings[level_index];
+            let index_bit: Felt = (index >> level_index) & 1;
+            if index_bit == 0 {
+                current = Self::poseidon_two_to_one(current, sibling);
+            } else {
+                current = Self::poseidon_two_to_one(sibling, current);
+            };
+        }
+        current
+    }
+
+    fn eq_hash(a: Hash, b: Hash) -> bool {
+        a[0] == b[0]
+            && a[1] == b[1]
+            && a[2] == b[2]
+            && a[3] == b[3]
+    }
+
+    fn poseidon_merkle_verify_hash(leaf: Hash, index: Felt, siblings: [[u32; 8]; 32]) -> Hash {
+        let mut current = leaf;
+        for i in 0u32..32u32 {
+            let level_index = i as Felt;
+            let sibling = Self::u32x8_to_hash(siblings[level_index]);
+            let index_bit: Felt = (index >> level_index) & 1;
+            if index_bit == 0 {
+                current = hash_two_to_one(current, sibling);
+            } else {
+                current = hash_two_to_one(sibling, current);
+            };
+        }
+        current
+    }
+
+    pub fn withdraw(
+        destination_chain_index: Felt,
+        token_address: [u32; 8],
+        amount: [u32; 8],
+        recipient: [u32; 8],
+        nonce: Felt,
+    ) {
+        let c = USDTTokenContractRef::new(ContractMetadata::current());
+        let amount_felt = Self::u32x8_be_to_felt_u64(amount);
+        let current_balance = c.balance.get();
+        assert(amount_felt > 0, "amount must be positive");
+        assert(current_balance >= amount_felt, "insufficient balance");
+
+        c.balance = current_balance - amount_felt;
+
+        let leaf_hash: [u32; 8] = Self::hash_to_u32x8(hash([
+            recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
+            recipient[4] as Felt, recipient[5] as Felt, recipient[6] as Felt, recipient[7] as Felt,
+            token_address[0] as Felt, token_address[1] as Felt, token_address[2] as Felt, token_address[3] as Felt,
+            token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
+            amount[0] as Felt, amount[1] as Felt, amount[2] as Felt, amount[3] as Felt,
+            amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
+            nonce,
+            destination_chain_index,
+        ]));
+        let event_data = new WithdrawalEvent {
+            destination_chain_id: destination_chain_index,
+            token_address,
+            amount,
+            recipient,
+            nonce,
+        };
+        event_data.emit();
+    }
+
+    pub fn claim_deposit(
+        nullifier_hash: Hash,
+        shield_address: Hash,
+        token_address: [u32; 8],
+        amount: [u32; 8],
+        source_chain_index: Felt,
+        deposit_root: [u32; 8],
+        r0: Felt,
+        r1: Felt,
+        proof: ShieldClaimProof
+    ) {
+        let c = USDTTokenContractRef::new(ContractMetadata::current());
+        let amount_felt: Felt = Self::u32x8_be_to_felt_u64(amount);
+        assert(amount_felt > 0, "amount must be positive");
+        let expected_shield_address: Hash = hash([
+            get_user_id(),
+            1337,
+            r0,
+            r1,
+        ]);
+        assert(Self::eq_hash(shield_address, expected_shield_address), "shield address mismatch");
+        let deposit_tree = PsyDepositTreeContractRef::new(ContractMetadata::new(
+            Self::deposit_tree_contract_id(),
+            Self::deposit_tree_user_id(),
+        ));
+        let deposit_root_hash = Self::u32x8_to_hash(deposit_root);
+        let known_key: Hash = hash([
+            deposit_root[0] as Felt, deposit_root[1] as Felt, deposit_root[2] as Felt, deposit_root[3] as Felt,
+            deposit_root[4] as Felt, deposit_root[5] as Felt, deposit_root[6] as Felt, deposit_root[7] as Felt,
+        ]);
+        let known: bool = deposit_tree.known_roots.contains_ns_other(source_chain_index, known_key);
+        assert(known, "deposit root is not known");
+
+        let preimage = new ShieldClaimPublicInputsPreimage {
+            shield_address,
+            amount,
+            token_address,
+            l2_token_contract_id: Self::current_contract_id_u32x8_be(),
+            source_chain_index,
+            deposit_root: deposit_root_hash,
+            nullifier_hash,
+        };
+        let public_inputs_hash: Hash = hash([
+            preimage.shield_address[0], preimage.shield_address[1], preimage.shield_address[2], preimage.shield_address[3],
+            preimage.amount[0] as Felt, preimage.amount[1] as Felt, preimage.amount[2] as Felt, preimage.amount[3] as Felt,
+            preimage.amount[4] as Felt, preimage.amount[5] as Felt, preimage.amount[6] as Felt, preimage.amount[7] as Felt,
+            preimage.token_address[0] as Felt, preimage.token_address[1] as Felt, preimage.token_address[2] as Felt, preimage.token_address[3] as Felt,
+            preimage.token_address[4] as Felt, preimage.token_address[5] as Felt, preimage.token_address[6] as Felt, preimage.token_address[7] as Felt,
+            preimage.l2_token_contract_id[0] as Felt, preimage.l2_token_contract_id[1] as Felt, preimage.l2_token_contract_id[2] as Felt, preimage.l2_token_contract_id[3] as Felt,
+            preimage.l2_token_contract_id[4] as Felt, preimage.l2_token_contract_id[5] as Felt, preimage.l2_token_contract_id[6] as Felt, preimage.l2_token_contract_id[7] as Felt,
+            preimage.source_chain_index,
+            preimage.deposit_root[0], preimage.deposit_root[1], preimage.deposit_root[2], preimage.deposit_root[3],
+            preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
+        ]);
+        let shield_claim_fingerprint: Hash = [
+            9035274454396793746,
+            3283101489055486651,
+            5463948716196243646,
+            10960400114419786825
+        ];
+        let leaf: Hash = hash_two_to_one(shield_claim_fingerprint, public_inputs_hash);
+        let mut current: Hash = leaf;
+        for i in 0u32..16u32 {
+            let level_index = i as Felt;
+            let sibling: Hash = proof.siblings[level_index];
+            let index_bit: Felt = (proof.index >> level_index) & 1;
+
+            if index_bit == 0 {
+                current = hash_two_to_one(current, sibling);
+            } else {
+                current = hash_two_to_one(sibling, current);
+            };
+        }
+
+        let expected_root: Hash = get_session_proof_tree_root();
+        assert(current == expected_root, "proof tree root mismatch");
+
+        assert(c.state_map.contains_ns(4, nullifier_hash) == false, "shield claim already used");
+        c.state_map.insert_ns(4, nullifier_hash, [1, 0, 0, 0]);
+        c.balance += amount_felt;
+    }
+
+    pub fn simple_mint(amount: Felt) {
+        let c = USDTTokenContractRef::new(ContractMetadata::current());
+        c.balance += amount;
+    }
+
+    pub fn simple_burn(amount: Felt) {
+        let c = USDTTokenContractRef::new(ContractMetadata::current());
+        let current_balance = c.balance.get();
+        assert(current_balance >= amount, "insufficient balance");
+        c.balance = current_balance - amount;
+    }
+
+    pub fn simple_transfer(recipient: Felt, amount: Felt) {
+        let transfer_info_event = new TransferEvent {
+            to: recipient,
+            amount,
+        };
+        transfer_info_event.emit();
+
+        let c = USDTTokenContractRef::new(ContractMetadata::current());
+        let current_balance = c.balance.get();
+        assert(current_balance >= amount, "insufficient balance");
+
+        let mut recipient_info = c.other_user_info[recipient].get();
+        assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
+
+        c.other_user_info[recipient] = new OtherUserInfo {
+            amount_sent: recipient_info.amount_sent + amount,
+            amount_claimed: recipient_info.amount_claimed
+        };
+
+        let sender_start_info = new UserInfoEvent {
+            balance: c.balance.get(),
+        };
+        sender_start_info.emit();
+        c.balance = current_balance - amount;
+        let sender_end_info = new UserInfoEvent {
+            balance: c.balance.get(),
+        };
+        sender_end_info.emit();
+    }
+
+    pub fn simple_claim(sender: Felt) {
+        let self_user_id = get_user_id();
+        assert(sender != self_user_id, "you cannot claim from your self");
+
+        let c = USDTTokenContractRef::new(ContractMetadata::current());
+
+        let sender_user_contract = USDTTokenContractRef::new(ContractMetadata::new(get_contract_id(), sender));
+        let sender_total_sent = sender_user_contract.other_user_info[self_user_id].get().amount_sent;
+
+        let mut sender_info = c.other_user_info[sender].get();
+        assert(sender_info.amount_claimed < sender_total_sent, "no tokens to claim from this sender");
+        let claimed = sender_total_sent - sender_info.amount_claimed;
+
+        c.other_user_info[sender] = new OtherUserInfo {
+            amount_sent: sender_info.amount_sent,
+            amount_claimed: sender_total_sent
+        };
+
+        c.balance += claimed;
+    }
+
+    pub fn simple_claim_pow_rewards(checkpoint_id: Felt) {
+        let c = USDTTokenContractRef::new(ContractMetadata::current());
+        let psy_pow_mining_rewards_claim_contract = PsyPOWMiningRewardsClaimContractRef::new(ContractMetadata::new(1, get_user_id()));
+        let pow_rewards_persistent_state = psy_pow_mining_rewards_claim_contract.persistent_state.get();
+
+        assert(
+            pow_rewards_persistent_state.last_claimed_checkpoint_id == checkpoint_id,
+        "the claims must be from the latest ups");
+        assert(
+            pow_rewards_persistent_state.last_sealed_checkpoint_id == checkpoint_id,
+        "the checkpoint must be sealed");
+        assert(
+            c.last_claimed_pow_rewards_checkpoint_id.get() < checkpoint_id,
+        "must haven't already claimed during this ups");
+
+        c.last_claimed_pow_rewards_checkpoint_id = checkpoint_id;
+        c.balance += pow_rewards_persistent_state.claimed_rewards;
+    }
+
+    pub fn batch_simple_transfer_2(recipients: [Felt; 2], amounts: [Felt; 2]) {
+        let c = USDTTokenContractRef::new(ContractMetadata::current());
+        let current_balance = c.balance.get();
+
+        let mut total_amount = 0;
+        for i in 0u32..2u32 {
+            total_amount = total_amount + amounts[i as Felt];
+            assert(total_amount >= amounts[i as Felt], "total amount overflow");
+        }
+
+        assert(current_balance >= total_amount, "insufficient balance for batch transfer");
+
+        for i in 0u32..2u32 {
+            let recipient = recipients[i as Felt];
+            let amount = amounts[i as Felt];
+
+            if amount > 0 {
+                let mut recipient_info = c.other_user_info[recipient].get();
+                assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
+
+                c.other_user_info[recipient] = new OtherUserInfo {
+                    amount_sent: recipient_info.amount_sent + amount,
+                    amount_claimed: recipient_info.amount_claimed
+                };
+            }
+        }
+
+        c.balance = current_balance - total_amount;
+    }
+
+    pub fn batch_simple_transfer_5(recipients: [Felt; 5], amounts: [Felt; 5]) {
+        let c = USDTTokenContractRef::new(ContractMetadata::current());
+        let current_balance = c.balance.get();
+
+        let mut total_amount = 0;
+        for i in 0u32..5u32 {
+            total_amount = total_amount + amounts[i as Felt];
+            assert(total_amount >= amounts[i as Felt], "total amount overflow");
+        }
+
+        assert(current_balance >= total_amount, "insufficient balance for batch transfer");
+
+        for i in 0u32..5u32 {
+            let recipient = recipients[i as Felt];
+            let amount = amounts[i as Felt];
+
+            if amount > 0 {
+                let mut recipient_info = c.other_user_info[recipient].get();
+                assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
+
+                c.other_user_info[recipient] = new OtherUserInfo {
+                    amount_sent: recipient_info.amount_sent + amount,
+                    amount_claimed: recipient_info.amount_claimed
+                };
+            }
+        }
+
+        c.balance = current_balance - total_amount;
+    }
+
+    pub fn private_transfer(receiver: Hash, value: Felt, note_secret_hash: Hash) {
+        let c = USDTTokenContractRef::new(ContractMetadata::current());
+        let current_balance = c.balance.get();
+        assert(value > 0, "value must be positive");
+        assert(current_balance >= value, "insufficient balance");
+        c.balance = current_balance - value;
+
+        let value_hash: Hash = [value, 0, 0, 0];
+        let commitment: Hash = hash_two_to_one(hash_two_to_one(receiver, value_hash), note_secret_hash);
+        let idx = c.note_count.get();
+        assert(idx < 1048576, "note tree is full");
+
+        let mut current: Hash = commitment;
+        let mut zero: Hash = [0, 0, 0, 0];
+        let mut path_index: Felt = idx;
+
+        for level in 0u32..20u32 {
+            let level_index = level as Felt;
+            let is_right: Felt = path_index & 1;
+            if is_right == 0 {
+                c.last_path[level_index] = current;
+                current = hash_two_to_one(current, zero);
+            } else {
+                let left = c.last_path[level_index].get();
+                current = hash_two_to_one(left, current);
+            };
+            zero = hash_two_to_one(zero, zero);
+            path_index = path_index >> 1;
+        }
+
+        c.note_root = current;
+        c.note_count = idx + 1;
+    }
+
+    pub fn private_claim(
+        nullifier_hash: Hash,
+        receiver: Hash,
+        amount: Felt,
+        user_tree_root: Hash,
+        checkpoint_id: Felt,
+        note_root_slot: Felt,
+        random0: Felt,
+        random1: Felt,
+        proof: PrivateClaimProof
+    ) {
+        let c = USDTTokenContractRef::new(ContractMetadata::current());
+
+        let preimage = new ProofPublicInputsPreimage {
+            receiver,
+            amount,
+            user_tree_root,
+            checkpoint_id,
+            note_root_slot,
+            nullifier_hash
+        };
+
+        let public_inputs_hash: Hash = hash([
+            preimage.receiver[0], preimage.receiver[1], preimage.receiver[2], preimage.receiver[3],
+            preimage.amount,
+            preimage.user_tree_root[0], preimage.user_tree_root[1], preimage.user_tree_root[2], preimage.user_tree_root[3],
+            preimage.checkpoint_id,
+            preimage.note_root_slot,
+            preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
+        ]);
+        let private_note_inclusion_fingerprint: Hash = [
+            1866130053021784426,
+            4684972721646198880,
+            8939938924988830351,
+            15880983663605084668
+        ];
+        let leaf: Hash = hash_two_to_one(private_note_inclusion_fingerprint, public_inputs_hash);
+
+        let mut current: Hash = leaf;
+        for i in 0u32..16u32 {
+            let level_index = i as Felt;
+            let sibling: Hash = proof.siblings[level_index];
+            let index_bit: Felt = (proof.index >> level_index) & 1;
+
+            if index_bit == 0 {
+                current = hash_two_to_one(current, sibling);
+            } else {
+                current = hash_two_to_one(sibling, current);
+            };
+        }
+
+        let expected_root: Hash = get_session_proof_tree_root();
+        assert(current == expected_root, "proof tree root mismatch");
+
+        let expected_user_tree_root: Hash = get_checkpoint_user_tree_root(preimage.checkpoint_id);
+        assert(preimage.user_tree_root == expected_user_tree_root, "user tree root does not match checkpoint state");
+
+        assert(preimage.note_root_slot == 8388609, "invalid note root slot id");
+
+        let expected_receiver: Hash = hash([get_user_id(), 1337, random0, random1]);
+        assert(preimage.receiver == expected_receiver, "receiver does not match claiming user");
+        let nullifier_key: Hash = preimage.nullifier_hash;
+        assert(c.state_map.contains_ns(1, nullifier_key) == false, "nullifier already claimed");
+        c.state_map.insert_ns(1, nullifier_key, [1, 0, 0, 0]);
+
+        c.balance += preimage.amount;
+    }
+}

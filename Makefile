@@ -26,6 +26,7 @@ DARGO_CLI_EXECUTE = RUST_LOG=${LOG_LEVEL} ./target/${PROFILE}/dargo execute --pr
 DARGO_CLI_TEST    = RUST_LOG=${LOG_LEVEL} ./target/${PROFILE}/dargo test --file
 
 DARGO = RUST_LOG=$(LOG_LEVEL) $(PWD)/target/${PROFILE}/dargo
+USDT_TOKEN_CONTRACT_PATH := $(PWD)/psy-precompiles/usdt_token
 TOKEN_CONTRACT_PATH := $(PWD)/psy-precompiles/token
 MINING_REWARDS_CONTRACT_PATH := $(PWD)/psy-precompiles/mining_rewards
 WITHDRAWAL_TREE_CONTRACT_PATH := $(PWD)/psy-precompiles/withdrawal_tree
@@ -144,6 +145,12 @@ compile-token-contract:
 compile-mining-rewards-contract:
 	@cd $(MINING_REWARDS_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyPOWMiningRewardsClaimContractRef --method-names start_session end_session claim_guta_rewards_1 claim_guta_rewards_2 claim_guta_rewards_5
 
+compile-usdt-token-contract:
+	@cd $(USDT_TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=USDTTokenContractRef --method-names withdraw claim_deposit simple_mint simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
+
+compile-usdt-token-abi:
+	@cd $(USDT_TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c usdt_token.abi
+
 compile-token-abi:
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c token.abi
 
@@ -167,4 +174,5 @@ gen-deploy-json: build
 		$(TOKEN_CONTRACT_PATH)/target/token.json \
 		$(MINING_REWARDS_CONTRACT_PATH)/target/mining_rewards.json \
 		$(DEPOSIT_TREE_CONTRACT_PATH)/target/deposit_tree.json \
-		$(WITHDRAWAL_TREE_CONTRACT_PATH)/target/withdrawal_tree.json
+		$(WITHDRAWAL_TREE_CONTRACT_PATH)/target/withdrawal_tree.json \
+		$(USDT_TOKEN_CONTRACT_PATH)/target/usdt_token.json
