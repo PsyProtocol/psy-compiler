@@ -70,6 +70,9 @@ impl AbiExtractor {
             spec_abi.add_struct(struct_spec);
         }
 
+        // Inject built-in composite types that don't have AST definitions
+        self.inject_builtin_types(&mut spec_abi);
+
         Ok(spec_abi)
     }
 
@@ -156,6 +159,49 @@ impl AbiExtractor {
             params,
             return_type: vec![], // As per spec, always empty for now
         }
+    }
+
+    fn inject_builtin_types(&self, spec_abi: &mut SpecCompliantAbi) {
+        // Inject Hash = [Felt; 4]
+        if self.type_is_used_in_abi("Hash", spec_abi) {
+            spec_abi.add_struct(StructAbiSpec {
+                name: "Hash".to_string(),
+                is_contract: false,
+                fields: vec![FieldAbiSpec {
+                    name: "value".to_string(),
+                    field_type: TypeAbiSpec::Array {
+                        type_name: "Array".to_string(),
+                        inner_type: "Felt".to_string(),
+                        length: 4,
+                    },
+                }],
+                functions: None,
+            });
+        }
+    }
+
+    fn type_is_used_in_abi(&self, type_name: &str, spec_abi: &SpecCompliantAbi) -> bool {
+        let check_type = |t: &TypeAbiSpec| -> bool {
+            matches!(t, TypeAbiSpec::Basic(n) if n == type_name)
+        };
+
+        for s in &spec_abi.structs {
+            for f in &s.fields {
+                if check_type(&f.field_type) {
+                    return true;
+                }
+            }
+            if let Some(functions) = &s.functions {
+                for func in functions {
+                    for p in &func.params {
+                        if check_type(&p.param_type) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
     }
 }
 
