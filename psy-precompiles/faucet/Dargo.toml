@@ -1,0 +1,6 @@
+[package]
+name = "faucet"
+type = "bin"
+authors = [""]
+
+[dependencies]

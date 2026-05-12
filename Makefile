@@ -31,6 +31,7 @@ TOKEN_CONTRACT_PATH := $(PWD)/psy-precompiles/token
 MINING_REWARDS_CONTRACT_PATH := $(PWD)/psy-precompiles/mining_rewards
 WITHDRAWAL_TREE_CONTRACT_PATH := $(PWD)/psy-precompiles/withdrawal_tree
 DEPOSIT_TREE_CONTRACT_PATH := $(PWD)/psy-precompiles/deposit_tree
+FAUCET_CONTRACT_PATH := $(PWD)/psy-precompiles/faucet
 
 ci:
 	@$(DARGO_CLI_TEST) tests/in_mod_attr_test.psy
@@ -166,6 +167,12 @@ compile-deposit-tree-contract:
 compile-deposit-tree-abi:
 	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c deposit_tree.abi
 
+compile-faucet-contract:
+	@cd $(FAUCET_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyFaucetContractRef --method-names faucet
+
+compile-faucet-contract-abi:
+	@cd $(FAUCET_CONTRACT_PATH) && $(DARGO) generate-abi -c faucet.abi
+
 PARTH_GENERIC_V1 ?= $(PWD)/../parth-generic-v1
 
 gen-deploy-json: build
@@ -175,4 +182,5 @@ gen-deploy-json: build
 		$(MINING_REWARDS_CONTRACT_PATH)/target/mining_rewards.json \
 		$(DEPOSIT_TREE_CONTRACT_PATH)/target/deposit_tree.json \
 		$(WITHDRAWAL_TREE_CONTRACT_PATH)/target/withdrawal_tree.json \
-		$(USDT_TOKEN_CONTRACT_PATH)/target/usdt_token.json
+		$(USDT_TOKEN_CONTRACT_PATH)/target/usdt_token.json \
+		$(FAUCET_CONTRACT_PATH)/target/faucet.json

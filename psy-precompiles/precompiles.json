@@ -75,6 +75,14 @@
         "private_transfer",
         "private_claim"
       ]
+    },
+    {
+      "name": "faucet",
+      "path": "faucet",
+      "contract_name": "PsyFaucetContractRef",
+      "method_names": [
+        "faucet"
+      ]
     }
   ]
 }

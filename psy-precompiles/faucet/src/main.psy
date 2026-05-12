@@ -1,0 +1,46 @@
+use std::prelude::*;
+
+#[derive(Storage)]
+struct FaucetClaim {
+    pub window_start_block: Felt,
+    pub amount_transferred: Felt,
+}
+
+#[contract]
+#[derive(Storage)]
+pub struct PsyFaucetContract {
+    pub claims: [FaucetClaim; 16777216],
+}
+
+impl PsyFaucetContractRef {
+    pub fn faucet(user_id: Felt, amount: Felt) {
+        let max_amount = 1000000000000;
+        let window_size = 120;
+        let current_block = get_checkpoint_id();
+
+        assert(amount <= max_amount, "amount exceeds faucet limit");
+
+        let c = PsyFaucetContractRef::new(ContractMetadata::current());
+        let claim = c.claims[user_id].get();
+        let window_expired = current_block >= (claim.window_start_block + window_size);
+
+        if claim.window_start_block == 0 || window_expired {
+            c.claims[user_id] = new FaucetClaim {
+                window_start_block: current_block,
+                amount_transferred: amount,
+            };
+        } else {
+            assert(claim.amount_transferred < max_amount, "faucet already claimed for window");
+
+            let amount_transferred = claim.amount_transferred + amount;
+            assert(amount_transferred <= max_amount, "faucet limit exceeded");
+
+            c.claims[user_id] = new FaucetClaim {
+                window_start_block: claim.window_start_block,
+                amount_transferred,
+            };
+        };
+
+        invoke_deferred(0, 354447671, [user_id, amount]);
+    }
+}
