@@ -9,7 +9,6 @@ fn test_contains_reflects_insert() {
     let c = ContainsContractRef::new(ContractMetadata::current());
     let key: Hash = [2001, 0, 0, 0];
     let value: Hash = [1, 2, 3, 4];
-
     assert_eq(c.balances.contains(key), false, "absent before insert");
     c.balances.insert(key, value);
     assert_eq(c.balances.contains(key), true, "present after insert");

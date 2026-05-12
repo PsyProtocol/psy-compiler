@@ -1,22 +1,20 @@
 pub mod bridge_leaf_preimage_cast_keccak_case_1 {
-    use std::prelude::*;
-
     fn fixture_depositor() -> [u32; 8] {
         [0u32, 0u32, 0u32, 4087338725u32, 447580406u32, 4107168440u32, 2188540367u32, 4290323046u32]
     }
-
+    
     fn fixture_l2_recipient() -> [u32; 8] {
         [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32]
     }
-
+    
     fn fixture_token() -> [u32; 8] {
         [0u32, 0u32, 0u32, 187722745u32, 365221445u32, 4284051025u32, 2410626966u32, 1773760534u32]
     }
-
+    
     fn fixture_l2_token_contract_id() -> [u32; 8] {
         [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32]
     }
-
+    
     fn fixture_leaf_preimage_words() -> [u32; 36] {
         let depositor = fixture_depositor();
         let l2_recipient = fixture_l2_recipient();
@@ -25,92 +23,83 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         let amount_u64_as_u32x2: [u32; 2] = [0u32, 1000000000u32];
         let chain_index_u32: u32 = 0u32;
         let nonce_u32: u32 = 1775065240u32;
-
-        [
-            depositor[0], depositor[1], depositor[2], depositor[3], depositor[4], depositor[5], depositor[6], depositor[7],
-            l2_recipient[0], l2_recipient[1], l2_recipient[2], l2_recipient[3], l2_recipient[4], l2_recipient[5], l2_recipient[6], l2_recipient[7],
-            token[0], token[1], token[2], token[3], token[4], token[5], token[6], token[7],
-            l2_token_contract_id[0], l2_token_contract_id[1], l2_token_contract_id[2], l2_token_contract_id[3], l2_token_contract_id[4], l2_token_contract_id[5], l2_token_contract_id[6], l2_token_contract_id[7],
-            amount_u64_as_u32x2[0], amount_u64_as_u32x2[1],
-            chain_index_u32,
-            nonce_u32,
-        ]
+        [depositor[0], depositor[1], depositor[2], depositor[3], depositor[4], depositor[5], depositor[6], depositor[7], l2_recipient[0], l2_recipient[1], l2_recipient[2], l2_recipient[3], l2_recipient[4], l2_recipient[5], l2_recipient[6], l2_recipient[7], token[0], token[1], token[2], token[3], token[4], token[5], token[6], token[7], l2_token_contract_id[0], l2_token_contract_id[1], l2_token_contract_id[2], l2_token_contract_id[3], l2_token_contract_id[4], l2_token_contract_id[5], l2_token_contract_id[6], l2_token_contract_id[7], amount_u64_as_u32x2[0], amount_u64_as_u32x2[1], chain_index_u32, nonce_u32]
     }
-
+    
     fn expected_leaf() -> [u32; 8] {
         [2736994441u32, 1423316865u32, 3205553885u32, 1673352103u32, 3260963857u32, 2632697317u32, 2945147575u32, 3079543414u32]
     }
-
+    
     fn expected_parent_level_1() -> [u32; 8] {
         // cast keccak(leaf || 0x00..00)
         // 0xabb6d84a8b57cb660598be59abb353c9875765fda6dd6da7d52cc0dc5fec415b
         [2880886858u32, 2337786726u32, 93896281u32, 2880656329u32, 2270651901u32, 2799529383u32, 3576479964u32, 1609318747u32]
     }
-
+    
     fn expected_parent_level_2() -> [u32; 8] {
         // ethers:
         // 0x5f4c13d40e14273b80bb474ca5dae3da6d5bcbdca62b996046fc0022f08f973c
         [1598821332u32, 236201787u32, 2159757132u32, 2782585818u32, 1834732508u32, 2787875168u32, 1190920226u32, 4035942204u32]
     }
-
+    
     fn expected_root_depth_32_index_0() -> [u32; 8] {
         [1378486960u32, 3902988798u32, 4022716473u32, 3501719390u32, 1115705111u32, 572865527u32, 2380486735u32, 3886714778u32]
     }
-
+    
     fn expected_root_depth_31_index_0() -> [u32; 8] {
         // ethers:
         // 0x09b61f785fafa969a90e3696fb0aacb4029ff83019cd60c9ac1552046e0098db
         [162930552u32, 1605347689u32, 2836280982u32, 4211780788u32, 44038192u32, 432890057u32, 2887078404u32, 1845532891u32]
     }
-
+    
     fn expected_root_depth_32_index_0_reverse_direction() -> [u32; 8] {
         // ethers:
         // 0x794071f08498a4eba305abc1e556354f0fdaf7caed432d490eb180331039345e
         [2034266608u32, 2224596203u32, 2735057857u32, 3847632207u32, 266008522u32, 3980602697u32, 246513715u32, 272184414u32]
     }
-
+    
     fn expected_leaf_chain_index_1() -> [u32; 8] {
         // ethers:
         // 0x998bc5936b2d53f315a67b5c97c72afac4b603de64bd030cbd66f3b0d90157bb
         [2576074131u32, 1798132723u32, 363232092u32, 2546412282u32, 3300262878u32, 1690108684u32, 3177640880u32, 3640743867u32]
     }
-
+    
     fn expected_leaf_nonce_plus_1() -> [u32; 8] {
         // ethers:
         // 0x03895c6b82421252ef3c0de56a9932e3fa39ebab0abb9e20229c35c02d098256
         [59333739u32, 2185368146u32, 4013690341u32, 1788424931u32, 4198099883u32, 180067872u32, 580662720u32, 755597910u32]
     }
-
+    
     fn expected_leaf_amount_hi_1() -> [u32; 8] {
         // ethers:
         // 0x5c1eebca6378200c500e22953f665c8998317d28138d2bb1d3635d57bfeef634
         [1545530314u32, 1668816908u32, 1343103637u32, 1063672969u32, 2553380136u32, 328018865u32, 3546504535u32, 3220108852u32]
     }
-
+    
     fn expected_leaf_l2_token_id_last_1() -> [u32; 8] {
         // ethers:
         // 0x2aa6424a121118a1951450f1506b7065c7ddd549c6d4a8d061332af3a9c95a90
         [715539018u32, 303110305u32, 2501136625u32, 1349218405u32, 3353204041u32, 3335825616u32, 1630743283u32, 2848545424u32]
     }
-
+    
     fn expected_leaf_swap_chain_nonce() -> [u32; 8] {
         // ethers:
         // 0x391fefbd06f6e008ab7ecb24874bfabdc3abe5217e72311034db9195336c383e
         [958394301u32, 116842504u32, 2877213476u32, 2269903549u32, 3282822433u32, 2121412880u32, 886804885u32, 862730302u32]
     }
-
+    
     fn expected_leaf_amount_hi_lo_swapped() -> [u32; 8] {
         // ethers:
         // 0xfae04809db3a22fb5d0215cf1a751a505b044352562c918d76efcdc4445c4295
         [4209002505u32, 3678020347u32, 1560417743u32, 443882064u32, 1527006034u32, 1445761421u32, 1995427268u32, 1146897045u32]
     }
-
+    
     fn expected_leaf_l2_token_id_index0_set() -> [u32; 8] {
         // ethers:
         // 0x48130a493d45df6b0e8759dc5051455d427c53bba2d9d32aff2c415540e6ebb4
         [1209207369u32, 1027989355u32, 243751388u32, 1347503453u32, 1115444155u32, 2732184362u32, 4281090389u32, 1088875444u32]
     }
-
+    
     fn fixture2_leaf_preimage_words() -> [u32; 36] {
         // depositor = bytes32(uint160(0x1111111111111111111111111111111111111111))
         let depositor: [u32; 8] = [0u32, 0u32, 0u32, 286331153u32, 286331153u32, 286331153u32, 286331153u32, 286331153u32];
@@ -124,66 +113,48 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         let amount_u64_as_u32x2: [u32; 2] = [2u32, 123456789u32];
         let chain_index_u32: u32 = 9u32;
         let nonce_u32: u32 = 12345u32;
-        [
-            depositor[0], depositor[1], depositor[2], depositor[3], depositor[4], depositor[5], depositor[6], depositor[7],
-            l2_recipient[0], l2_recipient[1], l2_recipient[2], l2_recipient[3], l2_recipient[4], l2_recipient[5], l2_recipient[6], l2_recipient[7],
-            token[0], token[1], token[2], token[3], token[4], token[5], token[6], token[7],
-            l2_token_contract_id[0], l2_token_contract_id[1], l2_token_contract_id[2], l2_token_contract_id[3], l2_token_contract_id[4], l2_token_contract_id[5], l2_token_contract_id[6], l2_token_contract_id[7],
-            amount_u64_as_u32x2[0], amount_u64_as_u32x2[1],
-            chain_index_u32,
-            nonce_u32,
-        ]
+        [depositor[0], depositor[1], depositor[2], depositor[3], depositor[4], depositor[5], depositor[6], depositor[7], l2_recipient[0], l2_recipient[1], l2_recipient[2], l2_recipient[3], l2_recipient[4], l2_recipient[5], l2_recipient[6], l2_recipient[7], token[0], token[1], token[2], token[3], token[4], token[5], token[6], token[7], l2_token_contract_id[0], l2_token_contract_id[1], l2_token_contract_id[2], l2_token_contract_id[3], l2_token_contract_id[4], l2_token_contract_id[5], l2_token_contract_id[6], l2_token_contract_id[7], amount_u64_as_u32x2[0], amount_u64_as_u32x2[1], chain_index_u32, nonce_u32]
     }
-
+    
     fn expected_leaf_fixture2() -> [u32; 8] {
         // ethers:
         // 0x9ff3a3a9925369ef7a30a52c67b1b56aaefabe8592339f14c69980d1863f95f5
         [2683544489u32, 2454940143u32, 2050008364u32, 1739699562u32, 2935668357u32, 2452856596u32, 3331948753u32, 2252314101u32]
     }
-
+    
     fn expected_root_depth_32_fixture2() -> [u32; 8] {
         // ethers:
         // 0x430204d06de35536929c9f2d8299961bfa487006676487fec5f1a3b363315aef
         [1124205776u32, 1843615030u32, 2459737901u32, 2191103515u32, 4199051270u32, 1734641662u32, 3320947635u32, 1664178927u32]
     }
-
+    
     fn expected_root_depth_31_fixture2() -> [u32; 8] {
         // ethers:
         // 0x1b69bcf44afa22f90fc92b7c32e05b46aa10a29ecb2a2e017ebdb56daee584c2
         [459914484u32, 1257906937u32, 264842108u32, 853564230u32, 2853216926u32, 3408539137u32, 2126361965u32, 2934277314u32]
     }
-
+    
     fn expected_root_depth_32_fixture2_reverse_direction() -> [u32; 8] {
         // ethers:
         // 0x2d5683d1e8c3e50ee61edabfac213910127d3ba82af1ea3bda7dac7e6e985b7c
         [760644561u32, 3905152270u32, 3860781759u32, 2887858448u32, 310197160u32, 720497211u32, 3665669246u32, 1855478652u32]
     }
-
+    
     fn expected_zero_leaf_root_depth_32_index_0() -> [u32; 8] {
         // ethers:
         // 0xb5821213328ffb298188db9e2712b54eaa79d01322a37e8f43514477f769cd62
         [3045200403u32, 848296745u32, 2173229982u32, 655537486u32, 2860109843u32, 581140111u32, 1129399415u32, 4150906210u32]
     }
-
+    
     fn arrays_differ(a: [u32; 8], b: [u32; 8]) -> bool {
-        a[0] != b[0] ||
-        a[1] != b[1] ||
-        a[2] != b[2] ||
-        a[3] != b[3] ||
-        a[4] != b[4] ||
-        a[5] != b[5] ||
-        a[6] != b[6] ||
-        a[7] != b[7]
+        a[0] != b[0] || a[1] != b[1] || a[2] != b[2] || a[3] != b[3] || a[4] != b[4] || a[5] != b[5] || a[6] != b[6] || a[7] != b[7]
     }
-
+    
     fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
-        let data: [u32; 16] = [
-            left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7],
-            right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7],
-        ];
+        let data: [u32; 16] = [left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7], right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7]];
         keccak256(data)
     }
-
+    
     #[test]
     fn keccak_preimage_to_leaf_matches_cast() {
         // Bridge.sol _recordDepositLeaf abi.encodePacked fields (144 bytes total):
@@ -191,7 +162,6 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         let preimage_words: [u32; 36] = fixture_leaf_preimage_words();
         let expected = expected_leaf();
         let got: [u32; 8] = keccak256(preimage_words);
-
         assert_eq(got[0], expected[0], "bridge leaf preimage keccak mismatch limb0");
         assert_eq(got[1], expected[1], "bridge leaf preimage keccak mismatch limb1");
         assert_eq(got[2], expected[2], "bridge leaf preimage keccak mismatch limb2");
@@ -201,20 +171,19 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(got[6], expected[6], "bridge leaf preimage keccak mismatch limb6");
         assert_eq(got[7], expected[7], "bridge leaf preimage keccak mismatch limb7");
     }
-
+    
     #[test]
     fn keccak_two_to_one_directionality() {
         let leaf = expected_leaf();
         let zero: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
         let left_right = keccak_two_to_one(leaf, zero);
         let right_left = keccak_two_to_one(zero, leaf);
-
         // Deposit tree append uses current as left, sibling as right.
         // This asserts the combine order is not accidentally swapped.
         let differs = arrays_differ(left_right, right_left);
         assert(differs, "keccak two-to-one order should matter");
     }
-
+    
     #[test]
     fn keccak_preimage_amount_sensitivity() {
         let mut words = fixture_leaf_preimage_words();
@@ -224,7 +193,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         let changed = keccak256(words);
         assert(arrays_differ(base, changed), "leaf hash should change when amount changes");
     }
-
+    
     #[test]
     fn keccak_preimage_amount_high_limb_sensitivity() {
         let mut words = fixture_leaf_preimage_words();
@@ -241,7 +210,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(got[6], expected[6], "amount_hi=1 mismatch limb6");
         assert_eq(got[7], expected[7], "amount_hi=1 mismatch limb7");
     }
-
+    
     #[test]
     fn keccak_preimage_nonce_sensitivity() {
         let mut words = fixture_leaf_preimage_words();
@@ -258,7 +227,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(got[6], expected[6], "nonce+1 mismatch limb6");
         assert_eq(got[7], expected[7], "nonce+1 mismatch limb7");
     }
-
+    
     #[test]
     fn keccak_preimage_chain_index_sensitivity() {
         let mut words = fixture_leaf_preimage_words();
@@ -275,7 +244,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(got[6], expected[6], "chain_index=1 mismatch limb6");
         assert_eq(got[7], expected[7], "chain_index=1 mismatch limb7");
     }
-
+    
     #[test]
     fn keccak_preimage_l2_token_id_sensitivity() {
         let mut words = fixture_leaf_preimage_words();
@@ -292,7 +261,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(got[6], expected[6], "l2_token_id_last=1 mismatch limb6");
         assert_eq(got[7], expected[7], "l2_token_id_last=1 mismatch limb7");
     }
-
+    
     #[test]
     fn keccak_preimage_field_order_sensitivity_chain_vs_nonce() {
         let mut words = fixture_leaf_preimage_words();
@@ -311,7 +280,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(got[6], expected[6], "swap(chain,nonce) mismatch limb6");
         assert_eq(got[7], expected[7], "swap(chain,nonce) mismatch limb7");
     }
-
+    
     #[test]
     fn keccak_preimage_amount_hi_lo_swap_matches_ethers() {
         let mut words = fixture_leaf_preimage_words();
@@ -330,7 +299,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(got[6], expected[6], "swap(amount_hi,amount_lo) mismatch limb6");
         assert_eq(got[7], expected[7], "swap(amount_hi,amount_lo) mismatch limb7");
     }
-
+    
     #[test]
     fn keccak_preimage_l2_token_id_wrong_limb_index0_matches_ethers() {
         let mut words = fixture_leaf_preimage_words();
@@ -347,7 +316,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(got[6], expected[6], "l2_token_id@index0 mismatch limb6");
         assert_eq(got[7], expected[7], "l2_token_id@index0 mismatch limb7");
     }
-
+    
     #[test]
     fn deposit_tree_depth32_direction_sensitivity() {
         let mut root_lr = expected_leaf();
@@ -359,7 +328,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         }
         assert(arrays_differ(root_lr, root_rl), "depth32 root should depend on left/right combine order");
     }
-
+    
     #[test]
     fn deposit_tree_depth32_reverse_direction_matches_ethers() {
         let mut current = expected_leaf();
@@ -377,14 +346,13 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(current[6], expected[6], "reverse root mismatch limb6");
         assert_eq(current[7], expected[7], "reverse root mismatch limb7");
     }
-
+    
     #[test]
     fn deposit_tree_level1_parent_matches_cast() {
         let leaf = expected_leaf();
         let zero: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
         let got = keccak_two_to_one(leaf, zero);
         let expected = expected_parent_level_1();
-
         assert_eq(got[0], expected[0], "level1 parent mismatch limb0");
         assert_eq(got[1], expected[1], "level1 parent mismatch limb1");
         assert_eq(got[2], expected[2], "level1 parent mismatch limb2");
@@ -394,7 +362,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(got[6], expected[6], "level1 parent mismatch limb6");
         assert_eq(got[7], expected[7], "level1 parent mismatch limb7");
     }
-
+    
     #[test]
     fn deposit_tree_level2_parent_matches_ethers() {
         let leaf = expected_leaf();
@@ -411,7 +379,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(got[6], expected[6], "level2 parent mismatch limb6");
         assert_eq(got[7], expected[7], "level2 parent mismatch limb7");
     }
-
+    
     #[test]
     fn deposit_tree_depth32_root_index0_matches_foundry() {
         let mut current = expected_leaf();
@@ -420,7 +388,6 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
             current = keccak_two_to_one(current, zero);
         }
         let expected = expected_root_depth_32_index_0();
-
         assert_eq(current[0], expected[0], "subtree root mismatch limb0");
         assert_eq(current[1], expected[1], "subtree root mismatch limb1");
         assert_eq(current[2], expected[2], "subtree root mismatch limb2");
@@ -430,7 +397,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(current[6], expected[6], "subtree root mismatch limb6");
         assert_eq(current[7], expected[7], "subtree root mismatch limb7");
     }
-
+    
     #[test]
     fn deposit_tree_depth31_root_index0_matches_ethers() {
         let mut current = expected_leaf();
@@ -448,7 +415,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(current[6], expected[6], "depth31 root mismatch limb6");
         assert_eq(current[7], expected[7], "depth31 root mismatch limb7");
     }
-
+    
     #[test]
     fn deposit_tree_zero_leaf_depth32_root_matches_ethers() {
         let mut current: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
@@ -466,7 +433,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(current[6], expected[6], "zero-root mismatch limb6");
         assert_eq(current[7], expected[7], "zero-root mismatch limb7");
     }
-
+    
     #[test]
     fn keccak_preimage_fixture2_matches_ethers() {
         let words = fixture2_leaf_preimage_words();
@@ -481,7 +448,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(got[6], expected[6], "fixture2 leaf mismatch limb6");
         assert_eq(got[7], expected[7], "fixture2 leaf mismatch limb7");
     }
-
+    
     #[test]
     fn deposit_tree_depth32_fixture2_matches_ethers() {
         let mut current = expected_leaf_fixture2();
@@ -499,7 +466,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(current[6], expected[6], "fixture2 root mismatch limb6");
         assert_eq(current[7], expected[7], "fixture2 root mismatch limb7");
     }
-
+    
     #[test]
     fn deposit_tree_depth31_fixture2_matches_ethers() {
         let mut current = expected_leaf_fixture2();
@@ -517,7 +484,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(current[6], expected[6], "fixture2 depth31 root mismatch limb6");
         assert_eq(current[7], expected[7], "fixture2 depth31 root mismatch limb7");
     }
-
+    
     #[test]
     fn deposit_tree_depth32_fixture2_reverse_direction_matches_ethers() {
         let mut current = expected_leaf_fixture2();
@@ -535,7 +502,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(current[6], expected[6], "fixture2 reverse root mismatch limb6");
         assert_eq(current[7], expected[7], "fixture2 reverse root mismatch limb7");
     }
-
+    
     #[test]
     fn deposit_tree_depth32_from_fixture1_preimage_matches_expected_root() {
         let words = fixture_leaf_preimage_words();
@@ -554,7 +521,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(current[6], expected[6], "fixture1 preimage->root mismatch limb6");
         assert_eq(current[7], expected[7], "fixture1 preimage->root mismatch limb7");
     }
-
+    
     #[test]
     fn deposit_tree_depth32_from_fixture2_preimage_matches_expected_root() {
         let words = fixture2_leaf_preimage_words();
@@ -573,7 +540,7 @@ pub mod bridge_leaf_preimage_cast_keccak_case_1 {
         assert_eq(current[6], expected[6], "fixture2 preimage->root mismatch limb6");
         assert_eq(current[7], expected[7], "fixture2 preimage->root mismatch limb7");
     }
-
+    
     #[test]
     fn deposit_tree_depth32_roots_of_fixture1_and_fixture2_differ() {
         let mut root1 = keccak256(fixture_leaf_preimage_words());

@@ -132,7 +132,15 @@ ci:
 update-snapshots:
 	@cargo insta review
 
-.PHONY: check fix build format update-snapshots
+wasm-node:
+	@wasm-pack build psy-wasm --target nodejs --profile ${PROFILE} --out-dir pkg-node
+
+wasm-web:
+	@wasm-pack build psy-wasm --target web --profile ${PROFILE} --out-dir pkg-web
+
+wasm: wasm-node wasm-web
+
+.PHONY: check fix build format update-snapshots wasm wasm-node wasm-web
 
 FILE                     := $(PWD)/tests/opcode_test.psy
 PARAMETERS               := 1,2

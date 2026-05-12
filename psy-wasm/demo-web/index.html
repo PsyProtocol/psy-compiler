@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PSY WASM Compiler Demo</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">PSY Compiler in Browser</p>
+          <h1>Paste a PSY program, click compile, inspect the ABI and circuit output.</h1>
+          <p class="hero-text">
+            This demo runs the `psy-wasm` compiler directly in the browser. The starter examples come
+            from the repository `tests/` suite.
+          </p>
+        </div>
+        <div class="hero-status">
+          <div class="status-card">
+            <span class="status-label">WASM</span>
+            <strong id="wasm-status">Loading</strong>
+          </div>
+          <div class="status-card">
+            <span class="status-label">Result</span>
+            <strong id="compile-summary">Idle</strong>
+          </div>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="panel editor-panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Example Program</p>
+              <h2>Editor</h2>
+            </div>
+            <div class="example-strip">
+              <button class="ghost-button example-button" data-example="std">Std</button>
+              <button class="ghost-button example-button" data-example="assert">Assert</button>
+              <button class="ghost-button example-button" data-example="array">Array</button>
+              <button class="ghost-button example-button" data-example="module">Module</button>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>Entry source</span>
+            <textarea id="source-editor" spellcheck="false"></textarea>
+          </label>
+
+          <div class="actions">
+            <button id="compile-source-button" class="primary-button">Compile Source</button>
+            <button id="compile-project-button" class="secondary-button">Compile Module Project</button>
+          </div>
+        </section>
+
+        <section class="panel result-panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Compiler Output</p>
+              <h2>Result</h2>
+            </div>
+          </div>
+
+          <div id="result-banner" class="result-banner neutral">Run a compile to inspect the output.</div>
+
+          <div class="output-grid">
+            <label class="field">
+              <span>JSON result</span>
+              <pre id="compile-output"></pre>
+            </label>
+
+            <label class="field">
+              <span>ABI preview</span>
+              <pre id="abi-output"></pre>
+            </label>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

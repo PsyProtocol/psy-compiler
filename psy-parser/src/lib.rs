@@ -16,6 +16,20 @@ use psy_vm::dpn::ops::context_trait::{ContextFelt, DPNContext};
 
 pub type LalrpopError<'input> = lalrpop_util::ParseError<Loc, Token<'input>, UserError>;
 
+#[cfg(target_arch = "wasm32")]
+const WASM_STD_ROOT: &str = "/__psy_std__";
+#[cfg(target_arch = "wasm32")]
+const WASM_STD_FILES: &[(&str, &str)] = &[
+    ("std.psy", include_str!("../../psy-std/std.psy")),
+    ("default.psy", include_str!("../../psy-std/default.psy")),
+    ("event.psy", include_str!("../../psy-std/event.psy")),
+    ("prelude.psy", include_str!("../../psy-std/prelude.psy")),
+    ("context.psy", include_str!("../../psy-std/context.psy")),
+    ("mem.psy", include_str!("../../psy-std/mem.psy")),
+    ("storage.psy", include_str!("../../psy-std/storage.psy")),
+    ("primitive.psy", include_str!("../../psy-std/primitive.psy")),
+];
+
 lalrpop_mod!(pub psy);
 
 #[derive(Debug)]
@@ -35,6 +49,7 @@ impl<'a, 'b, F: ContextFelt + From<u32>, C: DPNContext<F>> Parser<'a, 'b, F, C> 
     }
 
     pub fn parse(&mut self) -> Result<()> {
+        preload_embedded_std(self.program);
         let mut crate_id_map = HashMap::new();
         let entry_paths = self.crate_path_graph.clone();
         entry_paths.bfs(&mut |entry_path| {
@@ -221,6 +236,11 @@ pub fn resolve_module_name<F: Clone + From<u32>>(program: &mut Program<F>, file_
 }
 
 fn std_path() -> PathBuf {
+    #[cfg(target_arch = "wasm32")]
+    {
+        return PathBuf::from(WASM_STD_ROOT).join("std.psy");
+    }
+
     if let Ok(std_path) = std::env::var("DARGO_STD_PATH") {
         return PathBuf::from(std_path);
     }
@@ -254,6 +274,18 @@ fn std_path() -> PathBuf {
     }
 
     panic!("Cannot find psy-std/std.psy. Please set DARGO_STD_PATH environment variable or ensure psy-std is in the expected location relative to psy-parser.");
+}
+
+fn preload_embedded_std<F: Clone + From<u32>>(program: &mut Program<F>) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        for (name, content) in WASM_STD_FILES {
+            let path = PathBuf::from(WASM_STD_ROOT).join(name);
+            if program.file_resolver.resolve_id(&path).is_none() {
+                program.file_resolver.add_file(path, *content);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

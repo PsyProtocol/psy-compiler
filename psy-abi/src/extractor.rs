@@ -11,10 +11,7 @@ impl AbiExtractor {
         Self { contract_name }
     }
 
-    pub fn extract_spec_compliant_abi<F: Clone + From<u32> + 'static>(
-        self,
-        program: &'static mut Program<F>,
-    ) -> Result<SpecCompliantAbi, psy_common::Error> {
+    pub fn extract_spec_compliant_abi<F: Clone + From<u32>>(self, program: &mut Program<F>) -> Result<SpecCompliantAbi, psy_common::Error> {
         let ctx = DefaultVisitorContext::<F, ()>::new(program);
         let mut spec_abi = SpecCompliantAbi::new("1.0.0".to_string());
 

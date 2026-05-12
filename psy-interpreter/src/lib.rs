@@ -4,7 +4,7 @@ mod control;
 pub mod error;
 mod preprocess;
 
-use std::{collections::HashMap, iter::once, path::PathBuf};
+use std::{collections::HashMap, iter::once, path::PathBuf, sync::Arc};
 
 use error::{Error, Result};
 use indexmap::IndexMap;
@@ -38,6 +38,29 @@ pub struct InterpretResult {
 }
 
 pub fn interpret(contract_name: Option<String>, method_names: Vec<String>, crate_path_graph: Graph<PathBuf>) -> anyhow::Result<InterpretResult> {
+    with_primitive_scope_reset(|| {
+        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+        interpret_with_program(&mut interpreter, crate_path_graph, Program::new(), contract_name, method_names)
+    })
+}
+
+pub fn interpret_virtual_files(
+    contract_name: Option<String>,
+    method_names: Vec<String>,
+    crate_path_graph: Graph<PathBuf>,
+    files: Vec<(PathBuf, Arc<str>)>,
+) -> anyhow::Result<InterpretResult> {
+    with_primitive_scope_reset(|| {
+        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+        let mut program = Program::new();
+        for (path, content) in files {
+            program.file_resolver.add_file(path, content);
+        }
+        interpret_with_program(&mut interpreter, crate_path_graph, program, contract_name, method_names)
+    })
+}
+
+fn with_primitive_scope_reset<T>(f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
     struct PrimitiveScopeResetGuard;
     impl Drop for PrimitiveScopeResetGuard {
         fn drop(&mut self) {
@@ -48,29 +71,45 @@ pub fn interpret(contract_name: Option<String>, method_names: Vec<String>, crate
         }
     }
 
-    // Clear leaked primitive scope from previous compilation in the same process.
     #[allow(static_mut_refs)]
     unsafe {
         let _ = STD_PRIMITIVE_SCOPE_ID.take();
     }
     let _primitive_scope_guard = PrimitiveScopeResetGuard;
+    f()
+}
 
-    let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
-    let (mut typechecker, mut ctx) = interpreter.typecheck(crate_path_graph)?;
-
-    let compile_results = interpreter.interpret(
-        &mut typechecker,
-        &mut ctx,
-        contract_name,
-        method_names,
-        |context, (method_name, method_id, outputs)| PsyCompileResult::compile_exec(method_name, method_id, &context.store, context, &outputs),
-    )?;
+fn interpret_with_program(
+    interpreter: &mut Interpreter<SymFeltRef, QExecContext>,
+    crate_path_graph: Graph<PathBuf>,
+    program: Program<SymFeltRef>,
+    contract_name: Option<String>,
+    method_names: Vec<String>,
+) -> anyhow::Result<InterpretResult> {
+    let (mut typechecker, mut ctx) = interpreter.typecheck_with_program(crate_path_graph, program)?;
+    let compile_results = compile_interpret_result(interpreter, &mut typechecker, &mut ctx, contract_name, method_names)?;
 
     Ok(InterpretResult {
         compile_results,
         typechecker,
         ctx,
     })
+}
+
+fn compile_interpret_result(
+    interpreter: &mut Interpreter<SymFeltRef, QExecContext>,
+    typechecker: &mut TypeChecker<SymFeltRef, QExecContext>,
+    ctx: &mut TypeCheckerVisitorContext<SymFeltRef, QExecContext>,
+    contract_name: Option<String>,
+    method_names: Vec<String>,
+) -> anyhow::Result<Vec<DPNFunctionCircuitDefinition>> {
+    interpreter.interpret(
+        typechecker,
+        ctx,
+        contract_name,
+        method_names,
+        |context, (method_name, method_id, outputs)| PsyCompileResult::compile_exec(method_name, method_id, &context.store, context, &outputs),
+    )
 }
 
 #[derive(Clone, Debug)]
@@ -391,7 +430,17 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     where
         F: 'static,
     {
-        let mut program = Program::new();
+        self.typecheck_with_program(crate_path_graph, Program::new())
+    }
+
+    pub fn typecheck_with_program(
+        &mut self,
+        crate_path_graph: Graph<PathBuf>,
+        mut program: Program<F>,
+    ) -> anyhow::Result<(TypeChecker<F, C>, TypeCheckerVisitorContext<F, C>)>
+    where
+        F: 'static,
+    {
         let mut parser = Parser::new(&mut program, &mut self.context, crate_path_graph);
         parser.parse().map_err(|err| {
             let context = lowering_parse_error(&err, &program);

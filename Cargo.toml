@@ -3,6 +3,7 @@ members = [
     "psy-precompiles",
     "psy-fmt",
     "psy-lsp-server",
+    "psy-wasm",
     "psy-parser",
     "psy-ast",
     "psy-sema",

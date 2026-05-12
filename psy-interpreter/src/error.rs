@@ -1,5 +1,5 @@
 use core::fmt;
-use std::io::Error as IoError;
+use std::{io::Error as IoError, path::Path};
 
 use ariadne::{Label, Report, ReportKind};
 use psy_ast::{Location, Program, TextPosition, TextRange, VisitorContext};
@@ -45,7 +45,13 @@ fn build_report<F: Clone + From<u32> + ContextFelt>(
     let mut output = Vec::new();
 
     report.write(
-        ariadne::FnCache::new(|x: &String| std::fs::read_to_string(std::path::Path::new(x.as_str()))),
+        ariadne::FnCache::new(|x: &String| {
+            program
+                .file_resolver
+                .resolve_path_content(Path::new(x))
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("missing source for {x}")))
+        }),
         &mut output,
     )?;
 

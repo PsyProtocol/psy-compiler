@@ -5620,6 +5620,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "psy-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "psy-abi",
+ "psy-interpreter",
+ "psy_compiler_common",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "tracing",
+ "wasm-bindgen",
+ "wasm-logger",
+ "wasm-tracing",
+]
+
+[[package]]
 name = "psy_api_core"
 version = "0.1.0"
 dependencies = [

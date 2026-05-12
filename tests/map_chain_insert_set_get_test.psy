@@ -11,14 +11,11 @@ fn test_chain_insert_set_get() {
     let v0: Hash = [11, 22, 33, 44];
     let v1: Hash = [55, 66, 77, 88];
     let v2: Hash = [99, 88, 77, 66];
-
     let old0 = c.balances.insert(key, v0);
     assert_eq(old0, [0, 0, 0, 0], "first insert returns zero old value");
     assert_eq(c.balances.get(key), v0, "get immediately after insert sees v0");
-
     c.balances.set(key, v1);
     assert_eq(c.balances.get(key), v1, "get after set sees v1");
-
     let old1 = c.balances.insert(key, v2);
     // In this compiler, .insert/.set return the true old value (previous write is visible)
     assert_eq(old1, v1, "overwrite insert returns previous v1");

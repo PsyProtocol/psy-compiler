@@ -2,15 +2,9 @@
 fn keccak_zero_level1_matches_cast() {
     let left: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
     let right: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
-    let data: [u32; 16] = [
-        left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7],
-        right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7],
-    ];
+    let data: [u32; 16] = [left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7], right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7]];
     let got = keccak256(data);
-    let want: [u32; 8] = [
-        2905745590u32, 1995953101u32, 1115989316u32, 1058533782u32,
-        725017745u32, 3003793586u32, 1079527909u32, 2545573813u32,
-    ];
+    let want: [u32; 8] = [2905745590u32, 1995953101u32, 1115989316u32, 1058533782u32, 725017745u32, 3003793586u32, 1079527909u32, 2545573813u32];
     assert_eq(got[0], want[0], "k0");
     assert_eq(got[1], want[1], "k1");
     assert_eq(got[2], want[2], "k2");

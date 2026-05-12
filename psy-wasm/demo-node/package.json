@@ -1,0 +1,8 @@
+{
+  "name": "psy-wasm-demo-node",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node ./smoke.js"
+  }
+}
