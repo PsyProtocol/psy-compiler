@@ -1,6 +1,23 @@
-use psy_ast::{DefId, DefaultVisitorContext, FunctionNode, Program, StructNode, Visibility, VisitorContext};
+use std::collections::HashMap;
 
-use crate::{FieldAbiSpec, FunctionAbiSpec, ParamAbiSpec, SpecCompliantAbi, StructAbiSpec, TypeAbiSpec};
+use psy_ast::{DefId, DefaultVisitorContext, FunctionNode, Program, StructNode, UncheckedType, Visibility, VisitorContext};
+
+use crate::{
+    CompatMethod, CompatMethodParam, CompatStateField, CompatSubField, ContractCompatAbi, FieldAbiSpec, FunctionAbiSpec, ParamAbiSpec,
+    SpecCompliantAbi, StructAbiSpec, TypeAbiSpec,
+};
+
+#[derive(Clone)]
+struct MethodCompatInfo {
+    method_id: u32,
+    is_view: bool,
+}
+
+#[derive(Clone)]
+struct CompatStructLayout {
+    felt_size: usize,
+    fields: Vec<CompatSubField>,
+}
 
 pub struct AbiExtractor {
     pub contract_name: String,
@@ -71,6 +88,35 @@ impl AbiExtractor {
         self.inject_builtin_types(&mut spec_abi);
 
         Ok(spec_abi)
+    }
+
+    pub fn extract_contract_abi<F: Clone + From<u32>>(
+        &self,
+        program: &mut Program<F>,
+        state_tree_height: u16,
+        method_metadata: &HashMap<String, (u32, bool)>,
+    ) -> Result<ContractCompatAbi, psy_common::Error> {
+        let ctx = DefaultVisitorContext::<F, ()>::new(program);
+        let contract_struct = self.find_contract_struct(&ctx);
+        let contract_name = contract_struct
+            .map(|struct_node| ctx.ident(struct_node.name).0.to_string())
+            .unwrap_or_else(|| self.contract_name.clone());
+
+        let struct_nodes = self.collect_struct_nodes(&ctx);
+        let struct_layouts = self.compute_struct_layouts(&ctx, &struct_nodes);
+
+        let state_layout = contract_struct
+            .map(|struct_node| self.extract_state_layout(&ctx, struct_node, &struct_layouts))
+            .unwrap_or_default();
+
+        let methods = self.extract_contract_methods(&ctx, &contract_name, &struct_layouts, method_metadata);
+
+        Ok(ContractCompatAbi {
+            contract_name,
+            state_tree_height,
+            state_layout,
+            methods,
+        })
     }
 
     fn is_public(visibility: &Visibility) -> bool {
@@ -199,6 +245,397 @@ impl AbiExtractor {
             }
         }
         false
+    }
+
+    fn find_contract_struct<'a, F: Clone + From<u32>>(&self, ctx: &'a DefaultVisitorContext<F, ()>) -> Option<&'a StructNode> {
+        for i in 0..ctx.program().defs.len() {
+            let def_id = DefId::from(i);
+            let Some(struct_node) = ctx.definition(def_id).as_struct() else {
+                continue;
+            };
+            if self.has_contract_attr(struct_node, ctx) {
+                return Some(struct_node);
+            }
+        }
+        None
+    }
+
+    fn collect_struct_nodes<'a, F: Clone + From<u32>>(&self, ctx: &'a DefaultVisitorContext<F, ()>) -> HashMap<String, &'a StructNode> {
+        let mut structs = HashMap::new();
+        for i in 0..ctx.program().defs.len() {
+            let def_id = DefId::from(i);
+            if let Some(struct_node) = ctx.definition(def_id).as_struct() {
+                structs.insert(ctx.ident(struct_node.name).0.to_string(), struct_node);
+            }
+        }
+        structs
+    }
+
+    fn compute_struct_layouts<F: Clone + From<u32>>(
+        &self,
+        ctx: &DefaultVisitorContext<F, ()>,
+        struct_nodes: &HashMap<String, &StructNode>,
+    ) -> HashMap<String, CompatStructLayout> {
+        let mut layouts = HashMap::new();
+        let names = struct_nodes.keys().cloned().collect::<Vec<_>>();
+        for name in names {
+            let _ = self.compute_struct_layout(ctx, &name, struct_nodes, &mut layouts);
+        }
+        layouts
+    }
+
+    fn compute_struct_layout<F: Clone + From<u32>>(
+        &self,
+        ctx: &DefaultVisitorContext<F, ()>,
+        name: &str,
+        struct_nodes: &HashMap<String, &StructNode>,
+        layouts: &mut HashMap<String, CompatStructLayout>,
+    ) -> CompatStructLayout {
+        if let Some(layout) = layouts.get(name) {
+            return layout.clone();
+        }
+
+        let Some(struct_node) = struct_nodes.get(name).copied() else {
+            return CompatStructLayout {
+                felt_size: 0,
+                fields: vec![],
+            };
+        };
+
+        let mut offset = 0usize;
+        let mut fields = Vec::new();
+        for (field_name, field) in &struct_node.fields {
+            let felt_size = self.felt_size_for_type(ctx, &field.ty, struct_nodes, layouts);
+            fields.push(CompatSubField {
+                name: ctx.ident(*field_name).0.to_string(),
+                offset,
+                felt_size,
+            });
+            offset += felt_size;
+        }
+
+        let layout = CompatStructLayout {
+            felt_size: offset,
+            fields,
+        };
+        layouts.insert(name.to_string(), layout.clone());
+        layout
+    }
+
+    fn extract_state_layout<F: Clone + From<u32>>(
+        &self,
+        ctx: &DefaultVisitorContext<F, ()>,
+        contract_struct: &StructNode,
+        struct_layouts: &HashMap<String, CompatStructLayout>,
+    ) -> Vec<CompatStateField> {
+        let struct_nodes = self.collect_struct_nodes(ctx);
+        let mut offset = 0usize;
+        let mut fields = Vec::new();
+
+        for (field_name, field) in &contract_struct.fields {
+            if !Self::is_public(&field.visibility) {
+                continue;
+            }
+
+            let field_type = self.stringify_unchecked_type(ctx, &field.ty);
+            let (felt_size, is_array, array_count, element_type, element_felt_size, is_imt_map, imt_key_type, imt_value_type, imt_capacity) =
+                self.compat_type_metadata(ctx, &field.ty, &struct_nodes, struct_layouts);
+
+            let sub_fields = self.resolve_sub_fields_for_type(ctx, &field.ty, &struct_nodes, struct_layouts);
+
+            fields.push(CompatStateField {
+                name: ctx.ident(*field_name).0.to_string(),
+                field_type,
+                offset,
+                felt_size,
+                is_array,
+                array_count,
+                element_type,
+                element_felt_size,
+                sub_fields,
+                is_imt_map,
+                imt_key_type,
+                imt_value_type,
+                imt_capacity,
+            });
+
+            if is_imt_map {
+                let aligned_offset = (offset + 3) & !3;
+                offset = aligned_offset + felt_size;
+                if let Some(last) = fields.last_mut() {
+                    last.offset = aligned_offset;
+                }
+            } else {
+                offset += felt_size;
+            }
+        }
+
+        fields
+    }
+
+    fn extract_contract_methods<F: Clone + From<u32>>(
+        &self,
+        ctx: &DefaultVisitorContext<F, ()>,
+        contract_name: &str,
+        struct_layouts: &HashMap<String, CompatStructLayout>,
+        method_metadata: &HashMap<String, (u32, bool)>,
+    ) -> Vec<CompatMethod> {
+        let mut methods = Vec::new();
+
+        for i in 0..ctx.program().defs.len() {
+            let def_id = DefId::from(i);
+            if let Some(function) = ctx.definition(def_id).as_function() {
+                if !Self::is_public(&function.visibility) {
+                    continue;
+                }
+                let method_name = ctx.ident(function.name).0.to_string();
+                let Some(&(method_id, is_view)) = method_metadata.get(&method_name) else {
+                    continue;
+                };
+                methods.push(self.function_to_compat_method(ctx, function, method_id, is_view, struct_layouts));
+            } else if let Some(impl_node) = ctx.definition(def_id).as_impl() {
+                let impl_type_name = self.extract_type_name(&impl_node.ty, ctx);
+                if impl_type_name != contract_name && impl_type_name != format!("{}Ref", contract_name) {
+                    continue;
+                }
+                for &function_def_id in &impl_node.body {
+                    let Some(function) = ctx.definition(function_def_id).as_function() else {
+                        continue;
+                    };
+                    if !Self::is_public(&function.visibility) {
+                        continue;
+                    }
+                    let method_name = ctx.ident(function.name).0.to_string();
+                    let Some(&(method_id, is_view)) = method_metadata.get(&method_name) else {
+                        continue;
+                    };
+                    methods.push(self.function_to_compat_method(ctx, function, method_id, is_view, struct_layouts));
+                }
+            }
+        }
+
+        methods.sort_by(|a, b| a.name.cmp(&b.name));
+        methods.dedup_by(|a, b| a.name == b.name);
+        methods
+    }
+
+    fn function_to_compat_method<F: Clone + From<u32>>(
+        &self,
+        ctx: &DefaultVisitorContext<F, ()>,
+        function: &FunctionNode,
+        method_id: u32,
+        is_view: bool,
+        struct_layouts: &HashMap<String, CompatStructLayout>,
+    ) -> CompatMethod {
+        let struct_nodes = self.collect_struct_nodes(ctx);
+        let params = function
+            .parameters
+            .iter()
+            .filter(|param| ctx.ident(param.name).0.as_str() != "self")
+            .map(|param| CompatMethodParam {
+                name: ctx.ident(param.name).0.to_string(),
+                param_type: self.stringify_unchecked_type(ctx, &param.ty),
+                felt_size: self.felt_size_for_type(ctx, &param.ty, &struct_nodes, &mut struct_layouts.clone()),
+            })
+            .collect();
+
+        CompatMethod {
+            name: ctx.ident(function.name).0.to_string(),
+            method_id,
+            params,
+            is_view,
+        }
+    }
+
+    fn compat_type_metadata<F: Clone + From<u32>>(
+        &self,
+        ctx: &DefaultVisitorContext<F, ()>,
+        ty: &UncheckedType,
+        struct_nodes: &HashMap<String, &StructNode>,
+        struct_layouts: &HashMap<String, CompatStructLayout>,
+    ) -> (usize, bool, Option<usize>, Option<String>, Option<usize>, bool, Option<String>, Option<String>, Option<usize>) {
+        let mut layouts = struct_layouts.clone();
+        if let Some((key_type, value_type, capacity)) = self.extract_imt_map_info(ctx, ty) {
+            return (
+                capacity.saturating_mul(4),
+                false,
+                None,
+                None,
+                Some(4),
+                true,
+                Some(key_type),
+                Some(value_type),
+                Some(capacity),
+            );
+        }
+
+        match ty {
+            UncheckedType::Array(inner, size, _) => {
+                let inner_size = self.felt_size_for_type(ctx, inner, struct_nodes, &mut layouts);
+                (
+                    inner_size.saturating_mul(*size as usize),
+                    true,
+                    Some(*size as usize),
+                    Some(self.stringify_unchecked_type(ctx, inner)),
+                    Some(inner_size),
+                    false,
+                    None,
+                    None,
+                    None,
+                )
+            }
+            _ => (
+                self.felt_size_for_type(ctx, ty, struct_nodes, &mut layouts),
+                false,
+                None,
+                None,
+                None,
+                false,
+                None,
+                None,
+                None,
+            ),
+        }
+    }
+
+    fn resolve_sub_fields_for_type<F: Clone + From<u32>>(
+        &self,
+        ctx: &DefaultVisitorContext<F, ()>,
+        ty: &UncheckedType,
+        struct_nodes: &HashMap<String, &StructNode>,
+        struct_layouts: &HashMap<String, CompatStructLayout>,
+    ) -> Option<Vec<CompatSubField>> {
+        let struct_name = match ty {
+            UncheckedType::Basic(identifier) => Some(ctx.ident(*identifier).0.to_string()),
+            UncheckedType::Path(path) => Some(self.extract_type_name(&path.target, ctx)),
+            UncheckedType::Array(inner, _, _) => match inner.as_ref() {
+                UncheckedType::Basic(identifier) => Some(ctx.ident(*identifier).0.to_string()),
+                UncheckedType::Path(path) => Some(self.extract_type_name(&path.target, ctx)),
+                _ => None,
+            },
+            _ => None,
+        }?;
+
+        if !struct_nodes.contains_key(&struct_name) {
+            return None;
+        }
+
+        struct_layouts.get(&struct_name).and_then(|layout| {
+            if layout.fields.is_empty() {
+                None
+            } else {
+                Some(layout.fields.clone())
+            }
+        })
+    }
+
+    fn felt_size_for_type<F: Clone + From<u32>>(
+        &self,
+        ctx: &DefaultVisitorContext<F, ()>,
+        ty: &UncheckedType,
+        struct_nodes: &HashMap<String, &StructNode>,
+        layouts: &mut HashMap<String, CompatStructLayout>,
+    ) -> usize {
+        if self.extract_imt_map_info(ctx, ty).is_some() {
+            return 0;
+        }
+
+        match ty {
+            UncheckedType::Basic(identifier) => self.felt_size_for_named_type(ctx.ident(*identifier).0.as_str(), struct_nodes, layouts, ctx),
+            UncheckedType::Path(path) => self.felt_size_for_type(ctx, &path.target, struct_nodes, layouts),
+            UncheckedType::Array(inner, size, _) => self
+                .felt_size_for_type(ctx, inner, struct_nodes, layouts)
+                .saturating_mul(*size as usize),
+            UncheckedType::Tuple(items, _) => items
+                .iter()
+                .map(|item| self.felt_size_for_type(ctx, item, struct_nodes, layouts))
+                .sum(),
+            UncheckedType::Generic(identifier, _, _) => self.felt_size_for_named_type(ctx.ident(*identifier).0.as_str(), struct_nodes, layouts, ctx),
+            _ => 0,
+        }
+    }
+
+    fn felt_size_for_named_type<F: Clone + From<u32>>(
+        &self,
+        type_name: &str,
+        struct_nodes: &HashMap<String, &StructNode>,
+        layouts: &mut HashMap<String, CompatStructLayout>,
+        ctx: &DefaultVisitorContext<F, ()>,
+    ) -> usize {
+        match type_name {
+            "Felt" | "bool" | "Bool" | "u64" | "i64" | "u32" => 1,
+            "u256" | "QHashOut" | "Hash" => 4,
+            other if struct_nodes.contains_key(other) => self.compute_struct_layout(ctx, other, struct_nodes, layouts).felt_size,
+            _ => 0,
+        }
+    }
+
+    fn extract_imt_map_info<F: Clone + From<u32>>(
+        &self,
+        ctx: &DefaultVisitorContext<F, ()>,
+        ty: &UncheckedType,
+    ) -> Option<(String, String, usize)> {
+        let UncheckedType::Generic(identifier, generics, _) = ty else {
+            return None;
+        };
+        let type_name = ctx.ident(*identifier).0.as_str();
+        if type_name != "Map" && type_name != "NamespacedMap" {
+            return None;
+        }
+        if generics.len() < 3 {
+            return None;
+        }
+        let key_type = self.stringify_unchecked_type(ctx, &generics[0]);
+        let value_type = self.stringify_unchecked_type(ctx, &generics[1]);
+        let capacity = self.const_len_from_type(&generics[2]).unwrap_or(0);
+        Some((key_type, value_type, capacity))
+    }
+
+    fn const_len_from_type(&self, ty: &UncheckedType) -> Option<usize> {
+        match ty {
+            UncheckedType::Const(value, _) => match value {
+                psy_ast::ConstValue::Felt(value) => usize::try_from(*value).ok(),
+                psy_ast::ConstValue::U32(value) => Some(*value as usize),
+                psy_ast::ConstValue::Bool(_) => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn stringify_unchecked_type<F: Clone + From<u32>>(&self, ctx: &DefaultVisitorContext<F, ()>, ty: &UncheckedType) -> String {
+        match ty {
+            UncheckedType::Basic(identifier) => ctx.ident(*identifier).0.to_string(),
+            UncheckedType::Const(value, _) => match value {
+                psy_ast::ConstValue::Felt(value) => value.to_string(),
+                psy_ast::ConstValue::U32(value) => format!("{value}u32"),
+                psy_ast::ConstValue::Bool(value) => value.to_string(),
+            },
+            UncheckedType::Generic(identifier, generics, _) => {
+                let inner = generics
+                    .iter()
+                    .map(|generic| self.stringify_unchecked_type(ctx, generic))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}<{}>", ctx.ident(*identifier).0, inner)
+            }
+            UncheckedType::Array(inner, size, _) => format!("[{}; {}]", self.stringify_unchecked_type(ctx, inner), size),
+            UncheckedType::Tuple(items, _) => {
+                let inner = items
+                    .iter()
+                    .map(|item| self.stringify_unchecked_type(ctx, item))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("({inner})")
+            }
+            UncheckedType::Path(path) => self.stringify_unchecked_type(ctx, &path.target),
+            UncheckedType::TraitCast(inner, trait_ty, _) => format!(
+                "{} as {}",
+                self.stringify_unchecked_type(ctx, inner),
+                self.stringify_unchecked_type(ctx, trait_ty)
+            ),
+            UncheckedType::FunctionSignature(_, _) => "fn".to_string(),
+            UncheckedType::Unknown => "unknown".to_string(),
+        }
     }
 }
 

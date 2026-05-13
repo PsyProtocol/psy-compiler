@@ -22,10 +22,14 @@ function run() {
 
   const multi = parseResult(
     wasm.compile_project(
-      JSON.stringify([
-        [["main"], "mod foo;\nfn main() { foo::run(); }"],
-        [["foo"], "pub fn run() {}"],
-      ]),
+      JSON.stringify({
+        entry: ["main"],
+        method_names: ["main"],
+        files: [
+          [["main"], "mod foo;\nfn main() { foo::run(); }"],
+          [["foo"], "pub fn run() {}"],
+        ],
+      }),
     ),
   );
   assert(multi.success === true, `multi-file compile failed: ${multi.error}`);

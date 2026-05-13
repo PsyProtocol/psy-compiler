@@ -10,20 +10,7 @@ WASM bindings for compiling PSY source code in-memory.
 
 ## `compile_project` input
 
-`filesJson` supports two formats.
-
-Legacy format:
-
-Example:
-
-```json
-[
-  [["main"], "mod foo;\nfn main() { foo::run(); }"],
-  [["foo"], "pub fn run() {}"]
-]
-```
-
-Preferred explicit-entry format:
+`filesJson` must use the explicit project format:
 
 ```json
 {
@@ -36,7 +23,7 @@ Preferred explicit-entry format:
 }
 ```
 
-Use the explicit format when more than one candidate entry file may exist.
+`entry` is required.
 If the entry file is not `main.psy`, you must provide `method_names`.
 
 The return value is a JSON string with:

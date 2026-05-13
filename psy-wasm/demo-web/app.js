@@ -154,13 +154,21 @@ function selectExample(name) {
 
 function buildProjectPayload() {
   if (activeExample === "module") {
-    return JSON.stringify([
-      [["main"], editor.value],
-      [["foo"], `pub fn run() {}`],
-    ]);
+    return JSON.stringify({
+      entry: ["main"],
+      method_names: ["main"],
+      files: [
+        [["main"], editor.value],
+        [["foo"], `pub fn run() {}`],
+      ],
+    });
   }
 
-  return JSON.stringify([[["main"], editor.value]]);
+  return JSON.stringify({
+    entry: ["main"],
+    method_names: ["main"],
+    files: [[["main"], editor.value]],
+  });
 }
 
 exampleButtons.forEach((button) => {

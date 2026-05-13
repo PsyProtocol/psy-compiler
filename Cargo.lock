@@ -5623,10 +5623,13 @@ dependencies = [
 name = "psy-wasm"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "bincode",
  "console_error_panic_hook",
  "psy-abi",
  "psy-interpreter",
  "psy_compiler_common",
+ "psy_vm",
  "serde",
  "serde_json",
  "serial_test",
