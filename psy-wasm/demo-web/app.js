@@ -1,4 +1,4 @@
-import init, { compile_project, compile_source, init_logging } from "../pkg-web/psy_wasm.js";
+import init, { compile_dargo_project, compile_project, compile_source, init_logging } from "../pkg-web/psy_wasm.js";
 
 const EXAMPLES = {
   std: `// Explicit std import in wasm demo
@@ -72,6 +72,7 @@ const compileOutput = document.querySelector("#compile-output");
 const abiOutput = document.querySelector("#abi-output");
 const compileSourceButton = document.querySelector("#compile-source-button");
 const compileProjectButton = document.querySelector("#compile-project-button");
+const compileDargoButton = document.querySelector("#compile-dargo-button");
 const exampleButtons = document.querySelectorAll(".example-button");
 const params = new URLSearchParams(window.location.search);
 
@@ -86,6 +87,7 @@ function setBanner(kind, text) {
 function setBusy(isBusy) {
   compileSourceButton.disabled = isBusy;
   compileProjectButton.disabled = isBusy;
+  compileDargoButton.disabled = isBusy;
 }
 
 function renderResult(result) {
@@ -128,6 +130,8 @@ async function runCompile(mode) {
     const raw =
       mode === "project"
         ? compile_project(buildProjectPayload())
+        : mode === "dargo"
+          ? compile_dargo_project(buildDargoPayload())
         : compile_source(editor.value);
     renderResult(parseResult(raw));
   } catch (error) {
@@ -171,12 +175,42 @@ function buildProjectPayload() {
   });
 }
 
+function buildDargoPayload() {
+  const rootManifest = `[package]
+name = "root"
+type = "bin"`;
+
+  const rootFiles =
+    activeExample === "module"
+      ? {
+          "src/main.psy": editor.value,
+          "src/foo.psy": "pub fn run() {}",
+        }
+      : {
+          "src/main.psy": editor.value,
+        };
+
+  return JSON.stringify({
+    root: "root",
+    method_names: ["main"],
+    packages: [
+      {
+        id: "root",
+        manifest: rootManifest,
+        files: rootFiles,
+        dependencies: {},
+      },
+    ],
+  });
+}
+
 exampleButtons.forEach((button) => {
   button.addEventListener("click", () => selectExample(button.dataset.example));
 });
 
 compileSourceButton.addEventListener("click", () => runCompile("source"));
 compileProjectButton.addEventListener("click", () => runCompile("project"));
+compileDargoButton.addEventListener("click", () => runCompile("dargo"));
 
 async function boot() {
   const requestedExample = params.get("example");
@@ -191,7 +225,7 @@ async function boot() {
     wasmStatus.textContent = "Ready";
     setBanner("neutral", "WASM module loaded. The demo is ready.");
     const autorun = params.get("autorun");
-    if (autorun === "source" || autorun === "project") {
+    if (autorun === "source" || autorun === "project" || autorun === "dargo") {
       await runCompile(autorun);
     }
   } catch (error) {

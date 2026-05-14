@@ -394,7 +394,7 @@ mod tests {
             let args = ExecuteCommand {
                 compile_options: CompileOptions {
                     entry_path: Some(path.into()),
-                    method_names: vec!["main".to_string()],
+                    method_names: Some(vec!["main".to_string()]),
                     debug: true,
                     ..Default::default()
                 },

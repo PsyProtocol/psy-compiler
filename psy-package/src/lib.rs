@@ -4,6 +4,7 @@ pub mod fm;
 mod git;
 pub mod package;
 mod semver;
+pub mod source;
 pub mod workspace;
 
 pub use errors::{ManifestError, SemverError};
@@ -11,6 +12,7 @@ pub use files::*;
 pub use package::*;
 // Individual re-exports for backward compatibility
 pub use package::{CrateName, Dependency, Package, PackageType};
+pub use source::*;
 pub use workspace::Workspace;
 
 pub const FILE_EXTENSION: &str = "psy";

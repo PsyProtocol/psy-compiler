@@ -7,6 +7,7 @@ WASM bindings for compiling PSY source code in-memory.
 - `init_logging()`
 - `compile_source(source: string): string`
 - `compile_project(filesJson: string): string`
+- `compile_dargo_project(projectJson: string): string`
 
 ## `compile_project` input
 
@@ -34,6 +35,30 @@ The return value is a JSON string with:
 - `entry_path`
 - `compile_results`
 - `abi`
+
+## `compile_dargo_project` input
+
+`projectJson` uses an in-memory dargo workspace format:
+
+```json
+{
+  "root": "root",
+  "method_names": ["main"],
+  "packages": [
+    {
+      "id": "root",
+      "manifest": "[package]\nname = \"root\"\ntype = \"bin\"\n",
+      "files": {
+        "src/main.psy": "fn main() {}"
+      },
+      "dependencies": {}
+    }
+  ]
+}
+```
+
+`root` must match one package `id`.
+`files` keys are package-relative logical paths.
 
 ## Node smoke test
 
@@ -82,3 +107,4 @@ The page includes:
 - example snippets seeded from `tests/`
 - a `Compile Source` button
 - a `Compile Module Project` button for the multi-file sample
+- a `Compile Dargo Project` button for in-memory manifest + files

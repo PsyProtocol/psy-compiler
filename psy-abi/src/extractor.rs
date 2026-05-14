@@ -333,15 +333,21 @@ impl AbiExtractor {
         let mut fields = Vec::new();
 
         for (field_name, field) in &contract_struct.fields {
-            if !Self::is_public(&field.visibility) {
-                continue;
-            }
-
             let field_type = self.stringify_unchecked_type(ctx, &field.ty);
             let (felt_size, is_array, array_count, element_type, element_felt_size, is_imt_map, imt_key_type, imt_value_type, imt_capacity) =
                 self.compat_type_metadata(ctx, &field.ty, &struct_nodes, struct_layouts);
 
             let sub_fields = self.resolve_sub_fields_for_type(ctx, &field.ty, &struct_nodes, struct_layouts);
+
+            if !Self::is_public(&field.visibility) {
+                if is_imt_map {
+                    let aligned_offset = (offset + 3) & !3;
+                    offset = aligned_offset + felt_size;
+                } else {
+                    offset += felt_size;
+                }
+                continue;
+            }
 
             fields.push(CompatStateField {
                 name: ctx.ident(*field_name).0.to_string(),
@@ -385,9 +391,6 @@ impl AbiExtractor {
         for i in 0..ctx.program().defs.len() {
             let def_id = DefId::from(i);
             if let Some(function) = ctx.definition(def_id).as_function() {
-                if !Self::is_public(&function.visibility) {
-                    continue;
-                }
                 let method_name = ctx.ident(function.name).0.to_string();
                 let Some(&(method_id, is_view)) = method_metadata.get(&method_name) else {
                     continue;
@@ -402,9 +405,6 @@ impl AbiExtractor {
                     let Some(function) = ctx.definition(function_def_id).as_function() else {
                         continue;
                     };
-                    if !Self::is_public(&function.visibility) {
-                        continue;
-                    }
                     let method_name = ctx.ident(function.name).0.to_string();
                     let Some(&(method_id, is_view)) = method_metadata.get(&method_name) else {
                         continue;

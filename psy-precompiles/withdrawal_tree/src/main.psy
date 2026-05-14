@@ -172,28 +172,33 @@ impl PsyWithdrawalTreeContractRef {
         Self::u32x8_to_hash(global_root)
     }
 
+    #[contract_method]
     pub fn get_root() -> [u32; 8] {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         c.root.get()
     }
 
+    #[contract_method]
     pub fn get_next_index() -> Felt {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         c.chain_counts[0].get()
     }
 
+    #[contract_method]
     pub fn get_chain_root(destination_chain_id: Felt) -> [u32; 8] {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         assert(destination_chain_id < 256, "destination chain id out of range");
         c.chain_roots[destination_chain_id].get()
     }
 
+    #[contract_method]
     pub fn get_chain_next_index(destination_chain_id: Felt) -> Felt {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         assert(destination_chain_id < 256, "destination chain id out of range");
         c.chain_counts[destination_chain_id].get()
     }
 
+    #[contract_method]
     pub fn append_leaf(leaf: [u32; 8]) {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         let chain_index: Felt = 0;
@@ -232,6 +237,7 @@ impl PsyWithdrawalTreeContractRef {
         event_data.emit();
     }
 
+    #[contract_method]
     pub fn append_withdrawal(
         destination_chain_index: Felt,
         token_address: [u32; 8],

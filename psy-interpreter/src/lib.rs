@@ -60,6 +60,15 @@ pub fn interpret_virtual_files(
     })
 }
 
+pub fn interpret_vfs_files(
+    contract_name: Option<String>,
+    method_names: Vec<String>,
+    crate_path_graph: Graph<PathBuf>,
+    files: Vec<(PathBuf, Arc<str>)>,
+) -> anyhow::Result<InterpretResult> {
+    interpret_virtual_files(contract_name, method_names, crate_path_graph, files)
+}
+
 fn with_primitive_scope_reset<T>(f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
     struct PrimitiveScopeResetGuard;
     impl Drop for PrimitiveScopeResetGuard {
@@ -244,19 +253,66 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         F: 'static,
     {
         let scope_id = ctx.symbols[ModuleId::root()].scope_id;
-        let type_ids = if let Some(contract_name) = contract_name {
-            let contract_name = ctx.intern(contract_name.into());
-            let type_id = ctx.symbols[scope_id]
+        let explicit_contract_name = contract_name.map(|name| ctx.intern(name.into()));
+        let resolved_contract_name = explicit_contract_name.or_else(|| {
+            if method_names.is_empty() {
+                self.find_contract_name_from_ast(ctx)
+            } else {
+                None
+            }
+        });
+
+        let type_ids = if let Some(contract_name) = resolved_contract_name {
+            let contract_type_id = ctx.symbols[scope_id]
                 .types
                 .get::<TypeKey>(&contract_name.into())
                 .ok_or(Error::UndefinedFunction)?
                 .clone();
+            let contract_ref_name = ctx.intern(format!("{}Ref", ctx.ident(contract_name)));
+            let contract_ref_type_id = ctx.symbols[scope_id]
+                .types
+                .get::<TypeKey>(&contract_ref_name.into())
+                .cloned();
+            let method_names = if method_names.is_empty() {
+                self.collect_contract_method_names(
+                    ctx,
+                    contract_name,
+                    Some(contract_ref_name),
+                )
+            } else {
+                method_names
+                    .into_iter()
+                    .map(|method_name| ctx.intern(method_name.into()))
+                    .collect()
+            };
 
             method_names
                 .into_iter()
                 .map(|method_name| {
-                    let method_name = ctx.intern(method_name.into());
-                    Ok(typechecker.find_member(type_id, None, None, method_name, None, ctx)?)
+                    match typechecker.find_member(contract_type_id, None, None, method_name, None, ctx) {
+                        Ok(type_id) => Ok(type_id),
+                        Err(_) => {
+                            if let Some(contract_ref_type_id) = contract_ref_type_id {
+                                if let Ok(type_id) =
+                                    typechecker.find_member(contract_ref_type_id, None, None, method_name, None, ctx)
+                                {
+                                    Ok(type_id)
+                                } else {
+                                    ctx.symbols[scope_id]
+                                        .types
+                                        .get::<TypeKey>(&method_name.into())
+                                        .ok_or(Error::UndefinedFunction)
+                                        .cloned()
+                                }
+                            } else {
+                                ctx.symbols[scope_id]
+                                    .types
+                                    .get::<TypeKey>(&method_name.into())
+                                    .ok_or(Error::UndefinedFunction)
+                                    .cloned()
+                            }
+                        }
+                    }
                 })
                 .collect::<Result<Vec<TypeId>>>()?
         } else {
@@ -292,6 +348,78 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         }
 
         Ok(outputs)
+    }
+
+    fn find_contract_name_from_ast(
+        &self,
+        ctx: &mut TypeCheckerVisitorContext<F, C>,
+    ) -> Option<IdentId> {
+        for i in 0..ctx.program.defs.len() {
+            let def_id = DefId::from(i);
+            let Some(struct_node) = ctx.definition(def_id).as_struct() else {
+                continue;
+            };
+            let is_contract = struct_node
+                .attrs
+                .iter()
+                .any(|attr| ctx.ident(attr.name).0.as_str() == "contract");
+            if is_contract {
+                return Some(struct_node.name.id);
+            }
+        }
+        None
+    }
+
+    fn collect_contract_method_names(
+        &self,
+        ctx: &mut TypeCheckerVisitorContext<F, C>,
+        contract_name: IdentId,
+        contract_ref_name: Option<IdentId>,
+    ) -> Vec<IdentId> {
+        let mut names: Vec<IdentId> = Vec::new();
+
+        for i in 0..ctx.program.defs.len() {
+            let def_id = DefId::from(i);
+            let Some(impl_node) = ctx.definition(def_id).as_impl() else {
+                continue;
+            };
+
+            let impl_target_name = Self::extract_impl_target_ident(&impl_node.ty);
+            let is_target_impl = impl_target_name.is_some_and(|name| {
+                name == contract_name || contract_ref_name.is_some_and(|ref_name| name == ref_name)
+            });
+            if !is_target_impl {
+                continue;
+            }
+
+            for &function_def_id in &impl_node.body {
+                let Some(function) = ctx.definition(function_def_id).as_function() else {
+                    continue;
+                };
+                if function.visibility != Visibility::Public {
+                    continue;
+                }
+                let is_contract_method = function
+                    .attrs
+                    .iter()
+                    .any(|attr| ctx.ident(attr.name).0.as_str() == "contract_method");
+                if is_contract_method {
+                    names.push(function.name.id);
+                }
+            }
+        }
+
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    fn extract_impl_target_ident(ty: &UncheckedType) -> Option<IdentId> {
+        match ty {
+            UncheckedType::Basic(identifier) => Some(identifier.id),
+            UncheckedType::Path(path) => Self::extract_impl_target_ident(&path.target),
+            _ => None,
+        }
     }
 
     #[instrument(level = "debug", skip_all)]

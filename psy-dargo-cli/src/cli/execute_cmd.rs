@@ -40,10 +40,10 @@ pub(crate) async fn run(mut args: ExecuteCommand, workspace: Workspace) -> crate
         return run_doc(args, workspace).await;
     }
 
-    args.parameters.resize(args.compile_options.method_names.len(), Vec::new());
-
     // Compile the full workspace in order to generate any build artifacts.
     let compile_results = compile_workspace_full(&workspace, &args.compile_options)?;
+    args.parameters
+        .resize(compile_results.circuit_definitions.len(), Vec::new());
 
     let priv_key = QHashOut::rand();
     let wallet = SimplePsyZKSignatureManager::<C, D>::new();

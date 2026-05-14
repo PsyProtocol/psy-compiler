@@ -72,7 +72,7 @@ fn compile_one_contract(contract: &ContractConfigGoldilocks, manifest_dir: &str,
 
     let compile_options = CompileOptions {
         contract_name: Some(contract.contract_name.clone()),
-        method_names: contract.method_names.clone(),
+        method_names: Some(contract.method_names.clone()),
         entry_path: Some(main_psy),
         debug: false,
     };
@@ -80,7 +80,7 @@ fn compile_one_contract(contract: &ContractConfigGoldilocks, manifest_dir: &str,
     Ok(with_workspace(compile_options, dargo_config, |opts, workspace| {
         use dargo::cli::resolve_crate_path_graph;
         let crate_path_graph = resolve_crate_path_graph(&workspace, opts.entry_path.clone());
-        match psy_interpreter::interpret(opts.contract_name.clone(), opts.method_names.clone(), crate_path_graph) {
+        match psy_interpreter::interpret(opts.contract_name.clone(), opts.method_names.clone().unwrap_or_default(), crate_path_graph) {
             Ok(mut interpret_result) => {
                 use dargo::cli::doc_cmd::extract_function_metadata_from_context;
                 let _function_metadata = extract_function_metadata_from_context(

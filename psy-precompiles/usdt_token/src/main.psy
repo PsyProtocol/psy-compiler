@@ -208,6 +208,7 @@ impl USDTTokenContractRef {
         current
     }
 
+    #[contract_method]
     pub fn withdraw(
         destination_chain_index: Felt,
         token_address: [u32; 8],
@@ -243,6 +244,7 @@ impl USDTTokenContractRef {
         event_data.emit();
     }
 
+    #[contract_method]
     pub fn claim_deposit(
         nullifier_hash: Hash,
         shield_address: Hash,
@@ -325,11 +327,13 @@ impl USDTTokenContractRef {
         c.balance += amount_felt;
     }
 
+    #[contract_method]
     pub fn simple_mint(amount: Felt) {
         let c = USDTTokenContractRef::new(ContractMetadata::current());
         c.balance += amount;
     }
 
+    #[contract_method]
     pub fn simple_burn(amount: Felt) {
         let c = USDTTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
@@ -337,6 +341,7 @@ impl USDTTokenContractRef {
         c.balance = current_balance - amount;
     }
 
+    #[contract_method]
     pub fn simple_transfer(recipient: Felt, amount: Felt) {
         let transfer_info_event = new TransferEvent {
             to: recipient,
@@ -367,6 +372,7 @@ impl USDTTokenContractRef {
         sender_end_info.emit();
     }
 
+    #[contract_method]
     pub fn simple_claim(sender: Felt) {
         let self_user_id = get_user_id();
         assert(sender != self_user_id, "you cannot claim from your self");
@@ -388,6 +394,7 @@ impl USDTTokenContractRef {
         c.balance += claimed;
     }
 
+    #[contract_method]
     pub fn simple_claim_pow_rewards(checkpoint_id: Felt) {
         let c = USDTTokenContractRef::new(ContractMetadata::current());
         let psy_pow_mining_rewards_claim_contract = PsyPOWMiningRewardsClaimContractRef::new(ContractMetadata::new(1, get_user_id()));
@@ -407,6 +414,7 @@ impl USDTTokenContractRef {
         c.balance += pow_rewards_persistent_state.claimed_rewards;
     }
 
+    #[contract_method]
     pub fn batch_simple_transfer_2(recipients: [Felt; 2], amounts: [Felt; 2]) {
         let c = USDTTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
@@ -437,6 +445,7 @@ impl USDTTokenContractRef {
         c.balance = current_balance - total_amount;
     }
 
+    #[contract_method]
     pub fn batch_simple_transfer_5(recipients: [Felt; 5], amounts: [Felt; 5]) {
         let c = USDTTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
@@ -467,6 +476,7 @@ impl USDTTokenContractRef {
         c.balance = current_balance - total_amount;
     }
 
+    #[contract_method]
     pub fn private_transfer(receiver: Hash, value: Felt, note_secret_hash: Hash) {
         let c = USDTTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
@@ -501,6 +511,7 @@ impl USDTTokenContractRef {
         c.note_count = idx + 1;
     }
 
+    #[contract_method]
     pub fn private_claim(
         nullifier_hash: Hash,
         receiver: Hash,

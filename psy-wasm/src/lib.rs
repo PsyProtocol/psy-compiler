@@ -7,6 +7,7 @@ use std::{
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use psy_abi::{AbiExtractor, ContractCompatAbi};
 use psy_common::Graph;
+use psy_package::{resolve_source_workspace, MemoryResolver, PackageId, PackageSources, RelativeFilePath, VfsPath};
 use psy_vm::dpn::{
     eval::executor::{ExecutionContext, ExecutionResult, InMemoryStateBackend, StateBackend, VmExecutor},
     ops::state_cmd::data::DPNStateCmd,
@@ -15,7 +16,7 @@ use psy_vm::dpn::{
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-const VIRTUAL_PACKAGE_ROOT: &str = "/virtual_pkg";
+const VFS_ROOT: &str = "/vfs";
 
 #[derive(Serialize)]
 struct JsCompileResult {
@@ -190,18 +191,18 @@ pub fn reset_chain() {
 
 #[wasm_bindgen]
 pub fn compile_source(source: &str) -> String {
-    let entry_path = PathBuf::from(VIRTUAL_PACKAGE_ROOT).join("src/main.psy");
+    let entry_path = PathBuf::from(VFS_ROOT).join("src/main.psy");
     let files = vec![(entry_path.clone(), source.to_string())];
-    compile_virtual_project(files, entry_path)
+    compile_vfs_project(files, entry_path)
 }
 
 #[wasm_bindgen]
 pub fn compile_project(files_json: &str) -> String {
     match parse_project_input(files_json) {
         Ok(project_input) => {
-            match build_virtual_files(project_input) {
-                Ok((entry_path, method_names, virtual_files)) => {
-                    compile_virtual_project_with_methods(virtual_files, entry_path, method_names)
+            match build_vfs_files(project_input) {
+                Ok((entry_path, method_names, vfs_files)) => {
+                    compile_vfs_project_with_methods(vfs_files, entry_path, method_names)
                 }
                 Err(error) => serialize_result(JsCompileResult {
                     success: false,
@@ -227,68 +228,15 @@ pub fn compile_project(files_json: &str) -> String {
 }
 
 #[wasm_bindgen]
-pub fn compile_project_ide(files_json: &str) -> String {
-    let files: Vec<(Vec<String>, String)> = match serde_json::from_str(files_json) {
-        Ok(files) => files,
-        Err(error) => {
-            return serialize_result(JsCompileResult {
-                success: false,
-                error: Some(format!("Invalid files JSON: {error}")),
-                error_offset: None,
-                entry_path: None,
-                compile_results: None,
-                contract_code: None,
-                abi: None,
-            });
-        }
-    };
-
-    if files.is_empty() {
-        return serialize_result(JsCompileResult {
-            success: false,
-            error: Some("Project must contain at least one file".to_string()),
-            error_offset: None,
-            entry_path: None,
-            compile_results: None,
-            contract_code: None,
-            abi: None,
-        });
-    }
-
-    let entry_path = PathBuf::from(VIRTUAL_PACKAGE_ROOT).join("src/main.psy");
-    let method_names = match discover_method_names(&files, Some("main")) {
-        Ok(method_names) => method_names,
-        Err(error) => {
-            return serialize_result(JsCompileResult {
-                success: false,
-                error: Some(error),
-                error_offset: None,
-                entry_path: Some(entry_path.display().to_string()),
-                compile_results: None,
-                contract_code: None,
-                abi: None,
-            });
-        }
-    };
-    let virtual_files: Vec<(PathBuf, String)> = files
-        .into_iter()
-        .map(|(parts, content)| (ide_module_parts_to_path(&parts), content))
-        .collect();
-
-    let contract_name = discover_contract_name(&virtual_files);
-    compile_virtual_project_with_contract(virtual_files, entry_path, method_names, contract_name)
-}
-
-#[wasm_bindgen]
 pub fn interpret_source(source: &str, request_json: &str) -> String {
     let request = match parse_interpret_request(request_json) {
         Ok(request) => request,
         Err(error) => return serialize_interpret_error(format!("Invalid interpret request JSON: {error}"), None, None, None, None),
     };
 
-    let entry_path = PathBuf::from(VIRTUAL_PACKAGE_ROOT).join("src/main.psy");
+    let entry_path = PathBuf::from(VFS_ROOT).join("src/main.psy");
     let files = vec![(entry_path.clone(), source.to_string())];
-    interpret_virtual_project(files, entry_path, request)
+    interpret_vfs_project(files, entry_path, request)
 }
 
 #[wasm_bindgen]
@@ -302,9 +250,202 @@ pub fn interpret_project(files_json: &str, request_json: &str) -> String {
         Err(error) => return serialize_interpret_error(format!("Invalid interpret request JSON: {error}"), None, None, None, None),
     };
 
-    match build_virtual_files(project_input) {
-        Ok((entry_path, _, virtual_files)) => interpret_virtual_project(virtual_files, entry_path, request),
+    match build_vfs_files(project_input) {
+        Ok((entry_path, _, vfs_files)) => interpret_vfs_project(vfs_files, entry_path, request),
         Err(error) => serialize_interpret_error(error, None, None, None, None),
+    }
+}
+
+#[wasm_bindgen]
+pub fn compile_dargo_project(project_json: &str) -> String {
+    let input: DargoProjectInput = match serde_json::from_str(project_json) {
+        Ok(input) => input,
+        Err(error) => {
+            return serialize_result(JsCompileResult {
+                success: false,
+                error: Some(format!("Invalid dargo project JSON: {error}")),
+                error_offset: None,
+                entry_path: None,
+                compile_results: None,
+                contract_code: None,
+                abi: None,
+            });
+        }
+    };
+
+    let root_package = PackageId::Virtual(input.root.clone());
+    let mut resolver = MemoryResolver::default();
+    for package in &input.packages {
+        let files = package
+            .files
+            .iter()
+            .map(|(path, source)| (RelativeFilePath::new(path.clone()), Arc::<str>::from(source.as_str())))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        resolver.insert_package(
+            PackageId::Virtual(package.id.clone()),
+            PackageSources {
+                manifest: Arc::<str>::from(package.manifest.as_str()),
+                files,
+            },
+        );
+        for (dep_name, dep_package_id) in &package.dependencies {
+            resolver.insert_dependency(
+                PackageId::Virtual(package.id.clone()),
+                dep_name.clone(),
+                PackageId::Virtual(dep_package_id.clone()),
+            );
+        }
+    }
+
+    let workspace = match resolve_source_workspace(root_package.clone(), &resolver) {
+        Ok(workspace) => workspace,
+        Err(error) => {
+            return serialize_result(JsCompileResult {
+                success: false,
+                error: Some(error.to_string()),
+                error_offset: None,
+                entry_path: None,
+                compile_results: None,
+                contract_code: None,
+                abi: None,
+            });
+        }
+    };
+
+    let method_names = if let Some(method_names) = input.method_names {
+        if method_names.is_empty() {
+            return serialize_result(JsCompileResult {
+                success: false,
+                error: Some("method_names must not be empty when provided".to_string()),
+                error_offset: None,
+                entry_path: None,
+                compile_results: None,
+                contract_code: None,
+                abi: None,
+            });
+        }
+        method_names
+    } else {
+        vec!["main".to_string()]
+    };
+    let mut crate_path_graph: Graph<PathBuf> = Graph::new();
+    let package_entries = workspace
+        .packages
+        .iter()
+        .filter_map(|(package_id, package)| {
+            workspace
+                .source_map
+                .path(package.entry_file_id)
+                .map(|entry| (package_id.clone(), source_vfs_to_pathbuf(entry)))
+        })
+        .collect::<HashMap<_, _>>();
+    for package in workspace.packages.values() {
+        let Some(entry_path) = package_entries.get(&package.package_id) else {
+            continue;
+        };
+        if !crate_path_graph.contains_node(entry_path) {
+            crate_path_graph.add_node(entry_path.clone());
+        }
+        for dep_pkg_id in package.dependency_packages.values() {
+            if let Some(dep_entry_path) = package_entries.get(dep_pkg_id) {
+                crate_path_graph.add_edge(entry_path.clone(), dep_entry_path.clone());
+            }
+        }
+    }
+
+    let root_entry_path = match package_entries.get(&root_package) {
+        Some(path) => path.clone(),
+        None => {
+            return serialize_result(JsCompileResult {
+                success: false,
+                error: Some("Root package entry not found".to_string()),
+                error_offset: None,
+                entry_path: None,
+                compile_results: None,
+                contract_code: None,
+                abi: None,
+            });
+        }
+    };
+
+    let vfs_shared_files = workspace
+        .source_map
+        .snapshot()
+        .into_iter()
+        .map(|(_, path, text)| (source_vfs_to_pathbuf(&path), text))
+        .collect::<Vec<_>>();
+    let source_index = vfs_shared_files
+        .iter()
+        .map(|(path, content)| (path.display().to_string(), Arc::<str>::from(content.as_ref())))
+        .collect::<HashMap<_, _>>();
+
+    match psy_interpreter::interpret_vfs_files(input.contract_name, method_names, crate_path_graph, vfs_shared_files) {
+        Ok(mut result) => {
+            let compile_results = match serde_json::to_value(&result.compile_results) {
+                Ok(value) => value,
+                Err(error) => {
+                    return serialize_result(JsCompileResult {
+                        success: false,
+                        error: Some(format!("Failed to serialize compile results: {error}")),
+                        error_offset: None,
+                        entry_path: Some(root_entry_path.display().to_string()),
+                        compile_results: None,
+                        contract_code: None,
+                        abi: None,
+                    });
+                }
+            };
+
+            let compile_results_for_metadata = result.compile_results.clone();
+            let state_tree_height = derive_state_tree_height(&compile_results_for_metadata);
+            let contract_code = match extract_contract_code(&compile_results_for_metadata, state_tree_height) {
+                Ok(value) => Some(value),
+                Err(error) => {
+                    tracing::warn!("Contract code extraction failed: {error}");
+                    None
+                }
+            };
+            let abi = match extract_contract_abi(&mut result, state_tree_height, &compile_results_for_metadata) {
+                Ok(value) => Some(value),
+                Err(error) => {
+                    tracing::warn!("ABI extraction failed: {error}");
+                    None
+                }
+            };
+            let abi_value = abi
+                .as_ref()
+                .and_then(|abi| serde_json::to_value(abi).map_err(|error| tracing::warn!("ABI serialization failed: {error}")).ok());
+
+            if let Some(abi) = abi.clone() {
+                cache_compile(CachedCompile {
+                    state_tree_height,
+                    abi,
+                    circuit_definitions: compile_results_for_metadata,
+                });
+            }
+
+            serialize_result(JsCompileResult {
+                success: true,
+                error: None,
+                error_offset: None,
+                entry_path: Some(root_entry_path.display().to_string()),
+                compile_results: Some(compile_results),
+                contract_code,
+                abi: abi_value,
+            })
+        }
+        Err(error) => {
+            let error_text = format!("{error:#}");
+            serialize_result(JsCompileResult {
+                success: false,
+                error: Some(error_text.clone()),
+                error_offset: extract_error_offset(&error_text, &source_index),
+                entry_path: Some(root_entry_path.display().to_string()),
+                compile_results: None,
+                contract_code: None,
+                abi: None,
+            })
+        }
     }
 }
 
@@ -580,6 +721,25 @@ struct ProjectInput {
 }
 
 #[derive(Deserialize)]
+struct DargoProjectInput {
+    root: String,
+    #[serde(default)]
+    method_names: Option<Vec<String>>,
+    #[serde(default)]
+    contract_name: Option<String>,
+    packages: Vec<DargoPackageInput>,
+}
+
+#[derive(Deserialize)]
+struct DargoPackageInput {
+    id: String,
+    manifest: String,
+    files: HashMap<String, String>,
+    #[serde(default)]
+    dependencies: HashMap<String, String>,
+}
+
+#[derive(Deserialize)]
 struct InterpretRequest {
     #[serde(default)]
     method_name: Option<String>,
@@ -724,14 +884,14 @@ fn cache_compile(cached: CachedCompile) {
     }
 }
 
-fn compile_virtual_project(files: Vec<(PathBuf, String)>, entry_path: PathBuf) -> String {
-    compile_virtual_project_with_contract(files, entry_path, vec!["main".to_string()], None)
+fn compile_vfs_project(files: Vec<(PathBuf, String)>, entry_path: PathBuf) -> String {
+    compile_vfs_project_with_contract(files, entry_path, vec!["main".to_string()], None)
 }
 
-fn interpret_virtual_project(files: Vec<(PathBuf, String)>, entry_path: PathBuf, request: InterpretRequest) -> String {
+fn interpret_vfs_project(files: Vec<(PathBuf, String)>, entry_path: PathBuf, request: InterpretRequest) -> String {
     let method_name = request.method_name.clone().unwrap_or_else(|| "main".to_string());
     let source_index = build_source_index(&files);
-    let shared_files = files
+    let vfs_shared_files = files
         .into_iter()
         .map(|(path, content)| (path, Arc::<str>::from(content)))
         .collect();
@@ -739,7 +899,7 @@ fn interpret_virtual_project(files: Vec<(PathBuf, String)>, entry_path: PathBuf,
     let mut crate_path_graph = Graph::new();
     crate_path_graph.add_node(entry_path.clone());
 
-    match psy_interpreter::interpret_virtual_files(None, vec![method_name.clone()], crate_path_graph, shared_files) {
+    match psy_interpreter::interpret_vfs_files(None, vec![method_name.clone()], crate_path_graph, vfs_shared_files) {
         Ok(mut result) => {
             let compile_results_value = match serde_json::to_value(&result.compile_results) {
                 Ok(value) => value,
@@ -823,11 +983,11 @@ fn interpret_virtual_project(files: Vec<(PathBuf, String)>, entry_path: PathBuf,
     }
 }
 
-fn compile_virtual_project_with_methods(files: Vec<(PathBuf, String)>, entry_path: PathBuf, method_names: Vec<String>) -> String {
-    compile_virtual_project_with_contract(files, entry_path, method_names, None)
+fn compile_vfs_project_with_methods(files: Vec<(PathBuf, String)>, entry_path: PathBuf, method_names: Vec<String>) -> String {
+    compile_vfs_project_with_contract(files, entry_path, method_names, None)
 }
 
-fn compile_virtual_project_with_contract(
+fn compile_vfs_project_with_contract(
     files: Vec<(PathBuf, String)>,
     entry_path: PathBuf,
     method_names: Vec<String>,
@@ -836,12 +996,12 @@ fn compile_virtual_project_with_contract(
     let mut crate_path_graph = Graph::new();
     crate_path_graph.add_node(entry_path.clone());
     let source_index = build_source_index(&files);
-    let shared_files = files
+    let vfs_shared_files = files
         .into_iter()
         .map(|(path, content)| (path, Arc::<str>::from(content)))
         .collect();
 
-    match psy_interpreter::interpret_virtual_files(contract_name, method_names, crate_path_graph, shared_files) {
+    match psy_interpreter::interpret_vfs_files(contract_name, method_names, crate_path_graph, vfs_shared_files) {
         Ok(mut result) => {
             let compile_results = match serde_json::to_value(&result.compile_results) {
                 Ok(value) => value,
@@ -919,7 +1079,14 @@ fn build_source_index(files: &[(PathBuf, String)]) -> HashMap<String, Arc<str>> 
         .collect()
 }
 
-fn build_virtual_files(input: ProjectInput) -> Result<(PathBuf, Vec<String>, Vec<(PathBuf, String)>), String> {
+fn source_vfs_to_pathbuf(path: &VfsPath) -> PathBuf {
+    match path {
+        VfsPath::Real(path) => path.clone(),
+        VfsPath::Virtual(path) => PathBuf::from(path),
+    }
+}
+
+fn build_vfs_files(input: ProjectInput) -> Result<(PathBuf, Vec<String>, Vec<(PathBuf, String)>), String> {
     if input.files.is_empty() {
         return Err("Project must contain at least one file".to_string());
     }
@@ -928,16 +1095,16 @@ fn build_virtual_files(input: ProjectInput) -> Result<(PathBuf, Vec<String>, Vec
         .entry
         .as_ref()
         .map(|parts| module_parts_to_path(parts))
-        .ok_or_else(|| "Project input must include entry".to_string())?;
+        .unwrap_or_else(|| module_parts_to_path(&[]));
     let mut saw_explicit_entry = false;
-    let mut virtual_files = Vec::with_capacity(input.files.len());
+    let mut vfs_files = Vec::with_capacity(input.files.len());
 
     for (parts, content) in input.files {
         let path = module_parts_to_path(&parts);
         if explicit_entry_path == path {
             saw_explicit_entry = true;
         }
-        virtual_files.push((path, content));
+        vfs_files.push((path, content));
     }
 
     if !saw_explicit_entry {
@@ -946,13 +1113,13 @@ fn build_virtual_files(input: ProjectInput) -> Result<(PathBuf, Vec<String>, Vec
 
     let entry_path = explicit_entry_path;
 
-    let method_names = resolve_method_names(&entry_path, input.method_names)?;
+    let method_names = resolve_method_names(&entry_path, input.method_names, &vfs_files)?;
 
-    Ok((entry_path, method_names, virtual_files))
+    Ok((entry_path, method_names, vfs_files))
 }
 
 fn ide_module_parts_to_path(parts: &[String]) -> PathBuf {
-    let mut path = PathBuf::from(VIRTUAL_PACKAGE_ROOT).join("src");
+    let mut path = PathBuf::from(VFS_ROOT).join("src");
     if parts.is_empty() {
         path.push("main.psy");
         return path;
@@ -973,60 +1140,11 @@ fn ide_module_parts_to_path(parts: &[String]) -> PathBuf {
     path
 }
 
-fn discover_method_names(files: &[(Vec<String>, String)], fallback: Option<&str>) -> Result<Vec<String>, String> {
-    let mut method_names = Vec::new();
-    for (_, source) in files {
-        extract_public_function_names(source, &mut method_names);
-    }
-    method_names.sort();
-    method_names.dedup();
-
-    if method_names.is_empty() {
-        if let Some(name) = fallback.filter(|name| files.iter().any(|(_, source)| source.contains(&format!("fn {name}(")))) {
-            return Ok(vec![name.to_string()]);
-        }
-        return Err("Unable to discover contract methods; provide at least one public method".to_string());
-    }
-
-    Ok(method_names)
-}
-
-fn discover_contract_name(files: &[(PathBuf, String)]) -> Option<String> {
-    files
-        .iter()
-        .find_map(|(_, source)| discover_contract_name_in_source(source))
-}
-
-fn discover_contract_name_in_source(source: &str) -> Option<String> {
-    let contract_attr = "#[contract]";
-    let struct_marker = "struct ";
-    let attr_pos = source.find(contract_attr)?;
-    let after_attr = &source[attr_pos + contract_attr.len()..];
-    let struct_pos = after_attr.find(struct_marker)? + struct_marker.len();
-    let rest = &after_attr[struct_pos..];
-    let end = rest
-        .find(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
-        .unwrap_or(rest.len());
-    (end > 0).then(|| rest[..end].to_string())
-}
-
-fn extract_public_function_names(source: &str, method_names: &mut Vec<String>) {
-    let marker = "pub fn ";
-    let mut search_start = 0usize;
-    while let Some(relative) = source[search_start..].find(marker) {
-        let start = search_start + relative + marker.len();
-        let rest = &source[start..];
-        let end = rest
-            .find(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
-            .unwrap_or(rest.len());
-        if end > 0 {
-            method_names.push(rest[..end].to_string());
-        }
-        search_start = start;
-    }
-}
-
-fn resolve_method_names(entry_path: &PathBuf, method_names: Option<Vec<String>>) -> Result<Vec<String>, String> {
+fn resolve_method_names(
+    entry_path: &PathBuf,
+    method_names: Option<Vec<String>>,
+    _vfs_files: &[(PathBuf, String)],
+) -> Result<Vec<String>, String> {
     if let Some(method_names) = method_names {
         if method_names.is_empty() {
             return Err("method_names must not be empty when provided".to_string());
@@ -1034,15 +1152,20 @@ fn resolve_method_names(entry_path: &PathBuf, method_names: Option<Vec<String>>)
         return Ok(method_names);
     }
 
-    if entry_path.ends_with("main.psy") {
-        return Ok(vec!["main".to_string()]);
+    // No frontend-side method discovery. Compiler/interpreter resolves
+    // contract methods from AST/semantic data.
+    let is_main_entry = entry_path.file_stem().and_then(|s| s.to_str()) == Some("main");
+    if !is_main_entry {
+        return Err(format!(
+            "Unable to resolve method names for {} without explicit method_names",
+            entry_path.display()
+        ));
     }
-
-    Err("Project entry is not main.psy; provide method_names explicitly".to_string())
+    Ok(Vec::new())
 }
 
 fn module_parts_to_path(parts: &[String]) -> PathBuf {
-    let mut path = PathBuf::from(VIRTUAL_PACKAGE_ROOT).join("src");
+    let mut path = PathBuf::from(VFS_ROOT).join("src");
     if parts.is_empty() {
         path.push("main.psy");
         return path;
@@ -1265,7 +1388,63 @@ fn line_col_to_offset(source: &str, line: usize, column: usize) -> Option<usize>
 }
 
 fn serialize_result(result: JsCompileResult) -> String {
-    serde_json::to_string(&result).unwrap_or_else(|error| {
+    let mut value = match serde_json::to_value(&result) {
+        Ok(value) => value,
+        Err(error) => {
+            return serde_json::to_string(&SerializeFallback {
+                success: false,
+                error: &format!("Serialization error: {error}"),
+            })
+            .unwrap_or_else(|_| "{\"success\":false,\"error\":\"Serialization error\"}".to_string())
+        }
+    };
+
+    if let serde_json::Value::Object(map) = &mut value {
+        // Backward-compatible aliases for older frontend/runtime consumers.
+        if let Some(compile_results) = map.get("compile_results").cloned() {
+            map.entry("circuit_definitions".to_string())
+                .or_insert_with(|| compile_results.clone());
+            map.entry("circuitDefinitions".to_string())
+                .or_insert(compile_results);
+        }
+
+        let method_count = map
+            .get("abi")
+            .and_then(|abi| abi.get("methods"))
+            .and_then(|methods| methods.as_array())
+            .map(|methods| methods.len() as u64)
+            .or_else(|| {
+                map.get("compile_results")
+                    .and_then(|compile_results| compile_results.as_array())
+                    .map(|items| items.len() as u64)
+            });
+
+        if let Some(method_count) = method_count {
+            map.entry("method_count".to_string())
+                .or_insert_with(|| serde_json::Value::from(method_count));
+            map.entry("methodCount".to_string())
+                .or_insert_with(|| serde_json::Value::from(method_count));
+        }
+
+        let state_tree_height = map
+            .get("abi")
+            .and_then(|abi| abi.get("state_tree_height"))
+            .and_then(|height| height.as_u64())
+            .or_else(|| {
+                map.get("contract_code")
+                    .and_then(|contract_code| contract_code.get("state_tree_height"))
+                    .and_then(|height| height.as_u64())
+            });
+
+        if let Some(state_tree_height) = state_tree_height {
+            map.entry("state_tree_height".to_string())
+                .or_insert_with(|| serde_json::Value::from(state_tree_height));
+            map.entry("stateTreeHeight".to_string())
+                .or_insert_with(|| serde_json::Value::from(state_tree_height));
+        }
+    }
+
+    serde_json::to_string(&value).unwrap_or_else(|error| {
         serde_json::to_string(&SerializeFallback {
             success: false,
             error: &format!("Serialization error: {error}"),
@@ -1352,7 +1531,7 @@ mod tests {
         );
 
         assert!(result.success, "expected compile success, got {:?}", result.error);
-        assert_eq!(result.entry_path.as_deref(), Some("/virtual_pkg/src/main.psy"));
+        assert_eq!(result.entry_path.as_deref(), Some("/vfs/src/main.psy"));
         assert!(result.compile_results.as_ref().is_some_and(|items| !items.is_empty()));
     }
 
@@ -1371,7 +1550,7 @@ mod tests {
         let result = parse_result(&compile_project(&files.to_string()));
 
         assert!(result.success, "expected compile success, got {:?}", result.error);
-        assert_eq!(result.entry_path.as_deref(), Some("/virtual_pkg/src/main.psy"));
+        assert_eq!(result.entry_path.as_deref(), Some("/vfs/src/main.psy"));
         assert!(result.compile_results.as_ref().is_some_and(|items| !items.is_empty()));
     }
 
@@ -1390,7 +1569,7 @@ mod tests {
         let result = parse_result(&compile_project(&files.to_string()));
 
         assert!(result.success, "expected compile success, got {:?}", result.error);
-        assert_eq!(result.entry_path.as_deref(), Some("/virtual_pkg/src/main.psy"));
+        assert_eq!(result.entry_path.as_deref(), Some("/vfs/src/main.psy"));
         assert!(result.compile_results.as_ref().is_some_and(|items| !items.is_empty()));
     }
 
@@ -1430,22 +1609,21 @@ mod tests {
         assert!(result
             .error
             .as_ref()
-            .is_some_and(|msg| msg.contains("provide method_names explicitly")));
+            .is_some_and(|msg| msg.contains("without explicit method_names")));
     }
 
     #[test]
     #[serial]
-    fn compile_project_requires_entry() {
+    fn compile_project_defaults_entry_to_main_when_missing() {
         let files = serde_json::json!({
             "files": [
-                [["main"], "fn main() {}"]
+                [["main"], "use std::prelude::*;\n#[contract]\n#[derive(Storage)]\npub struct C { pub value: Felt }\n#[contract_method]\nfn set_value(v: Felt) { let _x = v; }"]
             ]
         });
 
         let result = parse_result(&compile_project(&files.to_string()));
 
-        assert!(!result.success, "expected compile failure");
-        assert!(result.error.as_ref().is_some_and(|msg| msg.contains("Project input must include entry")));
+        assert!(result.success, "expected compile success");
     }
 
     #[test]
@@ -1501,22 +1679,25 @@ mod tests {
 
     #[test]
     #[serial]
-    fn compile_project_ide_accepts_frontend_file_format() {
-        let files = serde_json::json!([
-            [
-                [],
-                "fn main() {}\n"
-            ],
-            [
-                ["foo"],
-                "fn helper() {}\n"
-            ],
-        ]);
+    fn compile_dargo_project_succeeds() {
+        let project = serde_json::json!({
+            "root": "root",
+            "packages": [
+                {
+                    "id": "root",
+                    "manifest": "[package]\nname = \"root\"\ntype = \"bin\"\n",
+                    "files": {
+                        "src/main.psy": "#[contract]\npub struct C {}\n#[contract_method]\nfn main() { assert_eq(1, 1, \"ok\"); }"
+                    },
+                    "dependencies": {}
+                }
+            ]
+        });
 
-        let result = parse_result(&compile_project_ide(&files.to_string()));
+        let result = parse_result(&compile_dargo_project(&project.to_string()));
 
         assert!(result.success, "expected compile success, got {:?}", result.error);
-        assert_eq!(result.entry_path.as_deref(), Some("/virtual_pkg/src/main.psy"));
+        assert!(result.compile_results.as_ref().is_some_and(|items| !items.is_empty()));
     }
 
     #[test]

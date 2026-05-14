@@ -25,6 +25,7 @@ tracing = { workspace = true }
 psy-abi = { workspace = true }
 psy_common = { workspace = true }
 psy_vm = { workspace = true }
+psy-package = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 psy-interpreter = { workspace = true }

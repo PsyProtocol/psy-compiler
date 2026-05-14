@@ -88,6 +88,7 @@ impl PsyDepositTreeContractRef {
         ]
     }
 
+    #[contract_method]
     pub fn poseidon_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
         Self::hash_to_u32x8(hash_two_to_one(Self::u32x8_to_hash(left), Self::u32x8_to_hash(right)))
     }
@@ -183,33 +184,39 @@ impl PsyDepositTreeContractRef {
         Self::u32x8_to_hash(global_root)
     }
 
+    #[contract_method]
     pub fn get_root() -> [u32; 8] {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         c.root.get()
     }
 
+    #[contract_method]
     pub fn get_next_index() -> Felt {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         c.chain_counts[0].get()
     }
 
+    #[contract_method]
     pub fn get_chain_root(chain_index: Felt) -> [u32; 8] {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         assert(chain_index < 256, "chain index out of range");
         c.chain_roots[chain_index].get()
     }
 
+    #[contract_method]
     pub fn get_chain_next_index(chain_index: Felt) -> Felt {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         assert(chain_index < 256, "chain index out of range");
         c.chain_counts[chain_index].get()
     }
 
+    #[contract_method]
     pub fn append_leaf(leaf: [u32; 8]) {
         let chain_index: Felt = 0;
         Self::append_deposit(chain_index, leaf)
     }
 
+    #[contract_method]
     pub fn append_deposit(chain_index: Felt, leaf: [u32; 8]) {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         assert(chain_index < 256, "chain index out of range");
@@ -236,6 +243,7 @@ impl PsyDepositTreeContractRef {
         event_data.emit();
     }
 
+    #[contract_method]
     pub fn is_known_root(chain_index: Felt, root: [u32; 8]) -> Felt {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         let mut result: Felt = 0;
@@ -245,6 +253,7 @@ impl PsyDepositTreeContractRef {
         result
     }
 
+    #[contract_method]
     pub fn is_known_root_hash(chain_index: Felt, root_lo: Hash, root_hi: Hash) -> Felt {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         let root = [
