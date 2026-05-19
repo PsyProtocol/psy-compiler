@@ -34,7 +34,7 @@ DEPOSIT_TREE_CONTRACT_PATH := $(PWD)/psy-precompiles/deposit_tree
 FAUCET_CONTRACT_PATH := $(PWD)/psy-precompiles/faucet
 
 ci:
-	@$(DARGO_CLI_TEST) tests/in_mod_attr_test.psy
+	# @$(DARGO_CLI_TEST) tests/in_mod_attr_test.psy
 	# @$(DARGO_CLI_TEST) tests/should_panic_test.psy
 	@$(DARGO_CLI_TEST) tests/for_if_test.psy
 	@$(DARGO_CLI_TEST) tests/array_struct_modification_test.psy

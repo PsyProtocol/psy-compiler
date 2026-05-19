@@ -27,33 +27,33 @@ repository = "https://github.com/PsyProtocol/psy-compiler"
 
 [workspace.dependencies]
 # Remote qedlang/psy-prover deps (keep for easy switch)
-# psy_vm = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false }
-# psy_crypto = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60" }
-# psy_data = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false }
-# psy_common_core = { package = "psy_common", git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60" }
-# psy_config = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60" }
-# psy_prover = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false }
-# psy_common_circuit = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false }
-# psy_dpn_circuit = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false }
-# psy_ups_circuit = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false }
-# psy_network_circuit = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60", default-features = false }
-# kvq = { git = "https://github.com/PsyProtocol/psy-prover", rev = "621a33a75c031fbe06f4ce84ea8da00eb595aa60" }
+psy_vm = { git = "ssh://git@github.com/QEDProtocol/parth-generic-v1.git", rev = "c468029e8d7ec18915f5beb37c53df2dd9bac76e", package = "psy_vm", default-features = false }
+psy_crypto = { git = "ssh://git@github.com/QEDProtocol/parth-generic-v1.git", rev = "c468029e8d7ec18915f5beb37c53df2dd9bac76e", package = "psy_crypto" }
+psy_data = { git = "ssh://git@github.com/QEDProtocol/parth-generic-v1.git", rev = "c468029e8d7ec18915f5beb37c53df2dd9bac76e", package = "psy_client_data", default-features = false }
+psy_common_core = { git = "ssh://git@github.com/QEDProtocol/parth-generic-v1.git", rev = "c468029e8d7ec18915f5beb37c53df2dd9bac76e", package = "psy_client_common" }
+psy_config = { git = "ssh://git@github.com/QEDProtocol/parth-generic-v1.git", rev = "c468029e8d7ec18915f5beb37c53df2dd9bac76e", package = "psy_config" }
+psy_prover = { git = "ssh://git@github.com/QEDProtocol/parth-generic-v1.git", rev = "c468029e8d7ec18915f5beb37c53df2dd9bac76e", package = "psy_prover", default-features = false }
+psy_common_circuit = { git = "ssh://git@github.com/QEDProtocol/parth-generic-v1.git", rev = "c468029e8d7ec18915f5beb37c53df2dd9bac76e", package = "psy_common_circuit", default-features = false }
+psy_dpn_circuit = { git = "ssh://git@github.com/QEDProtocol/parth-generic-v1.git", rev = "c468029e8d7ec18915f5beb37c53df2dd9bac76e", package = "psy_dpn_circuit", default-features = false }
+psy_ups_circuit = { git = "ssh://git@github.com/QEDProtocol/parth-generic-v1.git", rev = "c468029e8d7ec18915f5beb37c53df2dd9bac76e", package = "psy_ups_circuit", default-features = false }
+psy_network_circuit = { git = "ssh://git@github.com/QEDProtocol/parth-generic-v1.git", rev = "c468029e8d7ec18915f5beb37c53df2dd9bac76e", package = "psy_network_circuit", default-features = false }
+kvq = { git = "ssh://git@github.com/QEDProtocol/parth-generic-v1.git", rev = "c468029e8d7ec18915f5beb37c53df2dd9bac76e", package = "kvq" }
 
 # Local qedlang deps (active): parth-generic-v1/client_prover
-psy_vm = { path = "../parth-generic-v1/client_prover/psy_vm", default-features = false }
-psy_crypto = { path = "../parth-generic-v1/client_prover/psy_core/psy_crypto" }
-psy_data = { package = "psy_client_data", path = "../parth-generic-v1/client_prover/psy_core/psy_data", default-features = false}
-psy_common_core = { package = "psy_client_common", path = "../parth-generic-v1/client_prover/psy_core/psy_common" }
-psy_common = { package = "psy_compiler_common", path = "./psy-common" }
-psy_config = { path = "../parth-generic-v1/client_prover/psy_core/psy_config" }
-psy_prover = { path = "../parth-generic-v1/client_prover/psy_prover", default-features = false }
-psy_common_circuit = { path = "../parth-generic-v1/client_prover/psy_circuit/psy_common_circuit", default-features = false}
-psy_dpn_circuit = { path = "../parth-generic-v1/client_prover/psy_circuit/psy_dpn_circuit", default-features = false}
-psy_ups_circuit = { path = "../parth-generic-v1/client_prover/psy_circuit/psy_ups_circuit", default-features = false}
-psy_network_circuit = { path = "../parth-generic-v1/client_prover/psy_circuit/psy_network_circuit", default-features = false}
-kvq = { path = "../parth-generic-v1/client_prover/psy_core/kvq" }
+# psy_vm = { path = "../parth-generic-v1/client_prover/psy_vm", default-features = false }
+# psy_crypto = { path = "../parth-generic-v1/client_prover/psy_core/psy_crypto" }
+# psy_data = { package = "psy_client_data", path = "../parth-generic-v1/client_prover/psy_core/psy_data", default-features = false}
+# psy_common_core = { package = "psy_client_common", path = "../parth-generic-v1/client_prover/psy_core/psy_common" }
+# psy_config = { path = "../parth-generic-v1/client_prover/psy_core/psy_config" }
+# psy_prover = { path = "../parth-generic-v1/client_prover/psy_prover", default-features = false }
+# psy_common_circuit = { path = "../parth-generic-v1/client_prover/psy_circuit/psy_common_circuit", default-features = false}
+# psy_dpn_circuit = { path = "../parth-generic-v1/client_prover/psy_circuit/psy_dpn_circuit", default-features = false}
+# psy_ups_circuit = { path = "../parth-generic-v1/client_prover/psy_circuit/psy_ups_circuit", default-features = false}
+# psy_network_circuit = { path = "../parth-generic-v1/client_prover/psy_circuit/psy_network_circuit", default-features = false}
+# kvq = { path = "../parth-generic-v1/client_prover/psy_core/kvq" }
 
 # Local compiler packages
+psy_common = { package = "psy_compiler_common", path = "./psy-common" }
 psy-ast = { path = "./psy-ast" }
 psy-fmt = { path = "./psy-fmt" }
 psy-lsp-server = { path = "./psy-lsp-server" }
