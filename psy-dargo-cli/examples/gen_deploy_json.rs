@@ -2,15 +2,19 @@
 /// into genesis_contracts.json (Vec<PQBCDeployContract>) for use in genesis config.
 ///
 /// Usage:
-///   cargo run --release --example gen_deploy_json -- <output.json> <input1.json>[:<deployer_hex>] [<input2.json>[:<deployer_hex>]] ...
+///   cargo run --release --example gen_deploy_json -- <output.json> <input1.json>[:<deployer_hex>[:<name>]] [<input2.json>[:<deployer_hex>[:<name>]]] ...
 ///
-/// Example (two contracts):
+/// Example:
 ///   cargo run --release --example gen_deploy_json -- \
 ///     ../../parth-generic-v1/genesis_contracts.json \
-///     ../psy-precompiles/token/target/token.json \
-///     ../psy-precompiles/mining_rewards/target/mining_rewards.json
+///     ../psy-precompiles/token/target/token.json:token \
+///     ../psy-precompiles/mining_rewards/target/mining_rewards.json:mining_rewards
+///
+/// Each input can optionally specify deployer and name as: path:deployer_hex:name
+/// If only deployer is given (path:deployer_hex), name defaults to the file stem
+/// If neither deployer nor name is given (path), both default to their defaults
 
-use std::{env, fs, str::FromStr};
+use std::{env, fs, path::Path, str::FromStr};
 
 use psy_common::data::qhashout::QHashOut;
 use psy_data::config::store_config::{C, D};
@@ -21,31 +25,43 @@ use psy_vm::dpn::vm::def::DPNFunctionCircuitDefinition;
 const DEFAULT_DEPLOYER: &str = "f83aa03c3e21321421696202b90f4dab0a9f87237c231bbba58b8f93c799126e";
 const DEFAULT_STATE_TREE_HEIGHT: u8 = 32;
 
+fn get_file_stem(path: &str) -> String {
+    Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("contract")
+        .to_string()
+}
+
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 3 {
-        eprintln!("Usage: gen_deploy_json <output.json> <input1.json>[:<deployer_hex>] [<input2.json>[:<deployer_hex>]] ...");
+    if args.len() < 2 {
+        eprintln!("Usage: gen_deploy_json <output.json> <input1.json>[:<deployer_hex>[:<name>]] [<input2.json>[:<deployer_hex>[:<name>]]] ...");
         eprintln!();
-        eprintln!("Each input can optionally specify a deployer as: path:deployer_hex");
+        eprintln!("Each input can optionally specify deployer and name as: path:deployer_hex:name");
         eprintln!("Default deployer: {}", DEFAULT_DEPLOYER);
-        eprintln!();
-        eprintln!("Example:");
-        eprintln!("  gen_deploy_json genesis_contracts.json token.json mining_rewards.json");
+        eprintln!("Default name: file stem (e.g. token.json -> token)");
         std::process::exit(1);
     }
 
     let output_path = &args[1];
     let inputs = &args[2..];
 
-    let mut deploy_contracts = Vec::new();
+    let mut contract_objects = Vec::new();
 
     for (i, input_arg) in inputs.iter().enumerate() {
-        // Parse "path:deployer_hex" or just "path"
-        let (input_path, deployer_hex) = if let Some(colon) = input_arg.find(':') {
-            (&input_arg[..colon], &input_arg[colon + 1..])
-        } else {
-            (input_arg.as_str(), DEFAULT_DEPLOYER)
+        // Parse "path:deployer_hex:name" or "path:deployer_hex" or just "path"
+        let parts: Vec<&str> = input_arg.split(':').collect();
+        let input_path = parts[0];
+
+        let (deployer_hex, name) = match parts.len() {
+            1 => (DEFAULT_DEPLOYER, get_file_stem(input_path)),
+            2 => (parts[1], get_file_stem(input_path)),
+            3 => (parts[1], parts[2].to_string()),
+            _ => {
+                anyhow::bail!("Invalid input format: {}. Use path:deployer_hex:name", input_arg);
+            }
         };
 
         let deployer = QHashOut::from_str(deployer_hex)
@@ -61,33 +77,29 @@ fn main() -> anyhow::Result<()> {
             gen_contract_deploy_and_circuits_for_functions::<C, D>(deployer, DEFAULT_STATE_TREE_HEIGHT, &defs)?;
 
         println!(
-            "[{}] contract={} functions={} whitelist={} deployer={}",
+            "[{}] contract={} name={} functions={} whitelist={} deployer={}",
             i,
             input_path,
+            name,
             defs.len(),
             deploy_contract.function_whitelist.len(),
             deployer_hex
         );
-        deploy_contracts.push(deploy_contract);
+
+        // Serialize deploy_contract and wrap with name
+        let mut contract_json: serde_json::Value = serde_json::to_value(&deploy_contract)?;
+        contract_json["name"] = serde_json::json!(name);
+
+        contract_objects.push(contract_json);
     }
 
-    // Keep output as valid JSON array while making each contract object occupy
-    // exactly one line for easier review and diff.
-    let mut output_json = String::from("[\n");
-    for (i, deploy_contract) in deploy_contracts.iter().enumerate() {
-        output_json.push_str("  ");
-        output_json.push_str(&serde_json::to_string(deploy_contract)?);
-        if i + 1 != deploy_contracts.len() {
-            output_json.push(',');
-        }
-        output_json.push('\n');
-    }
-    output_json.push(']');
+    // Output as valid JSON array
+    let output_json = serde_json::to_string_pretty(&contract_objects)?;
     fs::write(output_path, &output_json)
         .map_err(|e| anyhow::anyhow!("Failed to write {}: {}", output_path, e))?;
 
     println!();
-    println!("Written {} contract(s) to {}", deploy_contracts.len(), output_path);
+    println!("Written {} contract(s) to {}", contract_objects.len(), output_path);
 
     Ok(())
 }
