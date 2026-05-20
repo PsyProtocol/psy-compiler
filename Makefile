@@ -133,10 +133,10 @@ update-snapshots:
 	@cargo insta review
 
 wasm-node:
-	@wasm-pack build psy-wasm --target nodejs --profile ${PROFILE} --out-dir pkg-node
+	@wasm-pack build psy-wasm --target nodejs --${PROFILE} --out-dir pkg-node
 
 wasm-web:
-	@wasm-pack build psy-wasm --target web --profile ${PROFILE} --out-dir pkg-web
+	@wasm-pack build psy-wasm --target web --${PROFILE} --out-dir pkg-web
 
 wasm: wasm-node wasm-web
 
