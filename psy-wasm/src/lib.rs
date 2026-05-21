@@ -5,7 +5,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use psy_abi::{AbiExtractor, ContractCompatAbi};
+use psy_abi::{AbiExtractor, ContractCompatAbi, SpecCompliantAbi};
 use psy_common::Graph;
 use psy_package::{resolve_source_workspace, MemoryResolver, PackageId, PackageSources, RelativeFilePath, VfsPath};
 use psy_vm::dpn::{
@@ -27,6 +27,7 @@ struct JsCompileResult {
     compile_results: Option<serde_json::Value>,
     contract_code: Option<serde_json::Value>,
     abi: Option<serde_json::Value>,
+    spec_abi: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -212,6 +213,7 @@ pub fn compile_project(files_json: &str) -> String {
                     compile_results: None,
                     contract_code: None,
                     abi: None,
+                    spec_abi: None,
                 }),
             }
         }
@@ -223,6 +225,7 @@ pub fn compile_project(files_json: &str) -> String {
             compile_results: None,
             contract_code: None,
             abi: None,
+            spec_abi: None,
         }),
     }
 }
@@ -269,6 +272,7 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
+                spec_abi: None,
             });
         }
     };
@@ -308,6 +312,7 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
+                spec_abi: None,
             });
         }
     };
@@ -322,6 +327,7 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
+                spec_abi: None,
             });
         }
         method_names
@@ -364,6 +370,7 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
+                spec_abi: None,
             });
         }
     };
@@ -392,6 +399,7 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                         compile_results: None,
                         contract_code: None,
                         abi: None,
+                        spec_abi: None,
                     });
                 }
             };
@@ -415,6 +423,11 @@ pub fn compile_dargo_project(project_json: &str) -> String {
             let abi_value = abi
                 .as_ref()
                 .and_then(|abi| serde_json::to_value(abi).map_err(|error| tracing::warn!("ABI serialization failed: {error}")).ok());
+            let spec_abi_value = extract_spec_abi(&mut result).ok().and_then(|abi| {
+                serde_json::to_value(abi)
+                    .map_err(|error| tracing::warn!("Spec ABI serialization failed: {error}"))
+                    .ok()
+            });
 
             if let Some(abi) = abi.clone() {
                 cache_compile(CachedCompile {
@@ -432,6 +445,7 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: Some(compile_results),
                 contract_code,
                 abi: abi_value,
+                spec_abi: spec_abi_value,
             })
         }
         Err(error) => {
@@ -444,6 +458,7 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
+                spec_abi: None,
             })
         }
     }
@@ -1014,6 +1029,7 @@ fn compile_vfs_project_with_contract(
                         compile_results: None,
                         contract_code: None,
                         abi: None,
+                        spec_abi: None,
                     });
                 }
             };
@@ -1038,6 +1054,11 @@ fn compile_vfs_project_with_contract(
             let abi_value = abi
                 .as_ref()
                 .and_then(|abi| serde_json::to_value(abi).map_err(|error| tracing::warn!("ABI serialization failed: {error}")).ok());
+            let spec_abi_value = extract_spec_abi(&mut result).ok().and_then(|abi| {
+                serde_json::to_value(abi)
+                    .map_err(|error| tracing::warn!("Spec ABI serialization failed: {error}"))
+                    .ok()
+            });
 
             if let Some(abi) = abi.clone() {
                 cache_compile(CachedCompile {
@@ -1055,6 +1076,7 @@ fn compile_vfs_project_with_contract(
                 compile_results: Some(compile_results),
                 contract_code,
                 abi: abi_value,
+                spec_abi: spec_abi_value,
             })
         }
         Err(error) => {
@@ -1067,6 +1089,7 @@ fn compile_vfs_project_with_contract(
                 compile_results: None,
                 contract_code: None,
                 abi: None,
+                spec_abi: None,
             })
         }
     }
@@ -1261,6 +1284,12 @@ fn extract_contract_abi(
         .collect::<HashMap<_, _>>();
     AbiExtractor::new("contract".to_string())
         .extract_contract_abi(program, state_tree_height, &method_metadata)
+        .map_err(|error| error.to_string())
+}
+
+fn extract_spec_abi(result: &mut psy_interpreter::InterpretResult) -> Result<SpecCompliantAbi, String> {
+    AbiExtractor::new("contract".to_string())
+        .extract_spec_compliant_abi(&mut result.ctx.program)
         .map_err(|error| error.to_string())
 }
 
@@ -1510,6 +1539,7 @@ mod tests {
         compile_results: Option<Vec<serde_json::Value>>,
         contract_code: Option<serde_json::Value>,
         abi: Option<serde_json::Value>,
+        spec_abi: Option<serde_json::Value>,
     }
 
     fn parse_result(json: &str) -> TestCompileResult {
