@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 use psy_ast::{DefId, DefaultVisitorContext, FunctionNode, Program, StructNode, UncheckedType, Visibility, VisitorContext};
 
@@ -29,15 +32,36 @@ impl AbiExtractor {
     }
 
     pub fn extract_spec_compliant_abi<F: Clone + From<u32>>(self, program: &mut Program<F>) -> Result<SpecCompliantAbi, psy_common::Error> {
+        self.extract_spec_compliant_abi_with_package_root(program, None)
+    }
+
+    pub fn extract_spec_compliant_abi_for_package_root<F: Clone + From<u32>>(
+        self,
+        program: &mut Program<F>,
+        package_root: &Path,
+    ) -> Result<SpecCompliantAbi, psy_common::Error> {
+        self.extract_spec_compliant_abi_with_package_root(program, Some(package_root))
+    }
+
+    fn extract_spec_compliant_abi_with_package_root<F: Clone + From<u32>>(
+        self,
+        program: &mut Program<F>,
+        package_root: Option<&Path>,
+    ) -> Result<SpecCompliantAbi, psy_common::Error> {
         let ctx = DefaultVisitorContext::<F, ()>::new(program);
         let mut spec_abi = SpecCompliantAbi::new("1.0.0".to_string());
+        let included_defs = package_root.map(|package_root| self.collect_package_def_ids(&ctx, package_root));
 
-        // First pass: collect all struct information
-        let mut struct_map = std::collections::HashMap::new();
+        let struct_defs = self.collect_struct_def_ids(&ctx);
+        let mut struct_map = HashMap::new();
+        let mut pending_dependency_types = Vec::new();
 
-        // Collect all structs by iterating through all definitions in the arena
+        // Collect package structs first. These keep their associated functions.
         for i in 0..ctx.program().defs.len() {
             let def_id = DefId::from(i);
+            if included_defs.as_ref().is_some_and(|defs| !defs.contains(&def_id)) {
+                continue;
+            }
             if let Some(struct_node) = ctx.definition(def_id).as_struct() {
                 let struct_name = ctx.ident(struct_node.name).0.to_string();
 
@@ -46,37 +70,32 @@ impl AbiExtractor {
                     continue;
                 }
 
-                let is_contract = self.has_contract_attr(struct_node, &ctx);
-                let _is_public = Self::is_public(&struct_node.visibility);
-
-                // Include all structs (both public and private)
-                // We'll let the user decide what should be in ABI
-                let fields = struct_node
-                    .fields
-                    .iter()
-                    .filter(|(_, field)| Self::is_public(&field.visibility))
-                    .map(|(name, field)| FieldAbiSpec {
-                        name: ctx.ident(*name).0.to_string(),
-                        field_type: TypeAbiSpec::from_unchecked_type(&field.ty, &ctx),
-                    })
-                    .collect();
-
-                let mut struct_spec = StructAbiSpec {
-                    name: struct_name.clone(),
-                    is_contract,
-                    fields,
-                    functions: None,
-                };
-
-                // Find associated functions (only for contracts or when functions are
-                // explicitly associated)
-                let functions = self.find_impl_functions(&struct_name, &ctx);
-                if !functions.is_empty() {
-                    struct_spec.functions = Some(functions);
-                }
-
+                pending_dependency_types.extend(self.collect_referenced_type_names_from_struct(struct_node, &ctx));
+                pending_dependency_types.extend(self.collect_referenced_type_names_from_impl_functions(&struct_name, &ctx, included_defs.as_ref()));
+                let struct_spec = self.extract_struct_abi_spec(struct_node, &ctx, true, true, included_defs.as_ref());
                 struct_map.insert(struct_name, struct_spec);
             }
+        }
+
+        // Add external structs that are needed to resolve package struct fields
+        // and method params. These are data-only definitions: no external
+        // package functions are exported into this ABI.
+        while let Some(type_name) = pending_dependency_types.pop() {
+            if struct_map.contains_key(&type_name) || self.is_internal_type(&type_name) {
+                continue;
+            }
+            let Some(def_id) = struct_defs.get(&type_name).copied() else {
+                continue;
+            };
+            if included_defs.as_ref().is_some_and(|defs| defs.contains(&def_id)) {
+                continue;
+            }
+            let Some(struct_node) = ctx.definition(def_id).as_struct() else {
+                continue;
+            };
+
+            pending_dependency_types.extend(self.collect_referenced_type_names_from_struct(struct_node, &ctx));
+            struct_map.insert(type_name, self.extract_struct_abi_spec(struct_node, &ctx, false, false, included_defs.as_ref()));
         }
 
         // Add all structs to the ABI
@@ -88,6 +107,153 @@ impl AbiExtractor {
         self.inject_builtin_types(&mut spec_abi);
 
         Ok(spec_abi)
+    }
+
+    fn collect_struct_def_ids<F: Clone + From<u32>>(&self, ctx: &DefaultVisitorContext<F, ()>) -> HashMap<String, DefId> {
+        let mut structs = HashMap::new();
+        for i in 0..ctx.program().defs.len() {
+            let def_id = DefId::from(i);
+            if let Some(struct_node) = ctx.definition(def_id).as_struct() {
+                let struct_name = ctx.ident(struct_node.name).0.to_string();
+                if !self.is_internal_type(&struct_name) {
+                    structs.insert(struct_name, def_id);
+                }
+            }
+        }
+        structs
+    }
+
+    fn extract_struct_abi_spec<F: Clone + From<u32>>(
+        &self,
+        struct_node: &StructNode,
+        ctx: &DefaultVisitorContext<F, ()>,
+        is_contract: bool,
+        include_functions: bool,
+        included_defs: Option<&HashSet<DefId>>,
+    ) -> StructAbiSpec {
+        let struct_name = ctx.ident(struct_node.name).0.to_string();
+        let fields = struct_node
+            .fields
+            .iter()
+            .filter(|(_, field)| Self::is_public(&field.visibility))
+            .map(|(name, field)| FieldAbiSpec {
+                name: ctx.ident(*name).0.to_string(),
+                field_type: TypeAbiSpec::from_unchecked_type(&field.ty, ctx),
+            })
+            .collect();
+
+        let functions = if include_functions {
+            let functions = self.find_impl_functions(&struct_name, ctx, included_defs);
+            (!functions.is_empty()).then_some(functions)
+        } else {
+            None
+        };
+
+        StructAbiSpec {
+            name: struct_name,
+            is_contract: is_contract && self.has_contract_attr(struct_node, ctx),
+            fields,
+            functions,
+        }
+    }
+
+    fn collect_referenced_type_names_from_struct<F: Clone + From<u32>>(
+        &self,
+        struct_node: &StructNode,
+        ctx: &DefaultVisitorContext<F, ()>,
+    ) -> Vec<String> {
+        let mut names = Vec::new();
+        for (_, field) in struct_node.fields.iter().filter(|(_, field)| Self::is_public(&field.visibility)) {
+            self.collect_referenced_type_names(&field.ty, ctx, &mut names);
+        }
+        names
+    }
+
+    fn collect_referenced_type_names_from_impl_functions<F: Clone + From<u32>>(
+        &self,
+        struct_name: &str,
+        ctx: &DefaultVisitorContext<F, ()>,
+        included_defs: Option<&HashSet<DefId>>,
+    ) -> Vec<String> {
+        let mut names = Vec::new();
+        for i in 0..ctx.program().defs.len() {
+            let def_id = DefId::from(i);
+            if included_defs.is_some_and(|defs| !defs.contains(&def_id)) {
+                continue;
+            }
+            let Some(impl_node) = ctx.definition(def_id).as_impl() else {
+                continue;
+            };
+            let impl_type_name = self.extract_type_name(&impl_node.ty, ctx);
+            if impl_type_name != struct_name && impl_type_name != format!("{struct_name}Ref") {
+                continue;
+            }
+            for &function_def_id in &impl_node.body {
+                let Some(function) = ctx.definition(function_def_id).as_function() else {
+                    continue;
+                };
+                let function_name = ctx.ident(function.name).0.to_string();
+                if !Self::is_public(&function.visibility) || self.is_internal_function(&function_name) {
+                    continue;
+                }
+                for param in &function.parameters {
+                    self.collect_referenced_type_names(&param.ty, ctx, &mut names);
+                }
+                if let Some(return_type) = &function.return_type {
+                    self.collect_referenced_type_names(return_type, ctx, &mut names);
+                }
+            }
+        }
+        names
+    }
+
+    fn collect_referenced_type_names<F: Clone + From<u32>>(&self, ty: &UncheckedType, ctx: &DefaultVisitorContext<F, ()>, names: &mut Vec<String>) {
+        match ty {
+            UncheckedType::Basic(identifier) => names.push(ctx.ident(*identifier).0.to_string()),
+            UncheckedType::Generic(identifier, generics, _) => {
+                names.push(ctx.ident(*identifier).0.to_string());
+                for generic in generics {
+                    self.collect_referenced_type_names(generic, ctx, names);
+                }
+            }
+            UncheckedType::Array(inner, _, _) => self.collect_referenced_type_names(inner, ctx, names),
+            UncheckedType::Tuple(items, _) => {
+                for item in items {
+                    self.collect_referenced_type_names(item, ctx, names);
+                }
+            }
+            UncheckedType::FunctionSignature(signature, _) => {
+                for parameter in &signature.parameters {
+                    self.collect_referenced_type_names(parameter, ctx, names);
+                }
+                if let Some(return_type) = &signature.return_type {
+                    self.collect_referenced_type_names(return_type, ctx, names);
+                }
+            }
+            UncheckedType::Path(path) => self.collect_referenced_type_names(&path.target, ctx, names),
+            UncheckedType::TraitCast(inner, trait_ty, _) => {
+                self.collect_referenced_type_names(inner, ctx, names);
+                self.collect_referenced_type_names(trait_ty, ctx, names);
+            }
+            UncheckedType::Const(_, _) | UncheckedType::Unknown => {}
+        }
+    }
+
+    fn collect_package_def_ids<F: Clone + From<u32>>(&self, ctx: &DefaultVisitorContext<F, ()>, package_root: &Path) -> HashSet<DefId> {
+        let package_root = normalize_path_for_prefix(package_root);
+        let mut defs = HashSet::new();
+
+        for module in ctx.program().modules.iter() {
+            let Some(module_path) = ctx.program().file_resolver.resolve_path(&module.data().file_id) else {
+                continue;
+            };
+            let module_path = normalize_path_for_prefix(module_path);
+            if module_path.starts_with(&package_root) {
+                defs.extend(module.data().definitions.iter().copied());
+            }
+        }
+
+        defs
     }
 
     pub fn extract_contract_abi<F: Clone + From<u32>>(
@@ -150,12 +316,20 @@ impl AbiExtractor {
         })
     }
 
-    fn find_impl_functions<F: Clone + From<u32>>(&self, struct_name: &str, ctx: &DefaultVisitorContext<F, ()>) -> Vec<FunctionAbiSpec> {
+    fn find_impl_functions<F: Clone + From<u32>>(
+        &self,
+        struct_name: &str,
+        ctx: &DefaultVisitorContext<F, ()>,
+        included_defs: Option<&HashSet<DefId>>,
+    ) -> Vec<FunctionAbiSpec> {
         let mut functions = Vec::new();
 
         // Look for impl blocks that implement this struct
         for i in 0..ctx.program().defs.len() {
             let def_id = DefId::from(i);
+            if included_defs.is_some_and(|defs| !defs.contains(&def_id)) {
+                continue;
+            }
             if let Some(impl_node) = ctx.definition(def_id).as_impl() {
                 // Check if this impl is for our target struct or its Ref version
                 let impl_type_name = self.extract_type_name(&impl_node.ty, ctx);
@@ -224,9 +398,7 @@ impl AbiExtractor {
     }
 
     fn type_is_used_in_abi(&self, type_name: &str, spec_abi: &SpecCompliantAbi) -> bool {
-        let check_type = |t: &TypeAbiSpec| -> bool {
-            matches!(t, TypeAbiSpec::Basic(n) if n == type_name)
-        };
+        let check_type = |t: &TypeAbiSpec| -> bool { matches!(t, TypeAbiSpec::Basic(n) if n == type_name) };
 
         for s in &spec_abi.structs {
             for f in &s.fields {
@@ -314,10 +486,7 @@ impl AbiExtractor {
             offset += felt_size;
         }
 
-        let layout = CompatStructLayout {
-            felt_size: offset,
-            fields,
-        };
+        let layout = CompatStructLayout { felt_size: offset, fields };
         layouts.insert(name.to_string(), layout.clone());
         layout
     }
@@ -453,7 +622,17 @@ impl AbiExtractor {
         ty: &UncheckedType,
         struct_nodes: &HashMap<String, &StructNode>,
         struct_layouts: &HashMap<String, CompatStructLayout>,
-    ) -> (usize, bool, Option<usize>, Option<String>, Option<usize>, bool, Option<String>, Option<String>, Option<usize>) {
+    ) -> (
+        usize,
+        bool,
+        Option<usize>,
+        Option<String>,
+        Option<usize>,
+        bool,
+        Option<String>,
+        Option<String>,
+        Option<usize>,
+    ) {
         let mut layouts = struct_layouts.clone();
         if let Some((key_type, value_type, capacity)) = self.extract_imt_map_info(ctx, ty) {
             return (
@@ -520,13 +699,9 @@ impl AbiExtractor {
             return None;
         }
 
-        struct_layouts.get(&struct_name).and_then(|layout| {
-            if layout.fields.is_empty() {
-                None
-            } else {
-                Some(layout.fields.clone())
-            }
-        })
+        struct_layouts
+            .get(&struct_name)
+            .and_then(|layout| if layout.fields.is_empty() { None } else { Some(layout.fields.clone()) })
     }
 
     fn felt_size_for_type<F: Clone + From<u32>>(
@@ -543,13 +718,8 @@ impl AbiExtractor {
         match ty {
             UncheckedType::Basic(identifier) => self.felt_size_for_named_type(ctx.ident(*identifier).0.as_str(), struct_nodes, layouts, ctx),
             UncheckedType::Path(path) => self.felt_size_for_type(ctx, &path.target, struct_nodes, layouts),
-            UncheckedType::Array(inner, size, _) => self
-                .felt_size_for_type(ctx, inner, struct_nodes, layouts)
-                .saturating_mul(*size as usize),
-            UncheckedType::Tuple(items, _) => items
-                .iter()
-                .map(|item| self.felt_size_for_type(ctx, item, struct_nodes, layouts))
-                .sum(),
+            UncheckedType::Array(inner, size, _) => self.felt_size_for_type(ctx, inner, struct_nodes, layouts).saturating_mul(*size as usize),
+            UncheckedType::Tuple(items, _) => items.iter().map(|item| self.felt_size_for_type(ctx, item, struct_nodes, layouts)).sum(),
             UncheckedType::Generic(identifier, _, _) => self.felt_size_for_named_type(ctx.ident(*identifier).0.as_str(), struct_nodes, layouts, ctx),
             _ => 0,
         }
@@ -570,11 +740,7 @@ impl AbiExtractor {
         }
     }
 
-    fn extract_imt_map_info<F: Clone + From<u32>>(
-        &self,
-        ctx: &DefaultVisitorContext<F, ()>,
-        ty: &UncheckedType,
-    ) -> Option<(String, String, usize)> {
+    fn extract_imt_map_info<F: Clone + From<u32>>(&self, ctx: &DefaultVisitorContext<F, ()>, ty: &UncheckedType) -> Option<(String, String, usize)> {
         let UncheckedType::Generic(identifier, generics, _) = ty else {
             return None;
         };
@@ -637,6 +803,10 @@ impl AbiExtractor {
             UncheckedType::Unknown => "unknown".to_string(),
         }
     }
+}
+
+fn normalize_path_for_prefix(path: &Path) -> std::path::PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
 #[cfg(test)]
