@@ -34,12 +34,14 @@ fn get_file_stem(path: &str) -> String {
 }
 
 fn main() -> anyhow::Result<()> {
+    let compact = env_flag_enabled("GEN_DEPLOY_JSON_COMPACT");
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 2 {
+    if args.len() < 3 {
         eprintln!("Usage: gen_deploy_json <output.json> <input1.json>[:<deployer_hex>[:<name>]] [<input2.json>[:<deployer_hex>[:<name>]]] ...");
         eprintln!();
         eprintln!("Each input can optionally specify deployer and name as: path:deployer_hex:name");
+        eprintln!("Set GEN_DEPLOY_JSON_COMPACT=1 to write compact JSON");
         eprintln!("Default deployer: {}", DEFAULT_DEPLOYER);
         eprintln!("Default name: file stem (e.g. token.json -> token)");
         std::process::exit(1);
@@ -93,8 +95,21 @@ fn main() -> anyhow::Result<()> {
         contract_objects.push(contract_json);
     }
 
-    // Output as valid JSON array
-    let output_json = serde_json::to_string_pretty(&contract_objects)?;
+    let output_json = if compact {
+        let mut output_json = String::from("[\n");
+        for (i, deploy_contract) in contract_objects.iter().enumerate() {
+            output_json.push_str("  ");
+            output_json.push_str(&serde_json::to_string(deploy_contract)?);
+            if i + 1 != contract_objects.len() {
+                output_json.push(',');
+            }
+            output_json.push('\n');
+        }
+        output_json.push(']');
+        output_json
+    } else {
+        serde_json::to_string_pretty(&contract_objects)?
+    };
     fs::write(output_path, &output_json)
         .map_err(|e| anyhow::anyhow!("Failed to write {}: {}", output_path, e))?;
 
@@ -102,4 +117,10 @@ fn main() -> anyhow::Result<()> {
     println!("Written {} contract(s) to {}", contract_objects.len(), output_path);
 
     Ok(())
+}
+
+fn env_flag_enabled(name: &str) -> bool {
+    env::var(name)
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"))
+        .unwrap_or(false)
 }
