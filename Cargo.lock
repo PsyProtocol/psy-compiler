@@ -1879,6 +1879,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tokio",
+ "zstd 0.13.3",
 ]
 
 [[package]]

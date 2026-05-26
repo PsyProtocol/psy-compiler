@@ -14,9 +14,10 @@
 /// If only deployer is given (path:deployer_hex), name defaults to the file stem
 /// If neither deployer nor name is given (path), both default to their defaults
 
-use std::{env, fs, path::Path, str::FromStr};
+use std::{env, fs, io::Write, path::Path, str::FromStr};
 
 use psy_common::data::qhashout::QHashOut;
+use zstd::stream::write::Encoder;
 use psy_data::config::store_config::{C, D};
 use psy_prover::session::gen_contract_deploy_and_circuits_for_functions;
 use psy_vm::dpn::vm::def::DPNFunctionCircuitDefinition;
@@ -34,14 +35,12 @@ fn get_file_stem(path: &str) -> String {
 }
 
 fn main() -> anyhow::Result<()> {
-    let compact = env_flag_enabled("GEN_DEPLOY_JSON_COMPACT");
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 3 {
         eprintln!("Usage: gen_deploy_json <output.json> <input1.json>[:<deployer_hex>[:<name>]] [<input2.json>[:<deployer_hex>[:<name>]]] ...");
         eprintln!();
         eprintln!("Each input can optionally specify deployer and name as: path:deployer_hex:name");
-        eprintln!("Set GEN_DEPLOY_JSON_COMPACT=1 to write compact JSON");
         eprintln!("Default deployer: {}", DEFAULT_DEPLOYER);
         eprintln!("Default name: file stem (e.g. token.json -> token)");
         std::process::exit(1);
@@ -88,30 +87,68 @@ fn main() -> anyhow::Result<()> {
             deployer_hex
         );
 
-        // Serialize deploy_contract and wrap with name
-        let mut contract_json: serde_json::Value = serde_json::to_value(&deploy_contract)?;
-        contract_json["name"] = serde_json::json!(name);
+        // Serialize deploy_contract and wrap with name.
+        // Manually construct the JSON to avoid serde_json's wide format for Vec<u64>,
+        // which uses ~12 chars/val (12 spaces prefix) instead of ~3.5 chars/val.
+        let mut contract_json_str = String::from("{\n");
+        contract_json_str.push_str(&format!("    \"code_definition\": {{\n"));
+        contract_json_str.push_str(&format!("      \"state_tree_height\": {},\n", deploy_contract.code_definition.state_tree_height));
+        contract_json_str.push_str("      \"functions\": [\n");
 
-        contract_objects.push(contract_json);
+        let functions = &deploy_contract.code_definition.functions;
+        for (fi, func) in functions.iter().enumerate() {
+            contract_json_str.push_str("        {\n");
+            contract_json_str.push_str(&format!("          \"method_id\": {},\n", func.method_id));
+            contract_json_str.push_str(&format!("          \"num_inputs\": {},\n", func.num_inputs));
+            contract_json_str.push_str(&format!("          \"num_outputs\": {},\n", func.num_outputs));
+            contract_json_str.push_str(&format!("          \"vm_type\": {},\n", func.vm_type));
+
+            // Serialize code array compactly
+            let code_str = serde_json::to_string(&func.code)?;
+            contract_json_str.push_str("          \"code\": ");
+            contract_json_str.push_str(&code_str);
+            contract_json_str.push('\n');
+            contract_json_str.push_str("        }");
+            if fi + 1 != functions.len() {
+                contract_json_str.push(',');
+            }
+            contract_json_str.push('\n');
+        }
+
+        contract_json_str.push_str("      ]\n");
+        contract_json_str.push_str("    },\n");
+        contract_json_str.push_str(&format!("    \"code_root\": \"{}\",\n", deploy_contract.code_root));
+        contract_json_str.push_str(&format!("    \"deployer\": \"{}\",\n", deploy_contract.deployer));
+        contract_json_str.push_str(&format!("    \"function_whitelist\": {},\n", &serde_json::to_string(&deploy_contract.function_whitelist).unwrap()));
+        contract_json_str.push_str(&format!("    \"name\": \"{}\"\n", name));
+        contract_json_str.push('}');
+
+        contract_objects.push(contract_json_str);
     }
 
-    let output_json = if compact {
-        let mut output_json = String::from("[\n");
-        for (i, deploy_contract) in contract_objects.iter().enumerate() {
-            output_json.push_str("  ");
-            output_json.push_str(&serde_json::to_string(deploy_contract)?);
-            if i + 1 != contract_objects.len() {
-                output_json.push(',');
-            }
-            output_json.push('\n');
+    let mut output_json = String::from("[\n");
+    for (i, json_str) in contract_objects.iter().enumerate() {
+        output_json.push_str("  ");
+        output_json.push_str(json_str);
+        if i + 1 != contract_objects.len() {
+            output_json.push(',');
         }
-        output_json.push(']');
-        output_json
-    } else {
-        serde_json::to_string_pretty(&contract_objects)?
-    };
-    fs::write(output_path, &output_json)
+        output_json.push('\n');
+    }
+    output_json.push(']');
+    // Write as zstd-compressed JSON
+    let mut encoder = Encoder::new(
+        fs::File::create(output_path)
+            .map_err(|e| anyhow::anyhow!("Failed to create {}: {}", output_path, e))?,
+        9, // max compression
+    )
+    .map_err(|e| anyhow::anyhow!("Failed to create zstd encoder: {}", e))?;
+    encoder
+        .write_all(output_json.as_bytes())
         .map_err(|e| anyhow::anyhow!("Failed to write {}: {}", output_path, e))?;
+    encoder
+        .finish()
+        .map_err(|e| anyhow::anyhow!("Failed to finish zstd: {}", e))?;
 
     println!();
     println!("Written {} contract(s) to {}", contract_objects.len(), output_path);
@@ -119,8 +156,4 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn env_flag_enabled(name: &str) -> bool {
-    env::var(name)
-        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"))
-        .unwrap_or(false)
-}
+
