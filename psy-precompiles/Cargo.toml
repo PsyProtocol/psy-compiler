@@ -10,6 +10,8 @@ repository.workspace = true
 serde_json = { workspace = true }
 psy_vm = { workspace = true }
 tiny-keccak = { workspace = true }
+anyhow = { workspace = true }
+zstd = { workspace = true }
 
 [build-dependencies]
 serde_json = { workspace = true }
@@ -23,3 +25,7 @@ minijinja = { workspace = true }
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "replace_contract"
+path = "src/bin/replace_contract.rs"

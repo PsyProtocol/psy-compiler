@@ -164,7 +164,7 @@ compile-token-abi:
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c token.abi
 
 compile-withdrawal-tree-contract:
-	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyWithdrawalTreeContractRef --method-names get_root get_next_index get_chain_root get_chain_next_index append_leaf append_withdrawal
+	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyWithdrawalTreeContractRef --method-names get_root get_next_index get_chain_root get_chain_next_index append_leaf append_withdrawal batch_append_withdrawals_32
 
 compile-withdrawal-tree-abi:
 	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c withdrawal_tree.abi
