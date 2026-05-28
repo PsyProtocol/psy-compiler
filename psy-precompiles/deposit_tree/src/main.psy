@@ -228,13 +228,13 @@ impl PsyDepositTreeContractRef {
     }
 
     #[contract_method]
-    pub fn batch_append_deposits_32(chain_index: Felt, count: Felt, leaf_data: [u32; 256]) {
+    pub fn batch_append_deposits_8(chain_index: Felt, count: Felt, leaf_data: [u32; 64]) {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         assert(chain_index < 256, "chain index out of range");
         assert(count > 0, "empty deposit batch");
-        assert(count <= 32, "deposit batch exceeds max size (32)");
+        assert(count <= 8, "deposit batch exceeds max size (8)");
         let mut i: Felt = 0;
-        while i < 32 {
+        while i < 8 {
             let offset = i * 8;
             let o0 = offset;
             let o1 = offset + 1;
@@ -284,14 +284,14 @@ impl PsyDepositTreeContractRef {
             c.next_index = c.chain_counts[0].get();
         };
 
-        // let event_data = new DepositLeafAppended {
-        //     chain_index,
-        //     index: idx,
-        //     leaf,
-        //     new_chain_root,
-        //     new_global_root,
-        // };
-        // event_data.emit();
+        let event_data = new DepositLeafAppended {
+            chain_index,
+            index: idx,
+            leaf,
+            new_chain_root,
+            new_global_root,
+        };
+        event_data.emit();
     }
 
     #[contract_method]

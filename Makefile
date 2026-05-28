@@ -164,13 +164,13 @@ compile-token-abi:
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c token.abi
 
 compile-withdrawal-tree-contract:
-	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyWithdrawalTreeContractRef --method-names get_root get_next_index get_chain_root get_chain_next_index append_leaf append_withdrawal batch_append_withdrawals_32
+	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyWithdrawalTreeContractRef --method-names get_root get_next_index get_chain_root get_chain_next_index append_leaf append_withdrawal batch_append_withdrawals_8
 
 compile-withdrawal-tree-abi:
 	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c withdrawal_tree.abi
 
 compile-deposit-tree-contract:
-	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyDepositTreeContractRef --method-names get_root get_next_index get_chain_root get_chain_next_index append_leaf append_deposit is_known_root is_known_root_hash
+	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyDepositTreeContractRef --method-names get_root get_next_index get_chain_root get_chain_next_index append_leaf append_deposit batch_append_deposits_8 is_known_root is_known_root_hash
 
 compile-deposit-tree-abi:
 	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c deposit_tree.abi

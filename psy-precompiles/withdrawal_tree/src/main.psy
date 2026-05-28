@@ -318,16 +318,16 @@ impl PsyWithdrawalTreeContractRef {
     }
 
     #[contract_method]
-    pub fn batch_append_withdrawals_32(chain_index: Felt, count: Felt, leaf_data: [u32; 256]) {
+    pub fn batch_append_withdrawals_8(chain_index: Felt, count: Felt, leaf_data: [u32; 64]) {
         assert(chain_index < 256, "destination chain id out of range");
         assert(count > 0, "empty withdrawal batch");
-        assert(count <= 32, "withdrawal batch exceeds max size (32)");
+        assert(count <= 8, "withdrawal batch exceeds max size (8)");
 
-        // Loop over all 32 slots. For each real leaf (i < count) we append
-        // and emit the event inside the if block (now supported by the VM).
+        // Loop over all 8 slots. For each real leaf (i < count) we append
+        // and emit the event inside the if block.
         // Padding slots just verify the leaf is zero — no event emitted.
         let mut i: Felt = 0;
-        while i < 32 {
+        while i < 8 {
             let offset = i * 8;
             let o0 = offset;
             let o1 = offset + 1;

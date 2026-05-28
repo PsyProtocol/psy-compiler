@@ -43,7 +43,7 @@
         "is_known_root",
         "append_leaf",
         "append_deposit",
-        "batch_append_deposits_32"
+        "batch_append_deposits_8"
       ]
     },
     {
@@ -57,7 +57,7 @@
         "get_chain_next_index",
         "append_leaf",
         "append_withdrawal",
-        "batch_append_withdrawals_32"
+        "batch_append_withdrawals_8"
       ]
     },
     {
