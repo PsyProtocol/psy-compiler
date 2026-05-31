@@ -300,10 +300,10 @@ impl USDTTokenContractRef {
             preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
         ]);
         let shield_claim_fingerprint: Hash = [
-            9035274454396793746,
-            3283101489055486651,
-            5463948716196243646,
-            10960400114419786825
+            2384554149239758544,
+            12282191495878062307,
+            13802386249367518406,
+            2640605322796808168
         ];
         let leaf: Hash = hash_two_to_one(shield_claim_fingerprint, public_inputs_hash);
         let mut current: Hash = leaf;
