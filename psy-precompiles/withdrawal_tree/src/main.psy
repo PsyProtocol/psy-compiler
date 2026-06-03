@@ -22,7 +22,6 @@ pub struct PsyWithdrawalTreeContract {
 
     pub agg_tree: [[u32; 8]; 512],
 
-    pub processed_nullifiers: Map<Hash, Hash, 1048576u32>,
 }
 
 impl PsyWithdrawalTreeContractRef {
@@ -182,27 +181,10 @@ impl PsyWithdrawalTreeContractRef {
         Self::u32x8_to_hash(global_root)
     }
 
-    fn nullifier_from_leaf(leaf: [u32; 8]) -> Hash {
-        hash([
-            leaf[0] as Felt,
-            leaf[1] as Felt,
-            leaf[2] as Felt,
-            leaf[3] as Felt,
-            leaf[4] as Felt,
-            leaf[5] as Felt,
-            leaf[6] as Felt,
-            leaf[7] as Felt,
-        ])
-    }
-
     fn append_leaf_to_chain(chain_index: Felt, leaf: [u32; 8]) -> (Felt, [u32; 8]) {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         assert(chain_index < 256, "destination chain id out of range");
         assert(Self::is_zero_u32x8(leaf) == false, "withdrawal leaf is zero");
-
-        let nullifier = Self::nullifier_from_leaf(leaf);
-        assert(c.processed_nullifiers.contains(nullifier) == false, "already processed");
-        c.processed_nullifiers.insert(nullifier, [1, 0, 0, 0]);
 
         let idx = c.chain_counts[chain_index].get();
         let new_chain_root_hash = Self::append_to_chain_hash(chain_index, Self::u32x8_to_hash(leaf));
