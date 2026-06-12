@@ -224,6 +224,8 @@ impl USDTTokenContractRef {
 
         c.balance = current_balance - amount_felt;
 
+        assert(destination_chain_index < 256, "destination chain index out of range (0-255)");
+
         let leaf_hash: [u32; 8] = Self::hash_to_u32x8(hash([
             recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
             recipient[4] as Felt, recipient[5] as Felt, recipient[6] as Felt, recipient[7] as Felt,

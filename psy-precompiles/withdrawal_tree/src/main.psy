@@ -108,8 +108,6 @@ impl PsyWithdrawalTreeContractRef {
         chain_index * 32 + level
     }
 
-
-
     fn append_to_chain_hash(chain_index: Felt, leaf_hash: Hash) -> Hash {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         let idx = c.chain_counts[chain_index].get();
@@ -165,7 +163,6 @@ impl PsyWithdrawalTreeContractRef {
 
     fn append_leaf_to_chain(chain_index: Felt, leaf: [u32; 8]) -> (Felt, [u32; 8]) {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
-        assert(chain_index < 256, "destination chain id out of range");
         assert(Self::is_zero_u32x8(leaf) == false, "withdrawal leaf is zero");
 
         let idx = c.chain_counts[chain_index].get();
@@ -231,7 +228,6 @@ impl PsyWithdrawalTreeContractRef {
         nonce: Felt
     ) {
         assert((nonce >> 32) == 0, "withdrawal nonce out of uint32 range");
-        assert((destination_chain_index >> 32) == 0, "destination chain id out of uint32 range");
         let nonce_u32: u32 = nonce as u32;
         let destination_chain_index_u32: u32 = destination_chain_index as u32;
         let leaf_hash_hash: Hash = hash([
