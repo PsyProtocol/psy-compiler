@@ -26,6 +26,16 @@ pub struct PsyWithdrawalTreeContract {
 }
 
 impl PsyWithdrawalTreeContractRef {
+    fn is_zero_u32x8(x: [u32; 8]) -> bool {
+        x[0] == 0u32
+            && x[1] == 0u32
+            && x[2] == 0u32
+            && x[3] == 0u32
+            && x[4] == 0u32
+            && x[5] == 0u32
+            && x[6] == 0u32
+            && x[7] == 0u32
+    }
     fn felt_u64_to_u32x2(x: Felt) -> [u32; 2] {
         let bits = __split_bits(x, 64);
 
@@ -172,6 +182,37 @@ impl PsyWithdrawalTreeContractRef {
         Self::u32x8_to_hash(global_root)
     }
 
+    fn nullifier_from_leaf(leaf: [u32; 8]) -> Hash {
+        hash([
+            leaf[0] as Felt,
+            leaf[1] as Felt,
+            leaf[2] as Felt,
+            leaf[3] as Felt,
+            leaf[4] as Felt,
+            leaf[5] as Felt,
+            leaf[6] as Felt,
+            leaf[7] as Felt,
+        ])
+    }
+
+    fn append_leaf_to_chain(chain_index: Felt, leaf: [u32; 8]) -> (Felt, [u32; 8]) {
+        let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
+        assert(chain_index < 256, "destination chain id out of range");
+        assert(Self::is_zero_u32x8(leaf) == false, "withdrawal leaf is zero");
+
+        let nullifier = Self::nullifier_from_leaf(leaf);
+        assert(c.processed_nullifiers.contains(nullifier) == false, "already processed");
+        c.processed_nullifiers.insert(nullifier, [1, 0, 0, 0]);
+
+        let idx = c.chain_counts[chain_index].get();
+        let new_chain_root_hash = Self::append_to_chain_hash(chain_index, Self::u32x8_to_hash(leaf));
+        let new_chain_root = Self::hash_to_u32x8(new_chain_root_hash);
+        if chain_index == 0 {
+            c.next_index = c.chain_counts[0].get();
+        };
+        (idx, new_chain_root)
+    }
+
     #[contract_method]
     pub fn get_root() -> [u32; 8] {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
@@ -260,33 +301,12 @@ impl PsyWithdrawalTreeContractRef {
             destination_chain_index_u32 as Felt,
         ]);
         let leaf_hash: [u32; 8] = Self::hash_to_u32x8(leaf_hash_hash);
-        assert(hash(leaf_hash) != [0, 0, 0, 0], "withdrawal leaf is zero");
-
-        let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
-        let nullifier: Hash = hash([
-            leaf_hash[0] as Felt,
-            leaf_hash[1] as Felt,
-            leaf_hash[2] as Felt,
-            leaf_hash[3] as Felt,
-            leaf_hash[4] as Felt,
-            leaf_hash[5] as Felt,
-            leaf_hash[6] as Felt,
-            leaf_hash[7] as Felt,
-        ]);
-        assert(c.processed_nullifiers.contains(nullifier) == false, "already processed");
-        c.processed_nullifiers.insert(nullifier, [1, 0, 0, 0]);
-
         let chain_index = destination_chain_index;
-        assert(chain_index < 256, "destination chain id out of range");
-        let idx = c.chain_counts[chain_index].get();
-        let new_chain_root_hash = Self::append_to_chain_hash(chain_index, leaf_hash_hash);
-        let new_global_root_hash = Self::update_global_root_for_chain_hash(chain_index, new_chain_root_hash);
-        let new_chain_root = Self::hash_to_u32x8(new_chain_root_hash);
+        let append_result = Self::append_leaf_to_chain(chain_index, leaf_hash);
+        let idx = append_result.0;
+        let new_chain_root = append_result.1;
+        let new_global_root_hash = Self::update_global_root_for_chain_hash(chain_index, Self::u32x8_to_hash(new_chain_root));
         let new_global_root = Self::hash_to_u32x8(new_global_root_hash);
-        if chain_index == 0 {
-            c.next_index = c.chain_counts[0].get();
-        };
-
         let event_data = new WithdrawalLeafAppended {
             chain_index,
             index: idx,
@@ -296,4 +316,53 @@ impl PsyWithdrawalTreeContractRef {
         };
         event_data.emit();
     }
+
+    #[contract_method]
+    pub fn batch_append_withdrawals_8(chain_index: Felt, count: Felt, leaf_data: [u32; 64]) {
+        assert(chain_index < 256, "destination chain id out of range");
+        assert(count > 0, "empty withdrawal batch");
+        assert(count <= 8, "withdrawal batch exceeds max size (8)");
+
+        // Loop over all 8 slots. For each real leaf (i < count) we append
+        // and emit the event inside the if block.
+        // Padding slots just verify the leaf is zero — no event emitted.
+        let mut i: Felt = 0;
+        while i < 8 {
+            let offset = i * 8;
+            let o0 = offset;
+            let o1 = offset + 1;
+            let o2 = offset + 2;
+            let o3 = offset + 3;
+            let o4 = offset + 4;
+            let o5 = offset + 5;
+            let o6 = offset + 6;
+            let o7 = offset + 7;
+            let leaf: [u32; 8] = [
+                leaf_data[o0], leaf_data[o1], leaf_data[o2], leaf_data[o3],
+                leaf_data[o4], leaf_data[o5], leaf_data[o6], leaf_data[o7],
+            ];
+            if i < count {
+                let append_result = Self::append_leaf_to_chain(chain_index, leaf);
+                let idx = append_result.0;
+                let new_chain_root = append_result.1;
+                let new_global_root_hash = Self::update_global_root_for_chain_hash(
+                    chain_index,
+                    Self::u32x8_to_hash(new_chain_root),
+                );
+                let new_global_root = Self::hash_to_u32x8(new_global_root_hash);
+                let event_data = new WithdrawalLeafAppended {
+                    chain_index,
+                    index: idx,
+                    leaf,
+                    new_chain_root,
+                    new_global_root,
+                };
+                event_data.emit();
+            } else {
+                assert(Self::is_zero_u32x8(leaf), "non-zero dummy withdrawal leaf");
+            };
+            i += 1;
+        }
+    }
+
 }

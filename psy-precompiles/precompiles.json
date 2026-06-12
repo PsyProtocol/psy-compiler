@@ -42,7 +42,8 @@
         "is_known_root_hash",
         "is_known_root",
         "append_leaf",
-        "append_deposit"
+        "append_deposit",
+        "batch_append_deposits_8"
       ]
     },
     {
@@ -55,7 +56,8 @@
         "get_chain_root",
         "get_chain_next_index",
         "append_leaf",
-        "append_withdrawal"
+        "append_withdrawal",
+        "batch_append_withdrawals_8"
       ]
     },
     {

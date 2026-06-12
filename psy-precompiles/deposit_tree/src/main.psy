@@ -216,6 +216,57 @@ impl PsyDepositTreeContractRef {
         Self::append_deposit(chain_index, leaf)
     }
 
+    fn is_zero_u32x8(x: [u32; 8]) -> bool {
+        x[0] == 0u32
+            && x[1] == 0u32
+            && x[2] == 0u32
+            && x[3] == 0u32
+            && x[4] == 0u32
+            && x[5] == 0u32
+            && x[6] == 0u32
+            && x[7] == 0u32
+    }
+
+    #[contract_method]
+    pub fn batch_append_deposits_8(chain_index: Felt, count: Felt, leaf_data: [u32; 64]) {
+        let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
+        assert(chain_index < 256, "chain index out of range");
+        assert(count > 0, "empty deposit batch");
+        assert(count <= 8, "deposit batch exceeds max size (8)");
+        let mut i: Felt = 0;
+        while i < 8 {
+            let offset = i * 8;
+            let o0 = offset;
+            let o1 = offset + 1;
+            let o2 = offset + 2;
+            let o3 = offset + 3;
+            let o4 = offset + 4;
+            let o5 = offset + 5;
+            let o6 = offset + 6;
+            let o7 = offset + 7;
+            let leaf: [u32; 8] = [
+                leaf_data[o0], leaf_data[o1], leaf_data[o2], leaf_data[o3],
+                leaf_data[o4], leaf_data[o5], leaf_data[o6], leaf_data[o7],
+            ];
+            if i < count {
+                let leaf_hash = Self::u32x8_to_hash(leaf);
+                let new_chain_root_hash = Self::append_to_chain_hash(chain_index, leaf_hash);
+                let new_chain_root = Self::hash_to_u32x8(new_chain_root_hash);
+                let known_key = Self::known_root_key(new_chain_root);
+                c.known_roots.insert_ns(chain_index, known_key, [1, 0, 0, 0]);
+            } else {
+                assert(Self::is_zero_u32x8(leaf), "non-zero dummy deposit leaf");
+            };
+            i += 1;
+        }
+
+        let final_chain_root_hash = Self::u32x8_to_hash(c.chain_roots[chain_index].get());
+        let _new_global_root_hash = Self::update_global_root_for_chain_hash(chain_index, final_chain_root_hash);
+        if chain_index == 0 {
+            c.next_index = c.chain_counts[0].get();
+        };
+    }
+
     #[contract_method]
     pub fn append_deposit(chain_index: Felt, leaf: [u32; 8]) {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());

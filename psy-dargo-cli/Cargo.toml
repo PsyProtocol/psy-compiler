@@ -29,6 +29,7 @@ num-bigint = { workspace = true }
 kvq = { workspace = true }
 psy_prover = { workspace = true, default-features = false }
 serde_cbor = { workspace = true }
+zstd = "0.13.3"
 
 [features]
 # default = ["is_sync"]
