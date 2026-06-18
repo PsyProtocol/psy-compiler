@@ -115,7 +115,7 @@ ci:
 	@$(DARGO_CLI_EXECUTE) two_user_ups.psy --contract-name=Contract --method-names=simple_mint --method-names=simple_transfer --parameters 1000 --parameters 2,100
 	@$(DARGO_CLI_EXECUTE) check_secp_sign_test.psy
 	@$(DARGO_CLI_EXECUTE) clear_entire_tree_test.psy
-	@$(DARGO_CLI_COMPILE) imt_intrinsic_test.psy
+	@$(DARGO_CLI_TEST) tests/imt_intrinsic_test.psy
 
 	@RUST_LOG=${LOG_LEVEL} cargo test --profile ${PROFILE} \
 	       --package psy-ast \
@@ -164,13 +164,13 @@ compile-token-abi:
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c token.abi
 
 compile-withdrawal-tree-contract:
-	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyWithdrawalTreeContractRef --method-names get_root get_next_index get_chain_root get_chain_next_index append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
+	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyWithdrawalTreeContractRef --method-names get_root get_chain_root append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
 
 compile-withdrawal-tree-abi:
 	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c withdrawal_tree.abi
 
 compile-deposit-tree-contract:
-	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyDepositTreeContractRef --method-names get_root get_next_index get_chain_root get_chain_next_index append_leaf append_deposit batch_append_deposits_2 batch_append_deposits_5 is_known_root is_known_root_hash
+	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyDepositTreeContractRef --method-names get_root get_chain_root append_leaf append_deposit batch_append_deposits_2 batch_append_deposits_5 is_known_root is_known_root_hash
 
 compile-deposit-tree-abi:
 	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c deposit_tree.abi
