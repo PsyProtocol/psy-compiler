@@ -227,18 +227,8 @@ impl PsyWithdrawalTreeContractRef {
     }
 
     #[contract_method]
-    pub fn get_next_index() -> Felt {
-        Self::get_chain_count_value(0)
-    }
-
-    #[contract_method]
     pub fn get_chain_root(destination_chain_id: Felt) -> [u32; 8] {
         Self::get_chain_root_value(destination_chain_id)
-    }
-
-    #[contract_method]
-    pub fn get_chain_next_index(destination_chain_id: Felt) -> Felt {
-        Self::get_chain_count_value(destination_chain_id)
     }
 
     #[contract_method]

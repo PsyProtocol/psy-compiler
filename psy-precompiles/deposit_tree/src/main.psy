@@ -228,18 +228,8 @@ impl PsyDepositTreeContractRef {
     }
 
     #[contract_method]
-    pub fn get_next_index() -> Felt {
-        Self::get_chain_count_value(0)
-    }
-
-    #[contract_method]
     pub fn get_chain_root(chain_index: Felt) -> [u32; 8] {
         Self::get_chain_root_value(chain_index)
-    }
-
-    #[contract_method]
-    pub fn get_chain_next_index(chain_index: Felt) -> Felt {
-        Self::get_chain_count_value(chain_index)
     }
 
     #[contract_method]

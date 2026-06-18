@@ -36,9 +36,7 @@
       "contract_name": "PsyDepositTreeContractRef",
       "method_names": [
         "get_root",
-        "get_next_index",
         "get_chain_root",
-        "get_chain_next_index",
         "is_known_root_hash",
         "is_known_root",
         "set_chain_root",
@@ -54,9 +52,7 @@
       "contract_name": "PsyWithdrawalTreeContractRef",
       "method_names": [
         "get_root",
-        "get_next_index",
         "get_chain_root",
-        "get_chain_next_index",
         "set_chain_root",
         "append_leaf",
         "append_withdrawal",
