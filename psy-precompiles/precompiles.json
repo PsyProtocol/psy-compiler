@@ -36,14 +36,13 @@
       "contract_name": "PsyDepositTreeContractRef",
       "method_names": [
         "get_root",
+        "get_next_index",
         "get_chain_root",
-        "is_known_root_hash",
+        "get_chain_next_index",
         "is_known_root",
-        "set_chain_root",
+        "is_known_root_hash",
         "append_leaf",
-        "append_deposit",
-        "batch_append_deposits_2",
-        "batch_append_deposits_5"
+        "append_deposit"
       ]
     },
     {
@@ -52,12 +51,11 @@
       "contract_name": "PsyWithdrawalTreeContractRef",
       "method_names": [
         "get_root",
+        "get_next_index",
         "get_chain_root",
-        "set_chain_root",
+        "get_chain_next_index",
         "append_leaf",
-        "append_withdrawal",
-        "batch_append_withdrawals_2",
-        "batch_append_withdrawals_5"
+        "append_withdrawal"
       ]
     },
     {

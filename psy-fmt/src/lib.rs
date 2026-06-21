@@ -219,15 +219,22 @@ impl<'a, F: Clone + From<u32> + Debug, C> Formatter<'a, F, C> {
         attrs
             .iter()
             .map(|attr| {
+                let attr_name = attr
+                    .path
+                    .iter()
+                    .chain(std::iter::once(&attr.name))
+                    .map(|segment| ctx.ident(segment).to_string())
+                    .collect::<Vec<_>>()
+                    .join("::");
                 if !attr.properties.is_empty() {
                     format!(
                         "#[{}({})]\n{}",
-                        ctx.ident(attr.name),
+                        attr_name,
                         attr.properties.iter().map(|p| ctx.ident(p).to_string()).collect::<Vec<_>>().join(", "),
                         self.read_indent(0)
                     )
                 } else {
-                    format!("#[{}]\n{}", ctx.ident(attr.name), self.read_indent(0))
+                    format!("#[{}]\n{}", attr_name, self.read_indent(0))
                 }
             })
             .collect::<String>()

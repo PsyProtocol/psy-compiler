@@ -139,6 +139,9 @@ ident_ids!(
     NEW => "new",
     TEST => "test",
     SHOULD_PANIC => "should_panic",
+    CONTRACT => "contract",
+    VIEW_METHOD => "view_method",
+    WRITE_METHOD => "write_method",
 
     T => "T",
     N => "N"

@@ -16,7 +16,6 @@ use psy_data::{
 use psy_package::Workspace;
 use psy_prover::session::gen_contract_deploy_and_circuits_for_functions;
 use psy_sema::{CheckedFunctionNode, Implementer, TypeChecker, TypeCheckerVisitorContext, TypeId, TypeKey};
-use crate::cli::test_helpers::prepare_environment_with_real_contract;
 use psy_vm::{
     dpn::{
         ops::{exec_context::QExecContext, sym_felt::SymFeltRef},
@@ -25,7 +24,7 @@ use psy_vm::{
     vm::exec::PsyEvalSessionResult,
 };
 
-use crate::cli::{compile_cmd::compile_workspace_full, execute_cmd::ExecuteCommand};
+use crate::cli::{compile_cmd::compile_workspace_full, execute_cmd::ExecuteCommand, test_helpers::prepare_environment_with_real_contract};
 
 pub fn find_contract_method_by_name(
     ctx: &mut TypeCheckerVisitorContext<SymFeltRef, QExecContext>,

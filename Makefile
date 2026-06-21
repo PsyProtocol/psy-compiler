@@ -32,6 +32,7 @@ MINING_REWARDS_CONTRACT_PATH := $(PWD)/psy-precompiles/mining_rewards
 WITHDRAWAL_TREE_CONTRACT_PATH := $(PWD)/psy-precompiles/withdrawal_tree
 DEPOSIT_TREE_CONTRACT_PATH := $(PWD)/psy-precompiles/deposit_tree
 FAUCET_CONTRACT_PATH := $(PWD)/psy-precompiles/faucet
+COUNTER_CONTRACT_PATH := $(PWD)/psy-precompiles/counter
 
 ci:
 	# @$(DARGO_CLI_TEST) tests/in_mod_attr_test.psy
@@ -180,6 +181,12 @@ compile-faucet-contract:
 
 compile-faucet-contract-abi:
 	@cd $(FAUCET_CONTRACT_PATH) && $(DARGO) generate-abi -c faucet.abi
+
+compile-counter-contract:
+	@cd $(COUNTER_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyCounterContractRef --method-names set_value increment
+
+compile-counter-abi:
+	@cd $(COUNTER_CONTRACT_PATH) && $(DARGO) generate-abi -c counter.abi
 
 PARTH_GENERIC_V1 ?= $(PWD)/../parth-generic-v1
 

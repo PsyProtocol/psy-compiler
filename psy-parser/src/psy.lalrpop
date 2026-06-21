@@ -319,7 +319,19 @@ FunctionDef: DefinitionNode = {
 }
 
 Attribute: AttrNode = {
-    <l:@L> "#" "[" <name:Identifier>  <properties:AttributeProperties> "]" <r:@R> => AttrNode { name, properties, location: Location::new(file_id, l, r) }
+    <l:@L> "#" "[" <name:AttributePath>  <properties:AttributeProperties> "]" <r:@R> => {
+        let mut path = name;
+        let name = path.pop().expect("attribute path has at least one segment");
+        AttrNode { path, name, properties, location: Location::new(file_id, l, r) }
+    }
+}
+
+AttributePath: Vec<Identifier> = {
+    <head:Identifier> <tail:("::" <Identifier>)*> => {
+        let mut path = vec![head];
+        path.extend(tail);
+        path
+    }
 }
 
 AttributeProperties: Vec<Identifier> = {

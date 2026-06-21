@@ -87,7 +87,7 @@ impl MiningRewardMerkleProof {
 }
 
 impl PsyPOWMiningRewardsClaimContractRef {
-    #[contract_method]
+    #[contract::view_method]
     pub fn check_guta_reward(total_proofs_in_checkpoint: Felt, total_fees_paid: Felt, proposed_reward: Felt) -> bool {
         let user_transaction_inclusion_fee = 5000000000;
 
@@ -95,7 +95,7 @@ impl PsyPOWMiningRewardsClaimContractRef {
         proposed_reward < user_transaction_inclusion_fee && total_reward_if_all_claim <= total_fees_paid
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn claim_single_guta_reward(
         checkpoint_id: Felt,
         proof: MiningRewardMerkleProof,
@@ -129,7 +129,7 @@ impl PsyPOWMiningRewardsClaimContractRef {
         c.claimed_guta_nullifiers[nullifier_index] = 1;
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn start_session(
         claim_checkpoint_id: Felt
     ) {
@@ -147,7 +147,7 @@ impl PsyPOWMiningRewardsClaimContractRef {
         };
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn end_session(claim_checkpoint_id: Felt) {
         let c = PsyPOWMiningRewardsClaimContractRef::new(ContractMetadata::current());
         let persistent_state = c.persistent_state.get();
@@ -166,7 +166,7 @@ impl PsyPOWMiningRewardsClaimContractRef {
         };
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn claim_guta_rewards_1(
         checkpoint_id: Felt,
         proof: MiningRewardMerkleProof,
@@ -194,7 +194,7 @@ impl PsyPOWMiningRewardsClaimContractRef {
         };
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn claim_guta_rewards_2(
         checkpoints: [Felt; 2],
         proofs: [MiningRewardMerkleProof; 2],
@@ -234,7 +234,7 @@ impl PsyPOWMiningRewardsClaimContractRef {
         };
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn claim_guta_rewards_5(
         checkpoints: [Felt; 5],
         proofs: [MiningRewardMerkleProof; 5],

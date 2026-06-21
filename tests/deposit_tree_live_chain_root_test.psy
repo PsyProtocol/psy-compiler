@@ -40,7 +40,7 @@ fn single_leaf_root_matches_live_chain_vector() {
         zero = hash_two_to_one(zero, zero);
     }
     let got = hash_to_u32x8(current);
-    assert_eq(got[0], expected_root[0], "root[0] mismatch");
+    assert(got[0] == expected_root[0], "root[0] mismatch");
     assert(got[1] == expected_root[1], "root[1] mismatch");
     assert(got[2] == expected_root[2], "root[2] mismatch");
     assert(got[3] == expected_root[3], "root[3] mismatch");

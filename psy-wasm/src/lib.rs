@@ -1,11 +1,12 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, Mutex, Once},
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use psy_abi::{AbiExtractor, Abi};
+use psy_ast::{DefId, DefinitionNode, Program};
 use psy_common::Graph;
 use psy_package::{resolve_source_workspace, MemoryResolver, PackageId, PackageSources, RelativeFilePath, VfsPath};
 use psy_vm::dpn::{
@@ -660,7 +661,10 @@ pub fn read_contract_state(contract_id: u64, user_id: u64) -> String {
         let mut entries = Vec::new();
         let total_slots = 1u64 << contract.state_tree_height;
         for slot in 0..total_slots.min(256) {
-            let value = chain.state.get_contract_slot(user_id, contract_id, slot).map_err(|error| error.to_string())?;
+            let value = chain
+                .state
+                .get_contract_slot(user_id, contract_id, slot)
+                .map_err(|error| error.to_string())?;
             if value != 0 {
                 entries.push(JsStateEntry { slot_index: slot, value });
             }
@@ -890,10 +894,7 @@ fn compile_vfs_project(files: Vec<(PathBuf, String)>, entry_path: PathBuf) -> St
 fn interpret_vfs_project(files: Vec<(PathBuf, String)>, entry_path: PathBuf, request: InterpretRequest) -> String {
     let method_name = request.method_name.clone().unwrap_or_else(|| "main".to_string());
     let source_index = build_source_index(&files);
-    let vfs_shared_files = files
-        .into_iter()
-        .map(|(path, content)| (path, Arc::<str>::from(content)))
-        .collect();
+    let vfs_shared_files = files.into_iter().map(|(path, content)| (path, Arc::<str>::from(content))).collect();
 
     let mut crate_path_graph = Graph::new();
     crate_path_graph.add_node(entry_path.clone());
@@ -998,10 +999,7 @@ fn compile_vfs_project_with_contract(
     let mut crate_path_graph = Graph::new();
     crate_path_graph.add_node(entry_path.clone());
     let source_index = build_source_index(&files);
-    let vfs_shared_files = files
-        .into_iter()
-        .map(|(path, content)| (path, Arc::<str>::from(content)))
-        .collect();
+    let vfs_shared_files = files.into_iter().map(|(path, content)| (path, Arc::<str>::from(content))).collect();
 
     match psy_interpreter::interpret_vfs_files(contract_name, method_names, crate_path_graph, vfs_shared_files) {
         Ok(mut result) => {
@@ -1141,11 +1139,7 @@ fn ide_module_parts_to_path(parts: &[String]) -> PathBuf {
     path
 }
 
-fn resolve_method_names(
-    entry_path: &PathBuf,
-    method_names: Option<Vec<String>>,
-    _vfs_files: &[(PathBuf, String)],
-) -> Result<Vec<String>, String> {
+fn resolve_method_names(entry_path: &PathBuf, method_names: Option<Vec<String>>, _vfs_files: &[(PathBuf, String)]) -> Result<Vec<String>, String> {
     if let Some(method_names) = method_names {
         if method_names.is_empty() {
             return Err("method_names must not be empty when provided".to_string());
@@ -1251,25 +1245,54 @@ impl From<ExecutionContextInput> for ExecutionContext {
 }
 
 
+
+fn collect_declared_view_methods<F: Clone + From<u32>>(program: &Program<F>) -> HashSet<String> {
+    let mut view_methods = HashSet::new();
+    for i in 0..program.defs.len() {
+        let def_id = DefId::from(i);
+        match &program[def_id] {
+            DefinitionNode::Function(function) => {
+                if function.attrs.iter().any(|attr| attr.is_contract_view_method()) {
+                    view_methods.insert(program[function.name.id].to_string());
+                }
+            }
+            DefinitionNode::Impl(impl_node) => {
+                for &function_def_id in &impl_node.body {
+                    let DefinitionNode::Function(function) = &program[function_def_id] else {
+                        continue;
+                    };
+                    if function.attrs.iter().any(|attr| attr.is_contract_view_method()) {
+                        view_methods.insert(program[function.name.id].to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    view_methods
+}
 fn extract_abi(
     result: &mut psy_interpreter::InterpretResult,
     state_tree_height: u16,
     compile_results: &[DPNFunctionCircuitDefinition],
 ) -> Result<Abi, String> {
     let program = &mut result.ctx.program;
+    let declared_view_methods = collect_declared_view_methods(program);
     let method_metadata = compile_results
         .iter()
-        .map(|function| (function.name.clone(), (function.method_id, function.is_view_function())))
+        .map(|function| {
+            (
+                function.name.clone(),
+                (function.method_id, declared_view_methods.contains(&function.name)),
+            )
+        })
         .collect::<HashMap<_, _>>();
     AbiExtractor::new("contract".to_string())
         .extract_abi(program, state_tree_height, &method_metadata)
         .map_err(|error| error.to_string())
 }
 
-fn extract_contract_code(
-    compile_results: &[DPNFunctionCircuitDefinition],
-    state_tree_height: u16,
-) -> Result<serde_json::Value, String> {
+fn extract_contract_code(compile_results: &[DPNFunctionCircuitDefinition], state_tree_height: u16) -> Result<serde_json::Value, String> {
     let functions = compile_results
         .iter()
         .map(|circuit| {
@@ -1404,10 +1427,8 @@ fn serialize_result(result: JsCompileResult) -> String {
     if let serde_json::Value::Object(map) = &mut value {
         // Backward-compatible aliases for older frontend/runtime consumers.
         if let Some(compile_results) = map.get("compile_results").cloned() {
-            map.entry("circuit_definitions".to_string())
-                .or_insert_with(|| compile_results.clone());
-            map.entry("circuitDefinitions".to_string())
-                .or_insert(compile_results);
+            map.entry("circuit_definitions".to_string()).or_insert_with(|| compile_results.clone());
+            map.entry("circuitDefinitions".to_string()).or_insert(compile_results);
         }
 
         let method_count = map
@@ -1500,8 +1521,9 @@ fn serialize_interpret_error(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serial_test::serial;
+
+    use super::*;
 
     #[derive(serde::Deserialize)]
     struct TestCompileResult {
@@ -1521,16 +1543,14 @@ mod tests {
     #[test]
     #[serial]
     fn compile_source_succeeds() {
-        let result = parse_result(
-            &compile_source(
-                r#"
+        let result = parse_result(&compile_source(
+            r#"
                 fn main() {
                     let a = 1;
                     assert_eq(a, 1, "ok");
                 }
                 "#,
-            ),
-        );
+        ));
 
         assert!(result.success, "expected compile success, got {:?}", result.error);
         assert_eq!(result.entry_path.as_deref(), Some("/vfs/src/main.psy"));
@@ -1589,10 +1609,7 @@ mod tests {
         let result = parse_result(&compile_project(&files.to_string()));
 
         assert!(!result.success, "expected compile failure");
-        assert!(result
-            .error
-            .as_ref()
-            .is_some_and(|msg| msg.contains("Explicit entry file was not found")));
+        assert!(result.error.as_ref().is_some_and(|msg| msg.contains("Explicit entry file was not found")));
     }
 
     #[test]
@@ -1608,10 +1625,7 @@ mod tests {
         let result = parse_result(&compile_project(&files.to_string()));
 
         assert!(!result.success, "expected compile failure");
-        assert!(result
-            .error
-            .as_ref()
-            .is_some_and(|msg| msg.contains("without explicit method_names")));
+        assert!(result.error.as_ref().is_some_and(|msg| msg.contains("without explicit method_names")));
     }
 
     #[test]
@@ -1619,7 +1633,7 @@ mod tests {
     fn compile_project_defaults_entry_to_main_when_missing() {
         let files = serde_json::json!({
             "files": [
-                [["main"], "use std::prelude::*;\n#[contract]\n#[derive(Storage)]\npub struct C { pub value: Felt }\n#[contract_method]\nfn set_value(v: Felt) { let _x = v; }"]
+                [["main"], "use std::prelude::*;\n#[contract]\n#[derive(Storage)]\npub struct C { pub value: Felt }\n#[contract::write_method]\nfn set_value(v: Felt) { let _x = v; }"]
             ]
         });
 
@@ -1631,14 +1645,12 @@ mod tests {
     #[test]
     #[serial]
     fn compile_source_reports_error_offset() {
-        let result = parse_result(
-            &compile_source(
-                r#"
+        let result = parse_result(&compile_source(
+            r#"
                 fn main( {
                 }
                 "#,
-            ),
-        );
+        ));
 
         assert!(!result.success, "expected compile failure");
         assert!(result.error.is_some());
@@ -1770,6 +1782,66 @@ mod tests {
 
     #[test]
     #[serial]
+    fn compile_source_marks_contract_view_method_in_abi() {
+        let files = serde_json::json!({
+            "files": [[["main"], r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct ViewContract {
+                pub value: Felt,
+            }
+
+            impl ViewContractRef {
+                #[contract::write_method]
+                #[contract::view_method]
+                pub fn get_value() -> Felt {
+                    let c = ViewContractRef::new(ContractMetadata::current());
+                    c.value.get()
+                }
+            }
+            "#]]
+        });
+        let result = parse_result(&compile_project(&files.to_string()));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+        let abi = result.abi.expect("missing abi");
+        let methods = abi["methods"].as_array().expect("methods should be array");
+        let get_value = methods
+            .iter()
+            .find(|method| method["name"].as_str() == Some("get_value"))
+            .expect("missing get_value method");
+        assert_eq!(get_value["is_view"].as_bool(), Some(true));
+    }
+
+    #[test]
+    #[serial]
+    fn compile_source_rejects_view_method_with_state_write() {
+        let files = serde_json::json!({
+            "files": [[["main"], r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct BadViewContract {
+                pub value: Felt,
+            }
+
+            impl BadViewContractRef {
+                #[contract::write_method]
+                #[contract::view_method]
+                pub fn set_value(value: Felt) {
+                    let c = BadViewContractRef::new(ContractMetadata::current());
+                    c.value = value;
+                }
+            }
+            "#]]
+        });
+        let result = parse_result(&compile_project(&files.to_string()));
+
+        assert!(!result.success, "expected compile failure");
+        assert!(result.error.as_ref().is_some_and(|msg| msg.contains("marked #[contract::view_method]")));
+    }
+
+    #[test]
+    #[serial]
     fn compile_dargo_project_succeeds() {
         let project = serde_json::json!({
             "root": "root",
@@ -1778,7 +1850,7 @@ mod tests {
                     "id": "root",
                     "manifest": "[package]\nname = \"root\"\ntype = \"bin\"\n",
                     "files": {
-                        "src/main.psy": "#[contract]\npub struct C {}\n#[contract_method]\nfn main() { assert_eq(1, 1, \"ok\"); }"
+                        "src/main.psy": "#[contract]\npub struct C {}\n#[contract::write_method]\nfn main() { assert_eq(1, 1, \"ok\"); }"
                     },
                     "dependencies": {}
                 }

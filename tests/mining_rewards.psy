@@ -89,7 +89,7 @@ impl VariableHeightRewardMerkleProof {
 }
 
 impl ContractRef {
-    #[contract_method]
+    #[contract::view_method]
     pub fn check_guta_reward(total_proofs_in_checkpoint: Felt, total_fees_paid: Felt, proposed_reward: Felt) -> bool {
         let user_transaction_inclusion_fee = 5000000000;
 
@@ -97,7 +97,7 @@ impl ContractRef {
         proposed_reward < user_transaction_inclusion_fee && total_reward_if_all_claim < total_fees_paid
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn advance_to_checkpoint(new_claim_checkpoint_id: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
         let persistant_state = c.persistant_state;
@@ -113,7 +113,7 @@ impl ContractRef {
         };
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn claim_guta_proof(
         claim_checkpoint_id: Felt,
         proof: VariableHeightRewardMerkleProof,
@@ -175,7 +175,7 @@ impl ContractRef {
         };
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn advance_and_claim_guta_proof(
         claim_checkpoint_id: Felt,
         proof: VariableHeightRewardMerkleProof
@@ -189,7 +189,7 @@ impl ContractRef {
         Self::claim_guta_proof(claim_checkpoint_id, proof, proposed_reward);
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn advance_to_checkpoint_and_seal(new_claim_checkpoint_id: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
         let persistant_state = c.persistant_state;
@@ -205,7 +205,7 @@ impl ContractRef {
         };
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn claim_simple_reward(claim_checkpoint_id: Felt, proposed_reward: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
         let current_checkpoint = get_checkpoint_id();

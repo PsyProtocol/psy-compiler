@@ -39,11 +39,7 @@ pub fn compile_workspace_full(workspace: &Workspace, compile_options: &CompileOp
     let crate_path_graph = super::resolve_crate_path_graph(workspace, compile_options.entry_path.clone());
     let method_names = resolve_workspace_method_names(workspace, compile_options)?;
 
-    let mut interpret_result = psy_interpreter::interpret(
-        compile_options.contract_name.clone(),
-        method_names,
-        crate_path_graph,
-    )?;
+    let mut interpret_result = psy_interpreter::interpret(compile_options.contract_name.clone(), method_names, crate_path_graph)?;
 
     let function_metadata = extract_function_metadata_from_context(
         &mut interpret_result.ctx,
@@ -76,14 +72,16 @@ pub fn compile_source_workspace_full(workspace: &ResolvedSourceWorkspace, compil
     let package_entry_path = workspace
         .packages
         .iter()
-        .map(|(id, pkg)| (id.clone(), source_vfs_to_pathbuf(workspace.source_map.path(pkg.entry_file_id).expect("entry file id exists"))))
+        .map(|(id, pkg)| {
+            (
+                id.clone(),
+                source_vfs_to_pathbuf(workspace.source_map.path(pkg.entry_file_id).expect("entry file id exists")),
+            )
+        })
         .collect::<HashMap<_, _>>();
 
     for package in workspace.packages.values() {
-        let package_entry = package_entry_path
-            .get(&package.package_id)
-            .expect("entry path exists")
-            .clone();
+        let package_entry = package_entry_path.get(&package.package_id).expect("entry path exists").clone();
         if !crate_path_graph.contains_node(&package_entry) {
             crate_path_graph.add_node(package_entry.clone());
         }
@@ -101,12 +99,8 @@ pub fn compile_source_workspace_full(workspace: &ResolvedSourceWorkspace, compil
         .map(|(_, path, text)| (source_vfs_to_pathbuf(&path), text))
         .collect::<Vec<_>>();
 
-    let mut interpret_result = psy_interpreter::interpret_virtual_files(
-        compile_options.contract_name.clone(),
-        method_names,
-        crate_path_graph,
-        virtual_files,
-    )?;
+    let mut interpret_result =
+        psy_interpreter::interpret_virtual_files(compile_options.contract_name.clone(), method_names, crate_path_graph, virtual_files)?;
 
     let function_metadata = extract_function_metadata_from_context(
         &mut interpret_result.ctx,
@@ -184,17 +178,14 @@ fn resolve_workspace_method_names(workspace: &Workspace, compile_options: &Compi
     method_names.dedup();
     if method_names.is_empty() {
         return Err(crate::errors::CliError::Generic(
-            "Unable to discover contract methods: add #[contract_method] to at least one function or provide --method-names explicitly"
+            "Unable to discover contract methods: add #[contract::write_method] or #[contract::view_method] to at least one function or provide --method-names explicitly"
                 .to_string(),
         ));
     }
     Ok(method_names)
 }
 
-fn resolve_source_workspace_method_names(
-    workspace: &ResolvedSourceWorkspace,
-    compile_options: &CompileOptions,
-) -> Result<Vec<String>> {
+fn resolve_source_workspace_method_names(workspace: &ResolvedSourceWorkspace, compile_options: &CompileOptions) -> Result<Vec<String>> {
     if let Some(method_names) = &compile_options.method_names {
         if method_names.is_empty() {
             return Err(crate::errors::CliError::Generic(
@@ -212,7 +203,7 @@ fn resolve_source_workspace_method_names(
     method_names.dedup();
     if method_names.is_empty() {
         return Err(crate::errors::CliError::Generic(
-            "Unable to discover contract methods: add #[contract_method] to at least one function or provide --method-names explicitly"
+            "Unable to discover contract methods: add #[contract::write_method] or #[contract::view_method] to at least one function or provide --method-names explicitly"
                 .to_string(),
         ));
     }
@@ -220,15 +211,16 @@ fn resolve_source_workspace_method_names(
 }
 
 fn extract_contract_method_names(source: &str, method_names: &mut Vec<String>) {
-    let marker = "#[contract_method]";
-    let mut search_start = 0usize;
-    while let Some(relative) = source[search_start..].find(marker) {
-        let attr_start = search_start + relative + marker.len();
-        let rest = &source[attr_start..];
-        if let Some(method_name) = extract_first_function_name(rest) {
-            method_names.push(method_name);
+    for marker in ["#[contract::write_method]", "#[contract::view_method]"] {
+        let mut search_start = 0usize;
+        while let Some(relative) = source[search_start..].find(marker) {
+            let attr_start = search_start + relative + marker.len();
+            let rest = &source[attr_start..];
+            if let Some(method_name) = extract_first_function_name(rest) {
+                method_names.push(method_name);
+            }
+            search_start = attr_start;
         }
-        search_start = attr_start;
     }
 }
 

@@ -37,12 +37,12 @@ struct Contract {
 }
 
 impl ContractRef {
-    #[contract_method]
+    #[contract::view_method]
     pub fn get_default_job_proof_hash() -> [Felt; 4] {
         [16455470568475769528, 16167468235369303599, 2788853842874140022, 14903346318140703896]
     }
 
-    #[contract_method]
+    #[contract::view_method]
     pub fn get_reward_for_job_type(job_type: Felt) -> Felt {
         assert(job_type == 0 || job_type == 1 || job_type == 2, "invalid job type");
         if job_type == 0 {
@@ -54,7 +54,7 @@ impl ContractRef {
         }
     }
 
-    #[contract_method]
+    #[contract::view_method]
     pub fn verify_proof(proof: JobProof, expected_root: [Felt; 4]) -> bool {
         let mut current = proof.value;
 
@@ -90,7 +90,7 @@ impl ContractRef {
         root_matches && expected_matches
     }
 
-    #[contract_method]
+    #[contract::view_method]
     pub fn get_expected_root(checkpoint_id: Felt, job_type: Felt) -> [Felt; 4] {
         assert(job_type == 0 || job_type == 1 || job_type == 2, "invalid job type");
         if job_type == 0 {
@@ -102,7 +102,7 @@ impl ContractRef {
         }
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn batch_claim_pm_rewards(
         checkpoint_id: Felt,
         claims: [JobClaim; 32]
@@ -163,13 +163,13 @@ impl ContractRef {
         c.balance += total_reward;
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn simple_mint(amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
         c.balance += amount;
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn simple_burn(amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
         let current_balance = c.balance;
@@ -177,7 +177,7 @@ impl ContractRef {
         c.balance = current_balance - amount;
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn simple_transfer(recipient: Felt, amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
         let current_balance = c.balance;
@@ -194,12 +194,10 @@ impl ContractRef {
         c.balance = current_balance - amount;
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn simple_claim(sender: Felt) {
         let self_user_id = get_user_id();
-        // Self-claim is allowed in this storage layout because balance and
-        // per-sender claim metadata are stored in separate slots.
-        // assert(sender != self_user_id, "you cannot claim from your self");
+        assert(sender != self_user_id, "you cannot claim from your self");
 
         let c = ContractRef::new(ContractMetadata::current());
 

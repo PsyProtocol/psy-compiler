@@ -5,12 +5,12 @@ pub struct DeriveOnlyContract {
 }
 
 impl DeriveOnlyContractRef {
-    #[contract_method]
+    #[contract::write_method]
     pub fn set_counter(v: Felt) {
         let c = DeriveOnlyContractRef::new(ContractMetadata::current());
         c.counter = v;
     }
-    #[contract_method]
+    #[contract::write_method]
     pub fn add_counter(v: Felt) {
         let c = DeriveOnlyContractRef::new(ContractMetadata::current());
         c.counter += v;

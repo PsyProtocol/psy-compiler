@@ -15,39 +15,17 @@ pub struct TransferEvent {
 }
 
 #[derive(Event)]
-pub struct ClaimEvent {
-    pub from: Felt,
-    pub amount: Felt,
-    pub amount_claimed: Felt,
-}
-#[derive(Event)]
-pub struct PrivateClaimEvent {
-    pub shield_address: Hash,
-    pub nullifier_hash: Hash,
-    pub amount: Felt,
-}
-
-#[derive(Event)]
-pub struct DepositClaimEvent {
-    pub shield_address: Hash,
-    pub nullifier_hash: Hash,
-    pub amount: Felt,
-}
-
-
-#[derive(Event)]
 pub struct UserInfoEvent {
     pub balance: Felt,
 }
 
 #[derive(Event)]
 pub struct WithdrawalEvent {
-    pub sender_user_id: Felt,
-    pub destination_chain_index: Felt,
+    pub destination_chain_id: Felt,
     pub token_address: [u32; 8],
     pub amount: [u32; 8],
     pub recipient: [u32; 8],
-    pub nonce: [u32; 8],
+    pub nonce: Felt,
 }
 
 struct PrivateClaimProof {
@@ -77,8 +55,6 @@ struct ShieldClaimPublicInputsPreimage {
     pub source_chain_index: Felt,
     pub deposit_root: Hash,
     pub nullifier_hash: Hash,
-    pub note_commitment: Hash,
-    pub deposit_index: Felt,
 }
 
 #[contract]
@@ -190,12 +166,6 @@ impl PsyTokenContractRef {
             (x[6] as Felt) + (x[7] as Felt) * Self::u32_shift_factor(),
         ]
     }
-    fn withdrawal_record_key(nonce: [u32; 8]) -> Hash {
-        hash([
-            nonce[0] as Felt, nonce[1] as Felt, nonce[2] as Felt, nonce[3] as Felt,
-            nonce[4] as Felt, nonce[5] as Felt, nonce[6] as Felt, nonce[7] as Felt,
-        ])
-    }
 
     fn poseidon_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
         Self::hash_to_u32x8(hash_two_to_one(Self::u32x8_to_hash(left), Self::u32x8_to_hash(right)))
@@ -238,13 +208,13 @@ impl PsyTokenContractRef {
         current
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn withdraw(
         destination_chain_index: Felt,
         token_address: [u32; 8],
         amount: [u32; 8],
         recipient: [u32; 8],
-        nonce: [u32; 8],
+        nonce: Felt,
     ) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         let amount_felt = Self::u32x8_be_to_felt_u64(amount);
@@ -256,24 +226,18 @@ impl PsyTokenContractRef {
 
         assert(destination_chain_index < 256, "destination chain index out of range (0-255)");
 
-        let sender_user_id = get_user_id();
-        let leaf_hash: Hash = hash([
-            sender_user_id,
+        let leaf_hash: [u32; 8] = Self::hash_to_u32x8(hash([
             recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
             recipient[4] as Felt, recipient[5] as Felt, recipient[6] as Felt, recipient[7] as Felt,
             token_address[0] as Felt, token_address[1] as Felt, token_address[2] as Felt, token_address[3] as Felt,
             token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
             amount[0] as Felt, amount[1] as Felt, amount[2] as Felt, amount[3] as Felt,
             amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
-            nonce[0] as Felt, nonce[1] as Felt, nonce[2] as Felt, nonce[3] as Felt,
-            nonce[4] as Felt, nonce[5] as Felt, nonce[6] as Felt, nonce[7] as Felt,
+            nonce,
             destination_chain_index,
-        ]);
-        let record_key: Hash = Self::withdrawal_record_key(nonce);
-        c.state_map.insert_ns(6, record_key, leaf_hash);
+        ]));
         let event_data = new WithdrawalEvent {
-            sender_user_id,
-            destination_chain_index,
+            destination_chain_id: destination_chain_index,
             token_address,
             amount,
             recipient,
@@ -281,7 +245,8 @@ impl PsyTokenContractRef {
         };
         event_data.emit();
     }
-    #[contract_method]
+
+    #[contract::write_method]
     pub fn claim_deposit(
         nullifier_hash: Hash,
         shield_address: Hash,
@@ -289,8 +254,6 @@ impl PsyTokenContractRef {
         amount: [u32; 8],
         source_chain_index: Felt,
         deposit_root: [u32; 8],
-        note_commitment: Hash,
-        deposit_index: Felt,
         r0: Felt,
         r1: Felt,
         proof: ShieldClaimProof
@@ -325,8 +288,6 @@ impl PsyTokenContractRef {
             source_chain_index,
             deposit_root: deposit_root_hash,
             nullifier_hash,
-            note_commitment,
-            deposit_index,
         };
         let public_inputs_hash: Hash = hash([
             preimage.shield_address[0], preimage.shield_address[1], preimage.shield_address[2], preimage.shield_address[3],
@@ -338,15 +299,13 @@ impl PsyTokenContractRef {
             preimage.l2_token_contract_id[4] as Felt, preimage.l2_token_contract_id[5] as Felt, preimage.l2_token_contract_id[6] as Felt, preimage.l2_token_contract_id[7] as Felt,
             preimage.source_chain_index,
             preimage.deposit_root[0], preimage.deposit_root[1], preimage.deposit_root[2], preimage.deposit_root[3],
-            preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3],
-            preimage.note_commitment[0], preimage.note_commitment[1], preimage.note_commitment[2], preimage.note_commitment[3],
-            preimage.deposit_index
+            preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
         ]);
         let shield_claim_fingerprint: Hash = [
-            12102704748894912577,
-            2605816805097074474,
-            270858441303242900,
-            1525812673267139438
+            9035274454396793746,
+            3283101489055486651,
+            5463948716196243646,
+            10960400114419786825
         ];
         let leaf: Hash = hash_two_to_one(shield_claim_fingerprint, public_inputs_hash);
         let mut current: Hash = leaf;
@@ -368,22 +327,15 @@ impl PsyTokenContractRef {
         assert(c.state_map.contains_ns(4, nullifier_hash) == false, "shield claim already used");
         c.state_map.insert_ns(4, nullifier_hash, [1, 0, 0, 0]);
         c.balance += amount_felt;
-        let event_data = new DepositClaimEvent {
-            shield_address,
-            nullifier_hash,
-            amount: amount_felt,
-        };
-        event_data.emit();
-
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn simple_mint(amount: Felt) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         c.balance += amount;
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn simple_burn(amount: Felt) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
@@ -391,7 +343,7 @@ impl PsyTokenContractRef {
         c.balance = current_balance - amount;
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn simple_transfer(recipient: Felt, amount: Felt) {
         let transfer_info_event = new TransferEvent {
             to: recipient,
@@ -422,12 +374,10 @@ impl PsyTokenContractRef {
         sender_end_info.emit();
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn simple_claim(sender: Felt) {
         let self_user_id = get_user_id();
-        // Self-claim is allowed in this storage layout because balance and
-        // per-sender claim metadata are stored in separate slots.
-        // assert(sender != self_user_id, "you cannot claim from your self");
+        assert(sender != self_user_id, "you cannot claim from your self");
 
         let c = PsyTokenContractRef::new(ContractMetadata::current());
 
@@ -444,16 +394,9 @@ impl PsyTokenContractRef {
         };
 
         c.balance += claimed;
-
-        let claim_event = new ClaimEvent {
-            from: sender,
-            amount: claimed,
-            amount_claimed: sender_total_sent,
-        };
-        claim_event.emit();
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn simple_claim_pow_rewards(checkpoint_id: Felt) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         let psy_pow_mining_rewards_claim_contract = PsyPOWMiningRewardsClaimContractRef::new(ContractMetadata::new(1, get_user_id()));
@@ -473,7 +416,7 @@ impl PsyTokenContractRef {
         c.balance += pow_rewards_persistent_state.claimed_rewards;
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn batch_simple_transfer_2(recipients: [Felt; 2], amounts: [Felt; 2]) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
@@ -504,7 +447,7 @@ impl PsyTokenContractRef {
         c.balance = current_balance - total_amount;
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn batch_simple_transfer_5(recipients: [Felt; 5], amounts: [Felt; 5]) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
@@ -535,8 +478,8 @@ impl PsyTokenContractRef {
         c.balance = current_balance - total_amount;
     }
 
-    #[contract_method]
-    pub fn private_transfer(receiver: Hash, value: Felt, note_commitment: Hash) {
+    #[contract::write_method]
+    pub fn private_transfer(receiver: Hash, value: Felt, note_secret_hash: Hash) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
         assert(value > 0, "value must be positive");
@@ -544,7 +487,7 @@ impl PsyTokenContractRef {
         c.balance = current_balance - value;
 
         let value_hash: Hash = [value, 0, 0, 0];
-        let commitment: Hash = hash_two_to_one(hash_two_to_one(receiver, value_hash), note_commitment);
+        let commitment: Hash = hash_two_to_one(hash_two_to_one(receiver, value_hash), note_secret_hash);
         let idx = c.note_count.get();
         assert(idx < 1048576, "note tree is full");
 
@@ -570,7 +513,7 @@ impl PsyTokenContractRef {
         c.note_count = idx + 1;
     }
 
-    #[contract_method]
+    #[contract::write_method]
     pub fn private_claim(
         nullifier_hash: Hash,
         receiver: Hash,
@@ -602,10 +545,10 @@ impl PsyTokenContractRef {
             preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
         ]);
         let private_note_inclusion_fingerprint: Hash = [
-            7347800111836438430,
-            8296312334427448937,
-            7663862879523756293,
-            2475221133236141969
+            1866130053021784426,
+            4684972721646198880,
+            8939938924988830351,
+            15880983663605084668
         ];
         let leaf: Hash = hash_two_to_one(private_note_inclusion_fingerprint, public_inputs_hash);
 
@@ -637,11 +580,5 @@ impl PsyTokenContractRef {
         c.state_map.insert_ns(1, nullifier_key, [1, 0, 0, 0]);
 
         c.balance += preimage.amount;
-        let claim_event = new PrivateClaimEvent {
-            shield_address: receiver,
-            nullifier_hash,
-            amount: preimage.amount,
-        };
-        claim_event.emit();
     }
 }
