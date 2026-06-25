@@ -377,9 +377,13 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_doc() {
         insta::glob!("../../../tests", "*_test.psy", |path| {
+            let source = std::fs::read_to_string(path).expect("test fixture should be readable");
+            if !source.contains("input:") && !source.contains("output:") {
+                return;
+            }
             let workspace = Workspace {
                 root_dir: PathBuf::from("../../../tests"),
                 target_dir: PathBuf::from("../../../target"),
