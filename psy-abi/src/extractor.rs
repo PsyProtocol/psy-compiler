@@ -448,10 +448,16 @@ impl AbiExtractor {
 
         let input_felt_count: usize = inputs.iter().map(|p| p.felt_size).sum();
 
-        // Outputs — currently the compiler does not emit typed return info,
-        // so outputs is empty and output_felt_count is 0.
-        let outputs: Vec<AbiParam> = Vec::new();
-        let output_felt_count = 0usize;
+        // Outputs — extract from the function's return_type.
+        let outputs: Vec<AbiParam> = function.return_type.as_ref().map(|rt| {
+            let felt_size = self.felt_size_for_type(ctx, rt, struct_nodes, &mut struct_layouts.clone());
+            vec![AbiParam {
+                name: "return".to_string(),
+                ty: self.unchecked_type_to_typeref(ctx, rt),
+                felt_size,
+            }]
+        }).unwrap_or_default();
+        let output_felt_count: usize = outputs.iter().map(|p| p.felt_size).sum();
 
         AbiMethod {
             name: ctx.ident(function.name).0.to_string(),
