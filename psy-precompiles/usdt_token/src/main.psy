@@ -21,6 +21,8 @@ pub struct UserInfoEvent {
 
 #[derive(Event)]
 pub struct WithdrawalEvent {
+    pub sender_user_id: Felt,
+    pub withdrawal_index: Felt,
     pub destination_chain_id: Felt,
     pub token_address: [u32; 8],
     pub amount: [u32; 8],
@@ -71,6 +73,7 @@ pub struct USDTTokenContract {
     pub last_path: [Hash; 20],
 
     pub state_map: Map<Hash, Hash, 1048576u32>,
+    pub withdrawal_count: Felt,
 }
 
 impl USDTTokenContractRef {
@@ -226,7 +229,10 @@ impl USDTTokenContractRef {
 
         assert(destination_chain_index < 256, "destination chain index out of range (0-255)");
 
-        let leaf_hash: [u32; 8] = Self::hash_to_u32x8(hash([
+        let sender_user_id = get_user_id();
+        let withdrawal_index = nonce;
+        let leaf_hash: Hash = hash([
+            sender_user_id,
             recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
             recipient[4] as Felt, recipient[5] as Felt, recipient[6] as Felt, recipient[7] as Felt,
             token_address[0] as Felt, token_address[1] as Felt, token_address[2] as Felt, token_address[3] as Felt,
@@ -235,8 +241,12 @@ impl USDTTokenContractRef {
             amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
             nonce,
             destination_chain_index,
-        ]));
+        ]);
+        let record_key: Hash = [withdrawal_index, 0, 0, 0];
+        c.state_map.insert_ns(6, record_key, leaf_hash);
         let event_data = new WithdrawalEvent {
+            sender_user_id,
+            withdrawal_index,
             destination_chain_id: destination_chain_index,
             token_address,
             amount,
