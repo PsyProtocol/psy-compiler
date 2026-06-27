@@ -15,6 +15,13 @@ pub struct TransferEvent {
 }
 
 #[derive(Event)]
+pub struct ClaimEvent {
+    pub from: Felt,
+    pub amount: Felt,
+    pub amount_claimed: Felt,
+}
+
+#[derive(Event)]
 pub struct UserInfoEvent {
     pub balance: Felt,
 }
@@ -394,6 +401,13 @@ impl PsyTokenContractRef {
         };
 
         c.balance += claimed;
+
+        let claim_event = new ClaimEvent {
+            from: sender,
+            amount: claimed,
+            amount_claimed: sender_total_sent,
+        };
+        claim_event.emit();
     }
 
     #[contract_method]
