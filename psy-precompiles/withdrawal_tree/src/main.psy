@@ -28,8 +28,11 @@ impl PsyWithdrawalTreeContractRef {
     fn withdrawal_record_namespace() -> Felt { 6 }
     fn token_contract_id() -> Felt { 0 }
     fn usdt_token_contract_id() -> Felt { 4 }
-    fn withdrawal_record_key(index: Felt) -> Hash {
-        [index, 0, 0, 0]
+    fn withdrawal_record_key(nonce: [u32; 8]) -> Hash {
+        hash([
+            nonce[0] as Felt, nonce[1] as Felt, nonce[2] as Felt, nonce[3] as Felt,
+            nonce[4] as Felt, nonce[5] as Felt, nonce[6] as Felt, nonce[7] as Felt,
+        ])
     }
     fn eq_hash(a: Hash, b: Hash) -> bool {
         a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3]
@@ -40,7 +43,7 @@ impl PsyWithdrawalTreeContractRef {
         token_address: [u32; 8],
         amount: [u32; 8],
         recipient: [u32; 8],
-        nonce: Felt,
+        nonce: [u32; 8],
     ) -> Hash {
         hash([
             sender_user_id,
@@ -50,7 +53,8 @@ impl PsyWithdrawalTreeContractRef {
             token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
             amount[0] as Felt, amount[1] as Felt, amount[2] as Felt, amount[3] as Felt,
             amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
-            nonce,
+            nonce[0] as Felt, nonce[1] as Felt, nonce[2] as Felt, nonce[3] as Felt,
+            nonce[4] as Felt, nonce[5] as Felt, nonce[6] as Felt, nonce[7] as Felt,
             destination_chain_index,
         ])
     }
@@ -257,8 +261,8 @@ impl PsyWithdrawalTreeContractRef {
     }
 
     #[contract_method]
-    pub fn get_chain_root(destination_chain_id: Felt) -> [u32; 8] {
-        Self::get_chain_root_value(destination_chain_id)
+    pub fn get_chain_root(destination_chain_index: Felt) -> [u32; 8] {
+        Self::get_chain_root_value(destination_chain_index)
     }
 
     #[contract_method]
@@ -286,15 +290,13 @@ impl PsyWithdrawalTreeContractRef {
     pub fn append_withdrawal(
         sender_user_id: Felt,
         token_contract_id: Felt,
-        withdrawal_index: Felt,
         destination_chain_index: Felt,
         token_address: [u32; 8],
         amount: [u32; 8],
         recipient: [u32; 8],
-        nonce: Felt
+        nonce: [u32; 8]
     ) {
-        assert((nonce >> 32) == 0, "withdrawal nonce out of uint32 range");
-        assert((destination_chain_index >> 32) == 0, "destination chain id out of uint32 range");
+        assert((destination_chain_index >> 32) == 0, "destination chain index out of uint32 range");
         assert(destination_chain_index < 256, "destination chain index out of range (0-255)");
         assert(
             token_contract_id == Self::token_contract_id()
@@ -315,7 +317,7 @@ impl PsyWithdrawalTreeContractRef {
         );
         let recorded: Hash = token_state_map.get_ns_other(
             Self::withdrawal_record_namespace(),
-            Self::withdrawal_record_key(withdrawal_index)
+            Self::withdrawal_record_key(nonce)
         );
         assert(Self::eq_hash(recorded, leaf_hash_hash), "withdrawal leaf does not match sender withdrawal record");
         let leaf_hash: [u32; 8] = Self::hash_to_u32x8(leaf_hash_hash);
@@ -334,6 +336,7 @@ impl PsyWithdrawalTreeContractRef {
         };
         event_data.emit();
     }
+
 
     #[contract_method]
     pub fn batch_append_withdrawals_2(count: Felt, chain_indices: [Felt; 2], leaf_data: [u32; 16]) {
