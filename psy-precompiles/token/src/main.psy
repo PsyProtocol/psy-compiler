@@ -20,6 +20,20 @@ pub struct ClaimEvent {
     pub amount: Felt,
     pub amount_claimed: Felt,
 }
+#[derive(Event)]
+pub struct PrivateClaimEvent {
+    pub shield_address: Hash,
+    pub nullifier_hash: Hash,
+    pub amount: Felt,
+}
+
+#[derive(Event)]
+pub struct DepositClaimEvent {
+    pub shield_address: Hash,
+    pub nullifier_hash: Hash,
+    pub amount: Felt,
+}
+
 
 #[derive(Event)]
 pub struct UserInfoEvent {
@@ -334,6 +348,13 @@ impl PsyTokenContractRef {
         assert(c.state_map.contains_ns(4, nullifier_hash) == false, "shield claim already used");
         c.state_map.insert_ns(4, nullifier_hash, [1, 0, 0, 0]);
         c.balance += amount_felt;
+        let event_data = new DepositClaimEvent {
+            shield_address,
+            nullifier_hash,
+            amount: amount_felt,
+        };
+        event_data.emit();
+
     }
 
     #[contract_method]
@@ -594,5 +615,11 @@ impl PsyTokenContractRef {
         c.state_map.insert_ns(1, nullifier_key, [1, 0, 0, 0]);
 
         c.balance += preimage.amount;
+        let claim_event = new PrivateClaimEvent {
+            shield_address: receiver,
+            nullifier_hash,
+            amount: preimage.amount,
+        };
+        claim_event.emit();
     }
 }
