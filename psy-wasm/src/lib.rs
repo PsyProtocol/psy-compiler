@@ -5,7 +5,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use psy_abi::{AbiExtractor, ContractCompatAbi, SpecCompliantAbi};
+use psy_abi::{AbiExtractor, Abi};
 use psy_common::Graph;
 use psy_package::{resolve_source_workspace, MemoryResolver, PackageId, PackageSources, RelativeFilePath, VfsPath};
 use psy_vm::dpn::{
@@ -27,7 +27,6 @@ struct JsCompileResult {
     compile_results: Option<serde_json::Value>,
     contract_code: Option<serde_json::Value>,
     abi: Option<serde_json::Value>,
-    spec_abi: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -69,7 +68,7 @@ static INIT: Once = Once::new();
 
 struct CachedCompile {
     state_tree_height: u16,
-    abi: ContractCompatAbi,
+    abi: Abi,
     circuit_definitions: Vec<DPNFunctionCircuitDefinition>,
 }
 
@@ -93,7 +92,7 @@ struct DeployedContract {
     contract_id: u64,
     name: String,
     deployer_id: u64,
-    abi: ContractCompatAbi,
+    abi: Abi,
     circuit_definitions: Vec<DPNFunctionCircuitDefinition>,
     state_tree_height: u16,
 }
@@ -126,7 +125,7 @@ struct JsDeployedContract {
     contract_id: u64,
     name: String,
     deployer_id: u64,
-    abi: ContractCompatAbi,
+    abi: Abi,
 }
 
 #[derive(Serialize)]
@@ -213,7 +212,6 @@ pub fn compile_project(files_json: &str) -> String {
                     compile_results: None,
                     contract_code: None,
                     abi: None,
-                    spec_abi: None,
                 }),
             }
         }
@@ -225,7 +223,6 @@ pub fn compile_project(files_json: &str) -> String {
             compile_results: None,
             contract_code: None,
             abi: None,
-            spec_abi: None,
         }),
     }
 }
@@ -272,7 +269,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
-                spec_abi: None,
             });
         }
     };
@@ -312,7 +308,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
-                spec_abi: None,
             });
         }
     };
@@ -327,7 +322,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
-                spec_abi: None,
             });
         }
         method_names
@@ -370,7 +364,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
-                spec_abi: None,
             });
         }
     };
@@ -399,7 +392,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                         compile_results: None,
                         contract_code: None,
                         abi: None,
-                        spec_abi: None,
                     });
                 }
             };
@@ -413,28 +405,22 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                     None
                 }
             };
-            let abi = match extract_contract_abi(&mut result, state_tree_height, &compile_results_for_metadata) {
-                Ok(value) => Some(value),
-                Err(error) => {
-                    tracing::warn!("ABI extraction failed: {error}");
-                    None
-                }
-            };
-            let abi_value = abi
-                .as_ref()
-                .and_then(|abi| serde_json::to_value(abi).map_err(|error| tracing::warn!("ABI serialization failed: {error}")).ok());
-            let spec_abi_value = extract_spec_abi(&mut result).ok().and_then(|abi| {
-                serde_json::to_value(abi)
-                    .map_err(|error| tracing::warn!("Spec ABI serialization failed: {error}"))
-                    .ok()
-            });
-
-            if let Some(abi) = abi.clone() {
-                cache_compile(CachedCompile {
-                    state_tree_height,
-                    abi,
-                    circuit_definitions: compile_results_for_metadata,
+            let abi_value = extract_abi(&mut result, state_tree_height, &compile_results_for_metadata)
+                .ok()
+                .and_then(|abi| {
+                    serde_json::to_value(&abi)
+                        .map_err(|error| tracing::warn!("ABI serialization failed: {error}"))
+                        .ok()
                 });
+
+            if let Some(abi) = abi_value.clone() {
+                if let Ok(parsed) = serde_json::from_value::<Abi>(abi) {
+                    cache_compile(CachedCompile {
+                        state_tree_height,
+                        abi: parsed,
+                        circuit_definitions: compile_results_for_metadata,
+                    });
+                }
             }
 
             serialize_result(JsCompileResult {
@@ -445,7 +431,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: Some(compile_results),
                 contract_code,
                 abi: abi_value,
-                spec_abi: spec_abi_value,
             })
         }
         Err(error) => {
@@ -458,7 +443,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
-                spec_abi: None,
             })
         }
     }
@@ -530,7 +514,7 @@ pub fn deploy_contract(deployer_id: u64) -> String {
         chain.next_contract_id += 1;
         chain.contracts.push(DeployedContract {
             contract_id,
-            name: compile_output.abi.contract_name.clone(),
+            name: compile_output.abi.contract.name.clone(),
             deployer_id,
             abi: compile_output.abi,
             circuit_definitions: compile_output.circuit_definitions,
@@ -594,7 +578,7 @@ pub fn call_contract(caller_id: u64, contract_id: u64, method_name: &str, args_j
             .ok_or_else(|| format!("Contract {contract_id} not found"))?;
         let method = contract
             .abi
-            .methods
+            .contract.methods
             .iter()
             .find(|method| method.name == method_name)
             .ok_or_else(|| format!("Method '{method_name}' not found"))?;
@@ -932,10 +916,13 @@ fn interpret_vfs_project(files: Vec<(PathBuf, String)>, entry_path: PathBuf, req
             let compile_results_for_metadata = result.compile_results.clone();
             let state_tree_height = derive_state_tree_height(&compile_results_for_metadata);
             let contract_code = extract_contract_code(&compile_results_for_metadata, state_tree_height).ok();
-            let abi = extract_contract_abi(&mut result, state_tree_height, &compile_results_for_metadata).ok();
-            let abi_value = abi
-                .as_ref()
-                .and_then(|abi| serde_json::to_value(abi).map_err(|error| tracing::warn!("ABI serialization failed: {error}")).ok());
+            let abi_value = extract_abi(&mut result, state_tree_height, &compile_results_for_metadata)
+                .ok()
+                .and_then(|abi| {
+                    serde_json::to_value(&abi)
+                        .map_err(|error| tracing::warn!("ABI serialization failed: {error}"))
+                        .ok()
+                });
 
             let Some(circuit) = result.compile_results.first() else {
                 return serialize_interpret_error(
@@ -1029,7 +1016,6 @@ fn compile_vfs_project_with_contract(
                         compile_results: None,
                         contract_code: None,
                         abi: None,
-                        spec_abi: None,
                     });
                 }
             };
@@ -1044,28 +1030,22 @@ fn compile_vfs_project_with_contract(
                 }
             };
 
-            let abi = match extract_contract_abi(&mut result, state_tree_height, &compile_results_for_metadata) {
-                Ok(value) => Some(value),
-                Err(error) => {
-                    tracing::warn!("ABI extraction failed: {error}");
-                    None
-                }
-            };
-            let abi_value = abi
-                .as_ref()
-                .and_then(|abi| serde_json::to_value(abi).map_err(|error| tracing::warn!("ABI serialization failed: {error}")).ok());
-            let spec_abi_value = extract_spec_abi(&mut result).ok().and_then(|abi| {
-                serde_json::to_value(abi)
-                    .map_err(|error| tracing::warn!("Spec ABI serialization failed: {error}"))
-                    .ok()
-            });
-
-            if let Some(abi) = abi.clone() {
-                cache_compile(CachedCompile {
-                    state_tree_height,
-                    abi,
-                    circuit_definitions: compile_results_for_metadata.clone(),
+            let abi_value = extract_abi(&mut result, state_tree_height, &compile_results_for_metadata)
+                .ok()
+                .and_then(|abi| {
+                    serde_json::to_value(&abi)
+                        .map_err(|error| tracing::warn!("ABI serialization failed: {error}"))
+                        .ok()
                 });
+
+            if let Some(abi) = abi_value.clone() {
+                if let Ok(parsed) = serde_json::from_value::<Abi>(abi) {
+                    cache_compile(CachedCompile {
+                        state_tree_height,
+                        abi: parsed,
+                        circuit_definitions: compile_results_for_metadata.clone(),
+                    });
+                }
             }
 
             serialize_result(JsCompileResult {
@@ -1076,7 +1056,6 @@ fn compile_vfs_project_with_contract(
                 compile_results: Some(compile_results),
                 contract_code,
                 abi: abi_value,
-                spec_abi: spec_abi_value,
             })
         }
         Err(error) => {
@@ -1089,7 +1068,6 @@ fn compile_vfs_project_with_contract(
                 compile_results: None,
                 contract_code: None,
                 abi: None,
-                spec_abi: None,
             })
         }
     }
@@ -1272,24 +1250,19 @@ impl From<ExecutionContextInput> for ExecutionContext {
     }
 }
 
-fn extract_contract_abi(
+
+fn extract_abi(
     result: &mut psy_interpreter::InterpretResult,
     state_tree_height: u16,
     compile_results: &[DPNFunctionCircuitDefinition],
-) -> Result<ContractCompatAbi, String> {
+) -> Result<Abi, String> {
     let program = &mut result.ctx.program;
     let method_metadata = compile_results
         .iter()
         .map(|function| (function.name.clone(), (function.method_id, function.is_view_function())))
         .collect::<HashMap<_, _>>();
     AbiExtractor::new("contract".to_string())
-        .extract_contract_abi(program, state_tree_height, &method_metadata)
-        .map_err(|error| error.to_string())
-}
-
-fn extract_spec_abi(result: &mut psy_interpreter::InterpretResult) -> Result<SpecCompliantAbi, String> {
-    AbiExtractor::new("contract".to_string())
-        .extract_spec_compliant_abi(&mut result.ctx.program)
+        .extract_abi(program, state_tree_height, &method_metadata)
         .map_err(|error| error.to_string())
 }
 
@@ -1536,10 +1509,9 @@ mod tests {
         error: Option<String>,
         error_offset: Option<usize>,
         entry_path: Option<String>,
-        compile_results: Option<Vec<serde_json::Value>>,
+        compile_results: Option<serde_json::Value>,
         contract_code: Option<serde_json::Value>,
         abi: Option<serde_json::Value>,
-        spec_abi: Option<serde_json::Value>,
     }
 
     fn parse_result(json: &str) -> TestCompileResult {
@@ -1562,7 +1534,7 @@ mod tests {
 
         assert!(result.success, "expected compile success, got {:?}", result.error);
         assert_eq!(result.entry_path.as_deref(), Some("/vfs/src/main.psy"));
-        assert!(result.compile_results.as_ref().is_some_and(|items| !items.is_empty()));
+        assert!(result.compile_results.as_ref().is_some_and(|items| items.as_array().is_some_and(|a| !a.is_empty())));
     }
 
     #[test]
@@ -1581,7 +1553,7 @@ mod tests {
 
         assert!(result.success, "expected compile success, got {:?}", result.error);
         assert_eq!(result.entry_path.as_deref(), Some("/vfs/src/main.psy"));
-        assert!(result.compile_results.as_ref().is_some_and(|items| !items.is_empty()));
+        assert!(result.compile_results.as_ref().is_some_and(|items| items.as_array().is_some_and(|a| !a.is_empty())));
     }
 
     #[test]
@@ -1600,7 +1572,7 @@ mod tests {
 
         assert!(result.success, "expected compile success, got {:?}", result.error);
         assert_eq!(result.entry_path.as_deref(), Some("/vfs/src/main.psy"));
-        assert!(result.compile_results.as_ref().is_some_and(|items| !items.is_empty()));
+        assert!(result.compile_results.as_ref().is_some_and(|items| items.as_array().is_some_and(|a| !a.is_empty())));
     }
 
     #[test]
@@ -1700,11 +1672,100 @@ mod tests {
         assert!(contract_code["functions"].as_array().is_some_and(|items| !items.is_empty()));
 
         let abi = result.abi.expect("missing abi");
-        assert_eq!(abi["contract_name"].as_str(), Some("MapContract"));
-        assert_eq!(abi["state_tree_height"].as_u64(), Some(4));
-        assert!(abi["state_layout"].as_array().is_some_and(|items| !items.is_empty()));
-        assert_eq!(abi["state_layout"][0]["is_imt_map"].as_bool(), Some(true));
-        assert!(abi["methods"].is_array());
+        assert_eq!(abi["contract"]["name"].as_str(), Some("MapContract"));
+        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(4));
+        let state = abi["contract"]["state"].as_array().expect("state array");
+        assert!(!state.is_empty());
+        assert_eq!(state[0]["name"].as_str(), Some("balances"));
+        assert_eq!(state[0]["type"]["map_kind"].as_str(), Some("map"));
+        assert!(abi["contract"]["methods"].is_array());
+    }
+
+    #[test]
+    #[serial]
+    fn compile_source_emits_abi() {
+        let result = parse_result(&compile_source(
+            r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct MapContract {
+                pub balances: Map<Hash, Hash, 128u32>,
+            }
+
+            fn main() {
+                let c = MapContractRef::new(ContractMetadata::current());
+                let key: Hash = [1, 0, 0, 0];
+                let value: Hash = [11, 22, 33, 44];
+                c.balances.insert(key, value);
+            }
+            "#,
+        ));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+
+        let abi = result.abi.expect("missing abi");
+        assert_eq!(abi["schema_version"].as_str(), Some("2.0.0"));
+        assert_eq!(abi["contract"]["name"].as_str(), Some("MapContract"));
+        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(4));
+
+        // State field should use TypeRef with kind: "map"
+        let state = abi["contract"]["state"].as_array().expect("state array");
+        assert!(!state.is_empty());
+        assert_eq!(state[0]["name"].as_str(), Some("balances"));
+        assert_eq!(state[0]["type"]["map_kind"].as_str(), Some("map"));
+
+        // Methods should have explicit method_id and state_mutability
+        let methods = abi["contract"]["methods"].as_array().expect("methods array");
+        assert!(!methods.is_empty());
+        assert!(methods[0]["method_id"].as_u64().is_some());
+        assert!(methods[0]["state_mutability"].as_str().is_some());
+        assert!(methods[0]["input_felt_count"].as_u64().is_some());
+        assert!(methods[0]["output_felt_count"].as_u64().is_some());
+    }
+
+    #[test]
+    #[serial]
+    fn compile_source_emits_abi_with_structs() {
+        let result = parse_result(&compile_source(
+            r#"
+            #[derive(Storage)]
+            struct OtherInfo {
+                pub amount: Felt,
+                pub claimed: Felt,
+            }
+
+            #[contract]
+            #[derive(Storage)]
+            pub struct TokenContract {
+                pub balance: Felt,
+                pub info: [OtherInfo; 1024],
+            }
+
+            fn main() {
+                let c = TokenContractRef::new(ContractMetadata::current());
+                c.balance = 42;
+            }
+            "#,
+        ));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+
+        let abi = result.abi.expect("missing abi");
+        assert_eq!(abi["contract"]["name"].as_str(), Some("TokenContract"));
+
+        // State should have balance (primitive) and info (array of struct)
+        let state = abi["contract"]["state"].as_array().expect("state array");
+        assert_eq!(state.len(), 2);
+        assert_eq!(state[0]["name"].as_str(), Some("balance"));
+        assert_eq!(state[0]["type"]["kind"].as_str(), Some("primitive"));
+        assert_eq!(state[0]["type"]["name"].as_str(), Some("Felt"));
+        assert_eq!(state[1]["name"].as_str(), Some("info"));
+        assert_eq!(state[1]["type"]["kind"].as_str(), Some("array"));
+
+        // Types table should contain OtherInfo struct
+        let types = abi["types"].as_array().expect("types array");
+        let type_names: Vec<_> = types.iter().filter_map(|t| t["name"].as_str()).collect();
+        assert!(type_names.contains(&"OtherInfo"), "OtherInfo not in types: {:?}", type_names);
     }
 
     #[test]
@@ -1727,7 +1788,7 @@ mod tests {
         let result = parse_result(&compile_dargo_project(&project.to_string()));
 
         assert!(result.success, "expected compile success, got {:?}", result.error);
-        assert!(result.compile_results.as_ref().is_some_and(|items| !items.is_empty()));
+        assert!(result.compile_results.as_ref().is_some_and(|items| items.as_array().is_some_and(|a| !a.is_empty())));
     }
 
     #[test]

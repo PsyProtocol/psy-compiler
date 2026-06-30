@@ -1,5 +1,5 @@
 // input:
-// output: Hash result of hashing two Hash values together
+// expected: Hash result of hashing two Hash values together
 fn main() -> Hash {
     let left: Hash = [1, 2, 3, 4];
     let right: Hash = [5, 6, 7, 8];
