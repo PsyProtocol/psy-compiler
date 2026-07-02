@@ -323,10 +323,10 @@ impl PsyTokenContractRef {
             preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
         ]);
         let shield_claim_fingerprint: Hash = [
-            9035274454396793746,
-            3283101489055486651,
-            5463948716196243646,
-            10960400114419786825
+            2203987678170682350,
+            15385694859099526216,
+            10391000236429509893,
+            16400243532918203983
         ];
         let leaf: Hash = hash_two_to_one(shield_claim_fingerprint, public_inputs_hash);
         let mut current: Hash = leaf;
@@ -514,7 +514,7 @@ impl PsyTokenContractRef {
     }
 
     #[contract_method]
-    pub fn private_transfer(receiver: Hash, value: Felt, note_secret_hash: Hash) {
+    pub fn private_transfer(receiver: Hash, value: Felt, note_commitment: Hash) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
         assert(value > 0, "value must be positive");
@@ -522,7 +522,7 @@ impl PsyTokenContractRef {
         c.balance = current_balance - value;
 
         let value_hash: Hash = [value, 0, 0, 0];
-        let commitment: Hash = hash_two_to_one(hash_two_to_one(receiver, value_hash), note_secret_hash);
+        let commitment: Hash = hash_two_to_one(hash_two_to_one(receiver, value_hash), note_commitment);
         let idx = c.note_count.get();
         assert(idx < 1048576, "note tree is full");
 
@@ -580,10 +580,10 @@ impl PsyTokenContractRef {
             preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
         ]);
         let private_note_inclusion_fingerprint: Hash = [
-            1866130053021784426,
-            4684972721646198880,
-            8939938924988830351,
-            15880983663605084668
+            7347800111836438430,
+            8296312334427448937,
+            7663862879523756293,
+            2475221133236141969
         ];
         let leaf: Hash = hash_two_to_one(private_note_inclusion_fingerprint, public_inputs_hash);
 
