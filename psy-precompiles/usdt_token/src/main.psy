@@ -76,6 +76,8 @@ struct ShieldClaimPublicInputsPreimage {
     pub source_chain_index: Felt,
     pub deposit_root: Hash,
     pub nullifier_hash: Hash,
+    pub note_commitment: Hash,
+    pub deposit_index: Felt,
 }
 
 #[contract]
@@ -275,6 +277,8 @@ impl USDTTokenContractRef {
         amount: [u32; 8],
         source_chain_index: Felt,
         deposit_root: [u32; 8],
+        note_commitment: Hash,
+        deposit_index: Felt,
         r0: Felt,
         r1: Felt,
         proof: ShieldClaimProof
@@ -309,6 +313,8 @@ impl USDTTokenContractRef {
             source_chain_index,
             deposit_root: deposit_root_hash,
             nullifier_hash,
+            note_commitment,
+            deposit_index,
         };
         let public_inputs_hash: Hash = hash([
             preimage.shield_address[0], preimage.shield_address[1], preimage.shield_address[2], preimage.shield_address[3],
@@ -320,13 +326,15 @@ impl USDTTokenContractRef {
             preimage.l2_token_contract_id[4] as Felt, preimage.l2_token_contract_id[5] as Felt, preimage.l2_token_contract_id[6] as Felt, preimage.l2_token_contract_id[7] as Felt,
             preimage.source_chain_index,
             preimage.deposit_root[0], preimage.deposit_root[1], preimage.deposit_root[2], preimage.deposit_root[3],
-            preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
+            preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3],
+            preimage.note_commitment[0], preimage.note_commitment[1], preimage.note_commitment[2], preimage.note_commitment[3],
+            preimage.deposit_index
         ]);
         let shield_claim_fingerprint: Hash = [
-            2203987678170682350,
-            15385694859099526216,
-            10391000236429509893,
-            16400243532918203983
+            12102704748894912577,
+            2605816805097074474,
+            270858441303242900,
+            1525812673267139438
         ];
         let leaf: Hash = hash_two_to_one(shield_claim_fingerprint, public_inputs_hash);
         let mut current: Hash = leaf;
