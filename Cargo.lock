@@ -6501,6 +6501,7 @@ dependencies = [
  "psy_core",
  "psy_data",
  "psy_io",
+ "psy_provider",
  "psy_serialize",
  "rand 0.8.6",
  "serde",
