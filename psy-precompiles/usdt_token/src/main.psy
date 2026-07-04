@@ -42,11 +42,12 @@ pub struct UserInfoEvent {
 
 #[derive(Event)]
 pub struct WithdrawalEvent {
-    pub destination_chain_id: Felt,
+    pub sender_user_id: Felt,
+    pub destination_chain_index: Felt,
     pub token_address: [u32; 8],
     pub amount: [u32; 8],
     pub recipient: [u32; 8],
-    pub nonce: Felt,
+    pub nonce: [u32; 8],
 }
 
 struct PrivateClaimProof {
@@ -94,6 +95,7 @@ pub struct USDTTokenContract {
     pub last_path: [Hash; 20],
 
     pub state_map: Map<Hash, Hash, 1048576u32>,
+    pub withdrawal_count: Felt,
 }
 
 impl USDTTokenContractRef {
@@ -189,6 +191,12 @@ impl USDTTokenContractRef {
             (x[6] as Felt) + (x[7] as Felt) * Self::u32_shift_factor(),
         ]
     }
+    fn withdrawal_record_key(nonce: [u32; 8]) -> Hash {
+        hash([
+            nonce[0] as Felt, nonce[1] as Felt, nonce[2] as Felt, nonce[3] as Felt,
+            nonce[4] as Felt, nonce[5] as Felt, nonce[6] as Felt, nonce[7] as Felt,
+        ])
+    }
 
     fn poseidon_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
         Self::hash_to_u32x8(hash_two_to_one(Self::u32x8_to_hash(left), Self::u32x8_to_hash(right)))
@@ -237,7 +245,7 @@ impl USDTTokenContractRef {
         token_address: [u32; 8],
         amount: [u32; 8],
         recipient: [u32; 8],
-        nonce: Felt,
+        nonce: [u32; 8],
     ) {
         let c = USDTTokenContractRef::new(ContractMetadata::current());
         let amount_felt = Self::u32x8_be_to_felt_u64(amount);
@@ -249,18 +257,24 @@ impl USDTTokenContractRef {
 
         assert(destination_chain_index < 256, "destination chain index out of range (0-255)");
 
-        let leaf_hash: [u32; 8] = Self::hash_to_u32x8(hash([
+        let sender_user_id = get_user_id();
+        let leaf_hash: Hash = hash([
+            sender_user_id,
             recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
             recipient[4] as Felt, recipient[5] as Felt, recipient[6] as Felt, recipient[7] as Felt,
             token_address[0] as Felt, token_address[1] as Felt, token_address[2] as Felt, token_address[3] as Felt,
             token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
             amount[0] as Felt, amount[1] as Felt, amount[2] as Felt, amount[3] as Felt,
             amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
-            nonce,
+            nonce[0] as Felt, nonce[1] as Felt, nonce[2] as Felt, nonce[3] as Felt,
+            nonce[4] as Felt, nonce[5] as Felt, nonce[6] as Felt, nonce[7] as Felt,
             destination_chain_index,
-        ]));
+        ]);
+        let record_key: Hash = Self::withdrawal_record_key(nonce);
+        c.state_map.insert_ns(6, record_key, leaf_hash);
         let event_data = new WithdrawalEvent {
-            destination_chain_id: destination_chain_index,
+            sender_user_id,
+            destination_chain_index,
             token_address,
             amount,
             recipient,
@@ -268,7 +282,6 @@ impl USDTTokenContractRef {
         };
         event_data.emit();
     }
-
     #[contract_method]
     pub fn claim_deposit(
         nullifier_hash: Hash,
