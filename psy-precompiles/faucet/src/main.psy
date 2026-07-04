@@ -13,7 +13,7 @@ pub struct PsyFaucetContract {
 }
 
 impl PsyFaucetContractRef {
-    #[contract::write_method]
+    #[contract_method]
     pub fn faucet(user_id: Felt, amount: Felt) {
         let max_amount = 1000000000000;
         let window_size = 120;

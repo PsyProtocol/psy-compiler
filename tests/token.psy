@@ -3,7 +3,7 @@ struct ContractRef {
 }
 
 impl ContractRef {
-    #[contract::write_method]
+    #[contract_method]
     pub fn simple_mint(
         amount: Felt,
     ) -> Felt {
@@ -22,7 +22,7 @@ impl ContractRef {
         new_balance
     }
 
-    #[contract::write_method]
+    #[contract_method]
     pub fn simple_transfer(
         recipient: Felt,
         amount: Felt,
@@ -60,7 +60,7 @@ impl ContractRef {
         current_balance
     }
 
-    #[contract::write_method]
+    #[contract_method]
     pub fn simple_claim(
         sender: Felt,
     ) -> Felt {
