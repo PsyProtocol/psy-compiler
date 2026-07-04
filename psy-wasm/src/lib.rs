@@ -1,12 +1,11 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex, Once},
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use psy_abi::{AbiExtractor, Abi};
-use psy_ast::{DefId, DefinitionNode, Program};
 use psy_common::Graph;
 use psy_package::{resolve_source_workspace, MemoryResolver, PackageId, PackageSources, RelativeFilePath, VfsPath};
 use psy_vm::dpn::{
@@ -1244,46 +1243,18 @@ impl From<ExecutionContextInput> for ExecutionContext {
     }
 }
 
-
-
-fn collect_declared_view_methods<F: Clone + From<u32>>(program: &Program<F>) -> HashSet<String> {
-    let mut view_methods = HashSet::new();
-    for i in 0..program.defs.len() {
-        let def_id = DefId::from(i);
-        match &program[def_id] {
-            DefinitionNode::Function(function) => {
-                if function.attrs.iter().any(|attr| attr.is_contract_view_method()) {
-                    view_methods.insert(program[function.name.id].to_string());
-                }
-            }
-            DefinitionNode::Impl(impl_node) => {
-                for &function_def_id in &impl_node.body {
-                    let DefinitionNode::Function(function) = &program[function_def_id] else {
-                        continue;
-                    };
-                    if function.attrs.iter().any(|attr| attr.is_contract_view_method()) {
-                        view_methods.insert(program[function.name.id].to_string());
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    view_methods
-}
 fn extract_abi(
     result: &mut psy_interpreter::InterpretResult,
     state_tree_height: u16,
     compile_results: &[DPNFunctionCircuitDefinition],
 ) -> Result<Abi, String> {
     let program = &mut result.ctx.program;
-    let declared_view_methods = collect_declared_view_methods(program);
     let method_metadata = compile_results
         .iter()
         .map(|function| {
             (
                 function.name.clone(),
-                (function.method_id, declared_view_methods.contains(&function.name)),
+                (function.method_id, function.is_view_function()),
             )
         })
         .collect::<HashMap<_, _>>();
