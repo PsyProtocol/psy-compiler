@@ -150,6 +150,15 @@ fn resolve_workspace_method_names(workspace: &Workspace, compile_options: &Compi
         return Ok(method_names.clone());
     }
 
+    let mut root_package = workspace.package.clone();
+    if let Some(entry_path) = &compile_options.entry_path {
+        root_package.entry_path = entry_path.clone();
+    }
+    let root_source = std::fs::read_to_string(root_package.entry_canonical_path())?;
+    if source_has_function_name(&root_source, "main") {
+        return Ok(vec!["main".to_string()]);
+    }
+
     let mut queue = VecDeque::new();
     let mut visited = HashSet::new();
     queue.push_back(&workspace.package);
@@ -224,6 +233,14 @@ fn extract_contract_method_names(source: &str, method_names: &mut Vec<String>) {
 }
 
 fn extract_first_function_name(source: &str) -> Option<String> {
+    extract_function_name(source, |_| true)
+}
+
+fn source_has_function_name(source: &str, expected_name: &str) -> bool {
+    extract_function_name(source, |name| name == expected_name).is_some()
+}
+
+fn extract_function_name(source: &str, predicate: impl Fn(&str) -> bool) -> Option<String> {
     let marker = "fn ";
     let mut search_start = 0usize;
     while let Some(relative) = source[search_start..].find(marker) {
@@ -232,7 +249,7 @@ fn extract_first_function_name(source: &str) -> Option<String> {
         let end = rest
             .find(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
             .unwrap_or(rest.len());
-        if end > 0 {
+        if end > 0 && predicate(&rest[..end]) {
             return Some(rest[..end].to_string());
         }
         search_start = start;
