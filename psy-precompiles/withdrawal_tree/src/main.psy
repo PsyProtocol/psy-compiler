@@ -16,7 +16,8 @@ pub struct PsyWithdrawalTreeContract {
 
     pub frontiers: [[u32; 8]; 8192],
     pub chain_counts: [Felt; 256],
-    pub _chain_roots_padding: [Felt; 4],
+    pub global_count: Felt,
+    pub _chain_roots_padding: [Felt; 3],
     pub chain_roots: [[u32; 8]; 256],
 
     pub agg_tree: [[u32; 8]; 512],
@@ -167,6 +168,11 @@ impl PsyWithdrawalTreeContractRef {
         out
     }
 
+    fn get_global_count_value() -> Felt {
+        let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
+        c.global_count.get()
+    }
+
     fn append_to_chain_hash(chain_index: Felt, leaf_hash: Hash) -> Hash {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         let idx = Self::get_chain_count_value(chain_index);
@@ -192,6 +198,7 @@ impl PsyWithdrawalTreeContractRef {
         }
 
         c.chain_counts[chain_index] = idx + 1;
+        c.global_count = Self::get_global_count_value() + 1;
         c.chain_roots[chain_index] = Self::hash_to_u32x8(current);
 
         current
@@ -293,6 +300,7 @@ impl PsyWithdrawalTreeContractRef {
 
         // Set chain state directly
         c.chain_counts[chain_index] = new_count;
+        c.global_count = Self::get_global_count_value() + delta_count;
         c.chain_roots[chain_index] = new_chain_root;
 
         // Update the 8-layer keccak agg tree

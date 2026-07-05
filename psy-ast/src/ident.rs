@@ -237,6 +237,10 @@ mod tests {
             (IdentId::NEW, "new"),
             (IdentId::TEST, "test"),
             (IdentId::SHOULD_PANIC, "should_panic"),
+            (IdentId::CONTRACT, "contract"),
+            (IdentId::VIEW_METHOD, "view_method"),
+            (IdentId::WRITE_METHOD, "write_method"),
+            (IdentId::CONTRACT_METHOD, "contract_method"),
             (IdentId::T, "T"),
             (IdentId::N, "N"),
         ];
