@@ -142,6 +142,7 @@ ident_ids!(
     CONTRACT => "contract",
     VIEW_METHOD => "view_method",
     WRITE_METHOD => "write_method",
+    CONTRACT_METHOD => "contract_method",
 
     T => "T",
     N => "N"

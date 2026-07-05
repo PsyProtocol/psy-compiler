@@ -9,6 +9,10 @@ pub struct AttrNode {
 }
 
 impl AttrNode {
+    fn is_bare_contract_method(&self) -> bool {
+        self.path.is_empty() && self.name == IdentId::CONTRACT_METHOD
+    }
+
     pub fn is_derive(&self) -> bool {
         self.name == IdentId::DERIVE && self.path.is_empty()
     }
@@ -30,6 +34,6 @@ impl AttrNode {
     }
 
     pub fn is_contract_api_method(&self) -> bool {
-        self.is_contract_write_method() || self.is_contract_view_method()
+        self.is_contract_write_method() || self.is_contract_view_method() || self.is_bare_contract_method()
     }
 }

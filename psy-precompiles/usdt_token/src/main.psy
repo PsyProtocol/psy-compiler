@@ -95,7 +95,6 @@ pub struct USDTTokenContract {
     pub last_path: [Hash; 20],
 
     pub state_map: Map<Hash, Hash, 1048576u32>,
-    pub withdrawal_count: Felt,
 }
 
 impl USDTTokenContractRef {
@@ -258,6 +257,15 @@ impl USDTTokenContractRef {
         assert(destination_chain_index < 256, "destination chain index out of range (0-255)");
 
         let sender_user_id = get_user_id();
+        let n0: Felt = nonce[0] as Felt;
+        let n1: Felt = nonce[1] as Felt;
+        let n2: Felt = nonce[2] as Felt;
+        let n3: Felt = nonce[3] as Felt;
+        let n4: Felt = nonce[4] as Felt;
+        let n5: Felt = nonce[5] as Felt;
+        let n6: Felt = nonce[6] as Felt;
+        let n7: Felt = nonce[7] as Felt;
+
         let leaf_hash: Hash = hash([
             sender_user_id,
             recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
@@ -266,11 +274,11 @@ impl USDTTokenContractRef {
             token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
             amount[0] as Felt, amount[1] as Felt, amount[2] as Felt, amount[3] as Felt,
             amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
-            nonce[0] as Felt, nonce[1] as Felt, nonce[2] as Felt, nonce[3] as Felt,
-            nonce[4] as Felt, nonce[5] as Felt, nonce[6] as Felt, nonce[7] as Felt,
+            n0, n1, n2, n3, n4, n5, n6, n7,
             destination_chain_index,
         ]);
         let record_key: Hash = Self::withdrawal_record_key(nonce);
+        assert(!c.state_map.contains_ns(6, record_key), "nonce already used for withdrawal");
         c.state_map.insert_ns(6, record_key, leaf_hash);
         let event_data = new WithdrawalEvent {
             sender_user_id,

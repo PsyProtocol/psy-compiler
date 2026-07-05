@@ -230,6 +230,53 @@ impl PsyWithdrawalTreeContractRef {
         (idx, new_chain_root)
     }
 
+    fn append_authorized_withdrawal(
+        sender_user_id: Felt,
+        token_contract_id: Felt,
+        destination_chain_index: Felt,
+        token_address: [u32; 8],
+        amount: [u32; 8],
+        recipient: [u32; 8],
+        nonce: [u32; 8]
+    ) -> (Felt, [u32; 8], [u32; 8], [u32; 8]) {
+        assert((destination_chain_index >> 32) == 0, "destination chain index out of uint32 range");
+        assert(destination_chain_index < 256, "destination chain index out of range (0-255)");
+        assert(
+            token_contract_id == Self::token_contract_id()
+                || token_contract_id == Self::usdt_token_contract_id(),
+            "unsupported withdrawal token contract"
+        );
+
+        let leaf_hash_hash: Hash = Self::compute_withdrawal_leaf_hash(
+            sender_user_id,
+            destination_chain_index,
+            token_address,
+            amount,
+            recipient,
+            nonce,
+        );
+        let token_state_map: MapRef<Hash, Hash, 1048576u32> = MapRef::new(
+            Self::token_state_map_offset(),
+            ContractMetadata::new(token_contract_id, sender_user_id)
+        );
+        let recorded: Hash = token_state_map.get_ns_other(
+            Self::withdrawal_record_namespace(),
+            Self::withdrawal_record_key(nonce)
+        );
+        assert(Self::eq_hash(recorded, leaf_hash_hash), "withdrawal leaf does not match sender withdrawal record");
+
+        let leaf_hash: [u32; 8] = Self::hash_to_u32x8(leaf_hash_hash);
+        let append_result = Self::append_leaf_to_chain(destination_chain_index, leaf_hash);
+        let idx = append_result.0;
+        let new_chain_root = append_result.1;
+        let new_global_root_hash = Self::update_global_root_for_chain_hash(
+            destination_chain_index,
+            Self::u32x8_to_hash(new_chain_root)
+        );
+        let new_global_root = Self::hash_to_u32x8(new_global_root_hash);
+        (idx, leaf_hash, new_chain_root, new_global_root)
+    }
+
     #[contract_method]
     pub fn set_chain_root(
         chain_index: Felt,
@@ -296,39 +343,21 @@ impl PsyWithdrawalTreeContractRef {
         recipient: [u32; 8],
         nonce: [u32; 8]
     ) {
-        assert((destination_chain_index >> 32) == 0, "destination chain index out of uint32 range");
-        assert(destination_chain_index < 256, "destination chain index out of range (0-255)");
-        assert(
-            token_contract_id == Self::token_contract_id()
-                || token_contract_id == Self::usdt_token_contract_id(),
-            "unsupported withdrawal token contract"
-        );
-        let leaf_hash_hash: Hash = Self::compute_withdrawal_leaf_hash(
+        let append_result = Self::append_authorized_withdrawal(
             sender_user_id,
+            token_contract_id,
             destination_chain_index,
             token_address,
             amount,
             recipient,
             nonce,
         );
-        let token_state_map: MapRef<Hash, Hash, 1048576u32> = MapRef::new(
-            Self::token_state_map_offset(),
-            ContractMetadata::new(token_contract_id, sender_user_id)
-        );
-        let recorded: Hash = token_state_map.get_ns_other(
-            Self::withdrawal_record_namespace(),
-            Self::withdrawal_record_key(nonce)
-        );
-        assert(Self::eq_hash(recorded, leaf_hash_hash), "withdrawal leaf does not match sender withdrawal record");
-        let leaf_hash: [u32; 8] = Self::hash_to_u32x8(leaf_hash_hash);
-        let chain_index = destination_chain_index;
-        let append_result = Self::append_leaf_to_chain(chain_index, leaf_hash);
         let idx = append_result.0;
-        let new_chain_root = append_result.1;
-        let new_global_root_hash = Self::update_global_root_for_chain_hash(chain_index, Self::u32x8_to_hash(new_chain_root));
-        let new_global_root = Self::hash_to_u32x8(new_global_root_hash);
+        let leaf_hash = append_result.1;
+        let new_chain_root = append_result.2;
+        let new_global_root = append_result.3;
         let event_data = new WithdrawalLeafAppended {
-            chain_index,
+            chain_index: destination_chain_index,
             index: idx,
             leaf: leaf_hash,
             new_chain_root,
@@ -339,13 +368,149 @@ impl PsyWithdrawalTreeContractRef {
 
 
     #[contract_method]
-    pub fn batch_append_withdrawals_2(count: Felt, chain_indices: [Felt; 2], leaf_data: [u32; 16]) {
-        assert(false, "batch_append_withdrawals_2 is disabled; use append_withdrawal with sender auth");
+    pub fn batch_append_withdrawals_2(
+        count: Felt,
+        sender_user_ids: [Felt; 2],
+        token_contract_ids: [Felt; 2],
+        destination_chain_indices: [Felt; 2],
+        token_addresses: [u32; 16],
+        amounts: [u32; 16],
+        recipients: [u32; 16],
+        nonces: [u32; 16]
+    ) {
+        assert(count > 0, "empty withdrawal batch");
+        assert(count <= 2, "withdrawal batch exceeds max size (2)");
+
+        for i in 0u32..2u32 {
+            let item_index = i as Felt;
+            let offset: Felt = item_index * 8;
+            let o0 = offset;
+            let o1 = offset + 1;
+            let o2 = offset + 2;
+            let o3 = offset + 3;
+            let o4 = offset + 4;
+            let o5 = offset + 5;
+            let o6 = offset + 6;
+            let o7 = offset + 7;
+
+            let token_address: [u32; 8] = [
+                token_addresses[o0], token_addresses[o1], token_addresses[o2], token_addresses[o3],
+                token_addresses[o4], token_addresses[o5], token_addresses[o6], token_addresses[o7],
+            ];
+            let amount: [u32; 8] = [
+                amounts[o0], amounts[o1], amounts[o2], amounts[o3],
+                amounts[o4], amounts[o5], amounts[o6], amounts[o7],
+            ];
+            let recipient: [u32; 8] = [
+                recipients[o0], recipients[o1], recipients[o2], recipients[o3],
+                recipients[o4], recipients[o5], recipients[o6], recipients[o7],
+            ];
+            let nonce: [u32; 8] = [
+                nonces[o0], nonces[o1], nonces[o2], nonces[o3],
+                nonces[o4], nonces[o5], nonces[o6], nonces[o7],
+            ];
+
+            if item_index < count {
+                let append_result = Self::append_authorized_withdrawal(
+                    sender_user_ids[item_index],
+                    token_contract_ids[item_index],
+                    destination_chain_indices[item_index],
+                    token_address,
+                    amount,
+                    recipient,
+                    nonce,
+                );
+                let event_data = new WithdrawalLeafAppended {
+                    chain_index: destination_chain_indices[item_index],
+                    index: append_result.0,
+                    leaf: append_result.1,
+                    new_chain_root: append_result.2,
+                    new_global_root: append_result.3,
+                };
+                event_data.emit();
+            } else {
+                assert(sender_user_ids[item_index] == 0, "non-zero dummy sender_user_id");
+                assert(token_contract_ids[item_index] == 0, "non-zero dummy token_contract_id");
+                assert(destination_chain_indices[item_index] == 0, "non-zero dummy destination_chain_index");
+                assert(Self::is_zero_u32x8(token_address), "non-zero dummy token_address");
+                assert(Self::is_zero_u32x8(amount), "non-zero dummy amount");
+                assert(Self::is_zero_u32x8(recipient), "non-zero dummy recipient");
+                assert(Self::is_zero_u32x8(nonce), "non-zero dummy nonce");
+            };
+        }
     }
 
     #[contract_method]
-    pub fn batch_append_withdrawals_5(count: Felt, chain_indices: [Felt; 5], leaf_data: [u32; 40]) {
-        assert(false, "batch_append_withdrawals_5 is disabled; use append_withdrawal with sender auth");
+    pub fn batch_append_withdrawals_5(
+        count: Felt,
+        sender_user_ids: [Felt; 5],
+        token_contract_ids: [Felt; 5],
+        destination_chain_indices: [Felt; 5],
+        token_addresses: [u32; 40],
+        amounts: [u32; 40],
+        recipients: [u32; 40],
+        nonces: [u32; 40]
+    ) {
+        assert(count > 0, "empty withdrawal batch");
+        assert(count <= 5, "withdrawal batch exceeds max size (5)");
+
+        for i in 0u32..5u32 {
+            let item_index = i as Felt;
+            let offset: Felt = item_index * 8;
+            let o0 = offset;
+            let o1 = offset + 1;
+            let o2 = offset + 2;
+            let o3 = offset + 3;
+            let o4 = offset + 4;
+            let o5 = offset + 5;
+            let o6 = offset + 6;
+            let o7 = offset + 7;
+
+            let token_address: [u32; 8] = [
+                token_addresses[o0], token_addresses[o1], token_addresses[o2], token_addresses[o3],
+                token_addresses[o4], token_addresses[o5], token_addresses[o6], token_addresses[o7],
+            ];
+            let amount: [u32; 8] = [
+                amounts[o0], amounts[o1], amounts[o2], amounts[o3],
+                amounts[o4], amounts[o5], amounts[o6], amounts[o7],
+            ];
+            let recipient: [u32; 8] = [
+                recipients[o0], recipients[o1], recipients[o2], recipients[o3],
+                recipients[o4], recipients[o5], recipients[o6], recipients[o7],
+            ];
+            let nonce: [u32; 8] = [
+                nonces[o0], nonces[o1], nonces[o2], nonces[o3],
+                nonces[o4], nonces[o5], nonces[o6], nonces[o7],
+            ];
+
+            if item_index < count {
+                let append_result = Self::append_authorized_withdrawal(
+                    sender_user_ids[item_index],
+                    token_contract_ids[item_index],
+                    destination_chain_indices[item_index],
+                    token_address,
+                    amount,
+                    recipient,
+                    nonce,
+                );
+                let event_data = new WithdrawalLeafAppended {
+                    chain_index: destination_chain_indices[item_index],
+                    index: append_result.0,
+                    leaf: append_result.1,
+                    new_chain_root: append_result.2,
+                    new_global_root: append_result.3,
+                };
+                event_data.emit();
+            } else {
+                assert(sender_user_ids[item_index] == 0, "non-zero dummy sender_user_id");
+                assert(token_contract_ids[item_index] == 0, "non-zero dummy token_contract_id");
+                assert(destination_chain_indices[item_index] == 0, "non-zero dummy destination_chain_index");
+                assert(Self::is_zero_u32x8(token_address), "non-zero dummy token_address");
+                assert(Self::is_zero_u32x8(amount), "non-zero dummy amount");
+                assert(Self::is_zero_u32x8(recipient), "non-zero dummy recipient");
+                assert(Self::is_zero_u32x8(nonce), "non-zero dummy nonce");
+            };
+        }
     }
 
 

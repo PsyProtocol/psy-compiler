@@ -134,7 +134,7 @@ fn source_vfs_to_pathbuf(path: &VfsPath) -> PathBuf {
     }
 }
 
-fn resolve_workspace_method_names(workspace: &Workspace, compile_options: &CompileOptions) -> Result<Vec<String>> {
+pub(crate) fn resolve_workspace_method_names(workspace: &Workspace, compile_options: &CompileOptions) -> Result<Vec<String>> {
     if let Some(method_names) = &compile_options.method_names {
         if method_names.is_empty() {
             return Err(crate::errors::CliError::Generic(
@@ -178,14 +178,14 @@ fn resolve_workspace_method_names(workspace: &Workspace, compile_options: &Compi
     method_names.dedup();
     if method_names.is_empty() {
         return Err(crate::errors::CliError::Generic(
-            "Unable to discover contract methods: add #[contract::write_method] or #[contract::view_method] to at least one function or provide --method-names explicitly"
+            "Unable to discover contract methods: add #[contract_method], #[contract::write_method], or #[contract::view_method] to at least one function or provide --method-names explicitly"
                 .to_string(),
         ));
     }
     Ok(method_names)
 }
 
-fn resolve_source_workspace_method_names(workspace: &ResolvedSourceWorkspace, compile_options: &CompileOptions) -> Result<Vec<String>> {
+pub(crate) fn resolve_source_workspace_method_names(workspace: &ResolvedSourceWorkspace, compile_options: &CompileOptions) -> Result<Vec<String>> {
     if let Some(method_names) = &compile_options.method_names {
         if method_names.is_empty() {
             return Err(crate::errors::CliError::Generic(
@@ -203,7 +203,7 @@ fn resolve_source_workspace_method_names(workspace: &ResolvedSourceWorkspace, co
     method_names.dedup();
     if method_names.is_empty() {
         return Err(crate::errors::CliError::Generic(
-            "Unable to discover contract methods: add #[contract::write_method] or #[contract::view_method] to at least one function or provide --method-names explicitly"
+            "Unable to discover contract methods: add #[contract_method], #[contract::write_method], or #[contract::view_method] to at least one function or provide --method-names explicitly"
                 .to_string(),
         ));
     }
@@ -211,7 +211,7 @@ fn resolve_source_workspace_method_names(workspace: &ResolvedSourceWorkspace, co
 }
 
 fn extract_contract_method_names(source: &str, method_names: &mut Vec<String>) {
-    for marker in ["#[contract::write_method]", "#[contract::view_method]"] {
+    for marker in ["#[contract::write_method]", "#[contract::view_method]", "#[contract_method]"] {
         let mut search_start = 0usize;
         while let Some(relative) = source[search_start..].find(marker) {
             let attr_start = search_start + relative + marker.len();
