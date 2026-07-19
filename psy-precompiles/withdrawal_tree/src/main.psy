@@ -297,6 +297,8 @@ impl PsyWithdrawalTreeContractRef {
         // idempotent: calling it twice with the same (total_count, new_chain_root)
         // is a no-op, which is critical for crash safety in the bridge relayer.
         let old_count = Self::get_chain_count_value(chain_index);
+        // Monotonicity guard: total_count must not decrease (Felt subtraction wraps mod p).
+        assert(total_count >= old_count, "total_count cannot decrease");
         let count_delta = total_count - old_count;
 
         // Set chain state to absolute values; count_delta is 0 on idempotent re-call
