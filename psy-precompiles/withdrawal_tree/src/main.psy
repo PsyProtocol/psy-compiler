@@ -21,7 +21,6 @@ pub struct PsyWithdrawalTreeContract {
     pub chain_roots: [[u32; 8]; 256],
 
     pub agg_tree: [[u32; 8]; 512],
-
 }
 
 impl PsyWithdrawalTreeContractRef {
@@ -287,20 +286,22 @@ impl PsyWithdrawalTreeContractRef {
     #[contract_method]
     pub fn set_chain_root(
         chain_index: Felt,
-        delta_count: Felt,
+        total_count: Felt,
         new_chain_root: [u32; 8]
     ) {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         assert(chain_index < 256, "chain index out of range");
-        assert(delta_count > 0, "delta count must be positive");
+        assert(total_count > 0, "total count must be positive");
 
-        // delta_count is an increment; accumulate internally
+        // total_count is an ABSOLUTE count (not a delta). This makes set_chain_root
+        // idempotent: calling it twice with the same (total_count, new_chain_root)
+        // is a no-op, which is critical for crash safety in the bridge relayer.
         let old_count = Self::get_chain_count_value(chain_index);
-        let new_count = old_count + delta_count;
+        let count_delta = total_count - old_count;
 
-        // Set chain state directly
-        c.chain_counts[chain_index] = new_count;
-        c.global_count = Self::get_global_count_value() + delta_count;
+        // Set chain state to absolute values; count_delta is 0 on idempotent re-call
+        c.chain_counts[chain_index] = total_count;
+        c.global_count = Self::get_global_count_value() + count_delta;
         c.chain_roots[chain_index] = new_chain_root;
 
         // Update the 8-layer keccak agg tree

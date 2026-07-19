@@ -107,7 +107,10 @@ fn main() -> anyhow::Result<()> {
     } else {
         serde_json::to_string_pretty(&contract_objects)?
     };
-    fs::write(output_path, &output_json).map_err(|e| anyhow::anyhow!("Failed to write {}: {}", output_path, e))?;
+    // Write zstd-compressed output (74x smaller than raw JSON for contract bytecode)
+    let compressed = zstd::encode_all(output_json.as_bytes(), 3)
+        .map_err(|e| anyhow::anyhow!("Failed to zstd-compress output: {}", e))?;
+    fs::write(output_path, &compressed).map_err(|e| anyhow::anyhow!("Failed to write {}: {}", output_path, e))?;
 
     println!();
     println!("Written {} contract(s) to {}", contract_objects.len(), output_path);
