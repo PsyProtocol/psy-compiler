@@ -32,8 +32,7 @@ pub async fn prepare_environment_with_real_contract(
         },
     )?;
 
-    let final_store =
-        SimpleBlockProcessor::prepare_environment_with_real_contract(register_users, deploy_contracts, store).await?;
+    let final_store = SimpleBlockProcessor::prepare_environment_with_real_contract(register_users, deploy_contracts, store).await?;
 
     let latest_block_state = final_store.get_latest_block_state().await?;
     let final_user_id = PsyFelt::from_canonical_u64(user_id.unwrap_or(5));

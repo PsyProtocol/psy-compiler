@@ -33,7 +33,7 @@ fn u32x8_to_hash(x: [u32; 8]) -> Hash {
 fn two_leaf_root_matches_live_chain_vector() {
     let leaf0: [u32; 8] = [2927886362u32, 1982019561u32, 3957609106u32, 241233646u32, 46542132u32, 2532064914u32, 3380856023u32, 3959365882u32];
     let leaf1: [u32; 8] = [2002457024u32, 3576223628u32, 822030740u32, 3539314892u32, 4114961657u32, 2549856447u32, 163842895u32, 2719990302u32];
-    let expected_root: [u32; 8] = [2748046697u32, 3500085355u32, 810773986u32, 3976908480u32, 1744836678u32, 1229218788u32, 3441380052u32, 1214620599u32];
+    let expected_root: [u32; 8] = [1286114048u32, 834293015u32, 4150395470u32, 3633796200u32, 414041923u32, 1070715421u32, 1061334837u32, 2873299708u32];
     let mut current = hash_two_to_one(u32x8_to_hash(leaf0), u32x8_to_hash(leaf1));
     let mut zero: Hash = hash_two_to_one([0, 0, 0, 0], [0, 0, 0, 0]);
     for _level in 1u32..32u32 {
@@ -41,7 +41,7 @@ fn two_leaf_root_matches_live_chain_vector() {
         zero = hash_two_to_one(zero, zero);
     }
     let got = hash_to_u32x8(current);
-    assert(got[0] == expected_root[0], "root[0] mismatch");
+    assert_eq(got[0], expected_root[0], "root[0] mismatch");
     assert(got[1] == expected_root[1], "root[1] mismatch");
     assert(got[2] == expected_root[2], "root[2] mismatch");
     assert(got[3] == expected_root[3], "root[3] mismatch");

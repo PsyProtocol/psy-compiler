@@ -5,9 +5,9 @@ edition = "2021"
 
 [dependencies]
 serde = { workspace = true }
-serde_json = { workspace = true }
 psy-ast = { workspace = true }
 psy_common = { workspace = true }
+psy_data = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = "1.4"

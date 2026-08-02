@@ -87,16 +87,14 @@ impl MiningRewardMerkleProof {
 }
 
 impl PsyPOWMiningRewardsClaimContractRef {
-    #[contract_method]
-    pub fn check_guta_reward(total_proofs_in_checkpoint: Felt, total_fees_paid: Felt, proposed_reward: Felt) -> bool {
+    fn check_guta_reward(total_proofs_in_checkpoint: Felt, total_fees_paid: Felt, proposed_reward: Felt) -> bool {
         let user_transaction_inclusion_fee = 5000000000;
 
         let total_reward_if_all_claim = proposed_reward * total_proofs_in_checkpoint;
         proposed_reward < user_transaction_inclusion_fee && total_reward_if_all_claim <= total_fees_paid
     }
 
-    #[contract_method]
-    pub fn claim_single_guta_reward(
+    fn claim_single_guta_reward(
         checkpoint_id: Felt,
         proof: MiningRewardMerkleProof,
         proposed_reward: Felt

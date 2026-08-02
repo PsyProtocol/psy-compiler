@@ -39,7 +39,7 @@ pub(crate) async fn start_cli() -> Result<()> {
 }
 
 #[derive(Parser, Debug)]
-#[command(name="dargo", author, about, long_about = None)]
+#[command(name = "dargo", author, version, about, long_about = None)]
 struct DargoCli {
     #[command(subcommand)]
     command: DargoCommand,
@@ -149,7 +149,17 @@ pub fn resolve_crate_path_graph(workspace: &Workspace, entry_path: Option<PathBu
 }
 
 pub fn save_build_artifact_to_file<T: ?Sized + serde::Serialize>(build_artifact: &T, artifact_name: &str, output_dir: &Path) -> Result<PathBuf> {
-    let artifact_path = output_dir.join(artifact_name).with_extension("json");
+    let artifact_path = output_dir.join(artifact_name);
+    let artifact_path = match artifact_path.extension().and_then(|ext| ext.to_str()) {
+        Some("json") => artifact_path,
+        _ => artifact_path.with_file_name(format!(
+            "{}.json",
+            artifact_path
+                .file_name()
+                .ok_or_else(|| CliError::Generic("artifact name is missing a file name".to_string()))?
+                .to_string_lossy()
+        )),
+    };
     let bytes = serde_json::to_vec(build_artifact)?;
     write_to_file(&bytes, &artifact_path)?;
     Ok(artifact_path)

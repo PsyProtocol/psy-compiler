@@ -5,7 +5,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use psy_abi::{AbiExtractor, ContractCompatAbi, SpecCompliantAbi};
+use psy_abi::{AbiExtractor, Abi};
 use psy_common::Graph;
 use psy_package::{resolve_source_workspace, MemoryResolver, PackageId, PackageSources, RelativeFilePath, VfsPath};
 use psy_vm::dpn::{
@@ -27,7 +27,6 @@ struct JsCompileResult {
     compile_results: Option<serde_json::Value>,
     contract_code: Option<serde_json::Value>,
     abi: Option<serde_json::Value>,
-    spec_abi: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -69,7 +68,7 @@ static INIT: Once = Once::new();
 
 struct CachedCompile {
     state_tree_height: u16,
-    abi: ContractCompatAbi,
+    abi: Abi,
     circuit_definitions: Vec<DPNFunctionCircuitDefinition>,
 }
 
@@ -93,7 +92,7 @@ struct DeployedContract {
     contract_id: u64,
     name: String,
     deployer_id: u64,
-    abi: ContractCompatAbi,
+    abi: Abi,
     circuit_definitions: Vec<DPNFunctionCircuitDefinition>,
     state_tree_height: u16,
 }
@@ -126,7 +125,7 @@ struct JsDeployedContract {
     contract_id: u64,
     name: String,
     deployer_id: u64,
-    abi: ContractCompatAbi,
+    abi: Abi,
 }
 
 #[derive(Serialize)]
@@ -213,7 +212,6 @@ pub fn compile_project(files_json: &str) -> String {
                     compile_results: None,
                     contract_code: None,
                     abi: None,
-                    spec_abi: None,
                 }),
             }
         }
@@ -225,7 +223,6 @@ pub fn compile_project(files_json: &str) -> String {
             compile_results: None,
             contract_code: None,
             abi: None,
-            spec_abi: None,
         }),
     }
 }
@@ -272,7 +269,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
-                spec_abi: None,
             });
         }
     };
@@ -312,7 +308,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
-                spec_abi: None,
             });
         }
     };
@@ -327,7 +322,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
-                spec_abi: None,
             });
         }
         method_names
@@ -370,7 +364,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
-                spec_abi: None,
             });
         }
     };
@@ -399,7 +392,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                         compile_results: None,
                         contract_code: None,
                         abi: None,
-                        spec_abi: None,
                     });
                 }
             };
@@ -413,28 +405,22 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                     None
                 }
             };
-            let abi = match extract_contract_abi(&mut result, state_tree_height, &compile_results_for_metadata) {
-                Ok(value) => Some(value),
-                Err(error) => {
-                    tracing::warn!("ABI extraction failed: {error}");
-                    None
-                }
-            };
-            let abi_value = abi
-                .as_ref()
-                .and_then(|abi| serde_json::to_value(abi).map_err(|error| tracing::warn!("ABI serialization failed: {error}")).ok());
-            let spec_abi_value = extract_spec_abi(&mut result).ok().and_then(|abi| {
-                serde_json::to_value(abi)
-                    .map_err(|error| tracing::warn!("Spec ABI serialization failed: {error}"))
-                    .ok()
-            });
-
-            if let Some(abi) = abi.clone() {
-                cache_compile(CachedCompile {
-                    state_tree_height,
-                    abi,
-                    circuit_definitions: compile_results_for_metadata,
+            let abi_value = extract_abi(&mut result, state_tree_height, &compile_results_for_metadata)
+                .ok()
+                .and_then(|abi| {
+                    serde_json::to_value(&abi)
+                        .map_err(|error| tracing::warn!("ABI serialization failed: {error}"))
+                        .ok()
                 });
+
+            if let Some(abi) = abi_value.clone() {
+                if let Ok(parsed) = serde_json::from_value::<Abi>(abi) {
+                    cache_compile(CachedCompile {
+                        state_tree_height,
+                        abi: parsed,
+                        circuit_definitions: compile_results_for_metadata,
+                    });
+                }
             }
 
             serialize_result(JsCompileResult {
@@ -445,7 +431,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: Some(compile_results),
                 contract_code,
                 abi: abi_value,
-                spec_abi: spec_abi_value,
             })
         }
         Err(error) => {
@@ -458,7 +443,6 @@ pub fn compile_dargo_project(project_json: &str) -> String {
                 compile_results: None,
                 contract_code: None,
                 abi: None,
-                spec_abi: None,
             })
         }
     }
@@ -530,7 +514,7 @@ pub fn deploy_contract(deployer_id: u64) -> String {
         chain.next_contract_id += 1;
         chain.contracts.push(DeployedContract {
             contract_id,
-            name: compile_output.abi.contract_name.clone(),
+            name: compile_output.abi.contract.name.clone(),
             deployer_id,
             abi: compile_output.abi,
             circuit_definitions: compile_output.circuit_definitions,
@@ -594,7 +578,7 @@ pub fn call_contract(caller_id: u64, contract_id: u64, method_name: &str, args_j
             .ok_or_else(|| format!("Contract {contract_id} not found"))?;
         let method = contract
             .abi
-            .methods
+            .contract.methods
             .iter()
             .find(|method| method.name == method_name)
             .ok_or_else(|| format!("Method '{method_name}' not found"))?;
@@ -676,7 +660,10 @@ pub fn read_contract_state(contract_id: u64, user_id: u64) -> String {
         let mut entries = Vec::new();
         let total_slots = 1u64 << contract.state_tree_height;
         for slot in 0..total_slots.min(256) {
-            let value = chain.state.get_contract_slot(user_id, contract_id, slot).map_err(|error| error.to_string())?;
+            let value = chain
+                .state
+                .get_contract_slot(user_id, contract_id, slot)
+                .map_err(|error| error.to_string())?;
             if value != 0 {
                 entries.push(JsStateEntry { slot_index: slot, value });
             }
@@ -900,16 +887,13 @@ fn cache_compile(cached: CachedCompile) {
 }
 
 fn compile_vfs_project(files: Vec<(PathBuf, String)>, entry_path: PathBuf) -> String {
-    compile_vfs_project_with_contract(files, entry_path, vec!["main".to_string()], None)
+    compile_vfs_project_with_contract(files, entry_path, Vec::new(), None)
 }
 
 fn interpret_vfs_project(files: Vec<(PathBuf, String)>, entry_path: PathBuf, request: InterpretRequest) -> String {
     let method_name = request.method_name.clone().unwrap_or_else(|| "main".to_string());
     let source_index = build_source_index(&files);
-    let vfs_shared_files = files
-        .into_iter()
-        .map(|(path, content)| (path, Arc::<str>::from(content)))
-        .collect();
+    let vfs_shared_files = files.into_iter().map(|(path, content)| (path, Arc::<str>::from(content))).collect();
 
     let mut crate_path_graph = Graph::new();
     crate_path_graph.add_node(entry_path.clone());
@@ -932,10 +916,13 @@ fn interpret_vfs_project(files: Vec<(PathBuf, String)>, entry_path: PathBuf, req
             let compile_results_for_metadata = result.compile_results.clone();
             let state_tree_height = derive_state_tree_height(&compile_results_for_metadata);
             let contract_code = extract_contract_code(&compile_results_for_metadata, state_tree_height).ok();
-            let abi = extract_contract_abi(&mut result, state_tree_height, &compile_results_for_metadata).ok();
-            let abi_value = abi
-                .as_ref()
-                .and_then(|abi| serde_json::to_value(abi).map_err(|error| tracing::warn!("ABI serialization failed: {error}")).ok());
+            let abi_value = extract_abi(&mut result, state_tree_height, &compile_results_for_metadata)
+                .ok()
+                .and_then(|abi| {
+                    serde_json::to_value(&abi)
+                        .map_err(|error| tracing::warn!("ABI serialization failed: {error}"))
+                        .ok()
+                });
 
             let Some(circuit) = result.compile_results.first() else {
                 return serialize_interpret_error(
@@ -1011,10 +998,7 @@ fn compile_vfs_project_with_contract(
     let mut crate_path_graph = Graph::new();
     crate_path_graph.add_node(entry_path.clone());
     let source_index = build_source_index(&files);
-    let vfs_shared_files = files
-        .into_iter()
-        .map(|(path, content)| (path, Arc::<str>::from(content)))
-        .collect();
+    let vfs_shared_files = files.into_iter().map(|(path, content)| (path, Arc::<str>::from(content))).collect();
 
     match psy_interpreter::interpret_vfs_files(contract_name, method_names, crate_path_graph, vfs_shared_files) {
         Ok(mut result) => {
@@ -1029,7 +1013,6 @@ fn compile_vfs_project_with_contract(
                         compile_results: None,
                         contract_code: None,
                         abi: None,
-                        spec_abi: None,
                     });
                 }
             };
@@ -1044,28 +1027,22 @@ fn compile_vfs_project_with_contract(
                 }
             };
 
-            let abi = match extract_contract_abi(&mut result, state_tree_height, &compile_results_for_metadata) {
-                Ok(value) => Some(value),
-                Err(error) => {
-                    tracing::warn!("ABI extraction failed: {error}");
-                    None
-                }
-            };
-            let abi_value = abi
-                .as_ref()
-                .and_then(|abi| serde_json::to_value(abi).map_err(|error| tracing::warn!("ABI serialization failed: {error}")).ok());
-            let spec_abi_value = extract_spec_abi(&mut result).ok().and_then(|abi| {
-                serde_json::to_value(abi)
-                    .map_err(|error| tracing::warn!("Spec ABI serialization failed: {error}"))
-                    .ok()
-            });
-
-            if let Some(abi) = abi.clone() {
-                cache_compile(CachedCompile {
-                    state_tree_height,
-                    abi,
-                    circuit_definitions: compile_results_for_metadata.clone(),
+            let abi_value = extract_abi(&mut result, state_tree_height, &compile_results_for_metadata)
+                .ok()
+                .and_then(|abi| {
+                    serde_json::to_value(&abi)
+                        .map_err(|error| tracing::warn!("ABI serialization failed: {error}"))
+                        .ok()
                 });
+
+            if let Some(abi) = abi_value.clone() {
+                if let Ok(parsed) = serde_json::from_value::<Abi>(abi) {
+                    cache_compile(CachedCompile {
+                        state_tree_height,
+                        abi: parsed,
+                        circuit_definitions: compile_results_for_metadata.clone(),
+                    });
+                }
             }
 
             serialize_result(JsCompileResult {
@@ -1076,7 +1053,6 @@ fn compile_vfs_project_with_contract(
                 compile_results: Some(compile_results),
                 contract_code,
                 abi: abi_value,
-                spec_abi: spec_abi_value,
             })
         }
         Err(error) => {
@@ -1089,7 +1065,6 @@ fn compile_vfs_project_with_contract(
                 compile_results: None,
                 contract_code: None,
                 abi: None,
-                spec_abi: None,
             })
         }
     }
@@ -1163,11 +1138,7 @@ fn ide_module_parts_to_path(parts: &[String]) -> PathBuf {
     path
 }
 
-fn resolve_method_names(
-    entry_path: &PathBuf,
-    method_names: Option<Vec<String>>,
-    _vfs_files: &[(PathBuf, String)],
-) -> Result<Vec<String>, String> {
+fn resolve_method_names(entry_path: &PathBuf, method_names: Option<Vec<String>>, _vfs_files: &[(PathBuf, String)]) -> Result<Vec<String>, String> {
     if let Some(method_names) = method_names {
         if method_names.is_empty() {
             return Err("method_names must not be empty when provided".to_string());
@@ -1272,35 +1243,31 @@ impl From<ExecutionContextInput> for ExecutionContext {
     }
 }
 
-fn extract_contract_abi(
+fn extract_abi(
     result: &mut psy_interpreter::InterpretResult,
     state_tree_height: u16,
     compile_results: &[DPNFunctionCircuitDefinition],
-) -> Result<ContractCompatAbi, String> {
+) -> Result<Abi, String> {
     let program = &mut result.ctx.program;
     let method_metadata = compile_results
         .iter()
-        .map(|function| (function.name.clone(), (function.method_id, function.is_view_function())))
+        .map(|function| {
+            (
+                function.name.clone(),
+                (function.method_id, function.is_view_function()),
+            )
+        })
         .collect::<HashMap<_, _>>();
     AbiExtractor::new("contract".to_string())
-        .extract_contract_abi(program, state_tree_height, &method_metadata)
+        .extract_abi(program, state_tree_height, &method_metadata)
         .map_err(|error| error.to_string())
 }
 
-fn extract_spec_abi(result: &mut psy_interpreter::InterpretResult) -> Result<SpecCompliantAbi, String> {
-    AbiExtractor::new("contract".to_string())
-        .extract_spec_compliant_abi(&mut result.ctx.program)
-        .map_err(|error| error.to_string())
-}
-
-fn extract_contract_code(
-    compile_results: &[DPNFunctionCircuitDefinition],
-    state_tree_height: u16,
-) -> Result<serde_json::Value, String> {
+fn extract_contract_code(compile_results: &[DPNFunctionCircuitDefinition], state_tree_height: u16) -> Result<serde_json::Value, String> {
     let functions = compile_results
         .iter()
         .map(|circuit| {
-            let bytes = bincode::serialize(circuit).map_err(|error| error.to_string())?;
+            let bytes = serde_cbor::to_vec(circuit).map_err(|error| error.to_string())?;
             Ok(JsContractFunctionCode {
                 method_id: circuit.method_id,
                 num_inputs: circuit.circuit_inputs.len(),
@@ -1431,15 +1398,14 @@ fn serialize_result(result: JsCompileResult) -> String {
     if let serde_json::Value::Object(map) = &mut value {
         // Backward-compatible aliases for older frontend/runtime consumers.
         if let Some(compile_results) = map.get("compile_results").cloned() {
-            map.entry("circuit_definitions".to_string())
-                .or_insert_with(|| compile_results.clone());
-            map.entry("circuitDefinitions".to_string())
-                .or_insert(compile_results);
+            map.entry("circuit_definitions".to_string()).or_insert_with(|| compile_results.clone());
+            map.entry("circuitDefinitions".to_string()).or_insert(compile_results);
         }
 
         let method_count = map
             .get("abi")
-            .and_then(|abi| abi.get("methods"))
+            .and_then(|abi| abi.get("contract"))
+            .and_then(|contract| contract.get("methods"))
             .and_then(|methods| methods.as_array())
             .map(|methods| methods.len() as u64)
             .or_else(|| {
@@ -1457,7 +1423,8 @@ fn serialize_result(result: JsCompileResult) -> String {
 
         let state_tree_height = map
             .get("abi")
-            .and_then(|abi| abi.get("state_tree_height"))
+            .and_then(|abi| abi.get("contract"))
+            .and_then(|contract| contract.get("state_tree_height"))
             .and_then(|height| height.as_u64())
             .or_else(|| {
                 map.get("contract_code")
@@ -1527,8 +1494,9 @@ fn serialize_interpret_error(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serial_test::serial;
+
+    use super::*;
 
     #[derive(serde::Deserialize)]
     struct TestCompileResult {
@@ -1536,10 +1504,10 @@ mod tests {
         error: Option<String>,
         error_offset: Option<usize>,
         entry_path: Option<String>,
-        compile_results: Option<Vec<serde_json::Value>>,
+        compile_results: Option<serde_json::Value>,
         contract_code: Option<serde_json::Value>,
         abi: Option<serde_json::Value>,
-        spec_abi: Option<serde_json::Value>,
+        method_count: Option<u64>,
     }
 
     fn parse_result(json: &str) -> TestCompileResult {
@@ -1549,20 +1517,21 @@ mod tests {
     #[test]
     #[serial]
     fn compile_source_succeeds() {
-        let result = parse_result(
-            &compile_source(
-                r#"
+        let result = parse_result(&compile_source(
+            r#"
                 fn main() {
                     let a = 1;
                     assert_eq(a, 1, "ok");
                 }
                 "#,
-            ),
-        );
+        ));
 
         assert!(result.success, "expected compile success, got {:?}", result.error);
         assert_eq!(result.entry_path.as_deref(), Some("/vfs/src/main.psy"));
-        assert!(result.compile_results.as_ref().is_some_and(|items| !items.is_empty()));
+        assert!(result.compile_results.as_ref().is_some_and(|items| items.as_array().is_some_and(|a| !a.is_empty())));
+        assert_eq!(result.method_count, Some(1));
+        assert!(result.contract_code.is_some(), "missing contract_code");
+        assert!(result.abi.is_some(), "missing abi");
     }
 
     #[test]
@@ -1581,7 +1550,7 @@ mod tests {
 
         assert!(result.success, "expected compile success, got {:?}", result.error);
         assert_eq!(result.entry_path.as_deref(), Some("/vfs/src/main.psy"));
-        assert!(result.compile_results.as_ref().is_some_and(|items| !items.is_empty()));
+        assert!(result.compile_results.as_ref().is_some_and(|items| items.as_array().is_some_and(|a| !a.is_empty())));
     }
 
     #[test]
@@ -1600,7 +1569,7 @@ mod tests {
 
         assert!(result.success, "expected compile success, got {:?}", result.error);
         assert_eq!(result.entry_path.as_deref(), Some("/vfs/src/main.psy"));
-        assert!(result.compile_results.as_ref().is_some_and(|items| !items.is_empty()));
+        assert!(result.compile_results.as_ref().is_some_and(|items| items.as_array().is_some_and(|a| !a.is_empty())));
     }
 
     #[test]
@@ -1617,10 +1586,7 @@ mod tests {
         let result = parse_result(&compile_project(&files.to_string()));
 
         assert!(!result.success, "expected compile failure");
-        assert!(result
-            .error
-            .as_ref()
-            .is_some_and(|msg| msg.contains("Explicit entry file was not found")));
+        assert!(result.error.as_ref().is_some_and(|msg| msg.contains("Explicit entry file was not found")));
     }
 
     #[test]
@@ -1636,10 +1602,7 @@ mod tests {
         let result = parse_result(&compile_project(&files.to_string()));
 
         assert!(!result.success, "expected compile failure");
-        assert!(result
-            .error
-            .as_ref()
-            .is_some_and(|msg| msg.contains("without explicit method_names")));
+        assert!(result.error.as_ref().is_some_and(|msg| msg.contains("without explicit method_names")));
     }
 
     #[test]
@@ -1647,7 +1610,7 @@ mod tests {
     fn compile_project_defaults_entry_to_main_when_missing() {
         let files = serde_json::json!({
             "files": [
-                [["main"], "use std::prelude::*;\n#[contract]\n#[derive(Storage)]\npub struct C { pub value: Felt }\n#[contract_method]\nfn set_value(v: Felt) { let _x = v; }"]
+                [["main"], "use std::prelude::*;\n#[contract]\n#[derive(Storage)]\npub struct C { pub value: Felt }\n#[contract::write_method]\nfn set_value(v: Felt) { let _x = v; }"]
             ]
         });
 
@@ -1659,14 +1622,12 @@ mod tests {
     #[test]
     #[serial]
     fn compile_source_reports_error_offset() {
-        let result = parse_result(
-            &compile_source(
-                r#"
+        let result = parse_result(&compile_source(
+            r#"
                 fn main( {
                 }
                 "#,
-            ),
-        );
+        ));
 
         assert!(!result.success, "expected compile failure");
         assert!(result.error.is_some());
@@ -1684,7 +1645,8 @@ mod tests {
                 pub balances: Map<Hash, Hash, 128u32>,
             }
 
-            fn main() {
+            #[contract::write_method]
+            pub fn set_balance() {
                 let c = MapContractRef::new(ContractMetadata::current());
                 let key: Hash = [1, 0, 0, 0];
                 let value: Hash = [11, 22, 33, 44];
@@ -1700,12 +1662,552 @@ mod tests {
         assert!(contract_code["functions"].as_array().is_some_and(|items| !items.is_empty()));
 
         let abi = result.abi.expect("missing abi");
-        assert_eq!(abi["contract_name"].as_str(), Some("MapContract"));
-        assert_eq!(abi["state_tree_height"].as_u64(), Some(4));
-        assert!(abi["state_layout"].as_array().is_some_and(|items| !items.is_empty()));
-        assert_eq!(abi["state_layout"][0]["is_imt_map"].as_bool(), Some(true));
-        assert!(abi["methods"].is_array());
+        assert_eq!(abi["contract"]["name"].as_str(), Some("MapContract"));
+        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(4));
+        let state = abi["contract"]["state"].as_array().expect("state array");
+        assert!(!state.is_empty());
+        assert_eq!(state[0]["name"].as_str(), Some("balances"));
+        assert_eq!(state[0]["type"]["map_kind"].as_str(), Some("map"));
+        assert!(abi["contract"]["methods"].is_array());
     }
+
+    #[test]
+    #[serial]
+    fn compile_source_emits_abi() {
+        let result = parse_result(&compile_source(
+            r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct MapContract {
+                pub balances: Map<Hash, Hash, 128u32>,
+            }
+
+            #[contract::write_method]
+            pub fn set_balance() {
+                let c = MapContractRef::new(ContractMetadata::current());
+                let key: Hash = [1, 0, 0, 0];
+                let value: Hash = [11, 22, 33, 44];
+                c.balances.insert(key, value);
+            }
+            "#,
+        ));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+
+        let abi = result.abi.expect("missing abi");
+        assert_eq!(abi["schema_version"].as_str(), Some("2.0.0"));
+        assert_eq!(abi["contract"]["name"].as_str(), Some("MapContract"));
+        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(4));
+
+        // State field should use TypeRef with kind: "map"
+        let state = abi["contract"]["state"].as_array().expect("state array");
+        assert!(!state.is_empty());
+        assert_eq!(state[0]["name"].as_str(), Some("balances"));
+        assert_eq!(state[0]["type"]["map_kind"].as_str(), Some("map"));
+
+        // Methods should have explicit method_id and state_mutability
+        let methods = abi["contract"]["methods"].as_array().expect("methods array");
+        assert!(!methods.is_empty());
+        assert!(methods[0]["method_id"].as_u64().is_some());
+        assert!(methods[0]["state_mutability"].as_str().is_some());
+        assert!(methods[0]["input_felt_count"].as_u64().is_some());
+        assert!(methods[0]["output_felt_count"].as_u64().is_some());
+    }
+
+    #[test]
+    #[serial]
+    fn compile_source_emits_abi_with_structs() {
+        let result = parse_result(&compile_source(
+            r#"
+            #[derive(Storage)]
+            struct OtherInfo {
+                pub amount: Felt,
+                pub claimed: Felt,
+            }
+
+            #[contract]
+            #[derive(Storage)]
+            pub struct TokenContract {
+                pub balance: Felt,
+                pub info: [OtherInfo; 1024],
+            }
+
+            fn main() {
+                let c = TokenContractRef::new(ContractMetadata::current());
+                c.balance = 42;
+            }
+            "#,
+        ));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+
+        let abi = result.abi.expect("missing abi");
+        assert_eq!(abi["contract"]["name"].as_str(), Some("TokenContract"));
+
+        // State should have balance (primitive) and info (array of struct)
+        let state = abi["contract"]["state"].as_array().expect("state array");
+        assert_eq!(state.len(), 2);
+        assert_eq!(state[0]["name"].as_str(), Some("balance"));
+        assert_eq!(state[0]["type"]["kind"].as_str(), Some("primitive"));
+        assert_eq!(state[0]["type"]["name"].as_str(), Some("Felt"));
+        assert_eq!(state[1]["name"].as_str(), Some("info"));
+        assert_eq!(state[1]["type"]["kind"].as_str(), Some("array"));
+
+        // Types table should contain OtherInfo struct
+        let types = abi["types"].as_array().expect("types array");
+        let type_names: Vec<_> = types.iter().filter_map(|t| t["name"].as_str()).collect();
+        assert!(type_names.contains(&"OtherInfo"), "OtherInfo not in types: {:?}", type_names);
+    }
+
+    #[test]
+    #[serial]
+    fn compile_source_discovers_two_standalone_contract_methods() {
+        let result = parse_result(&compile_source(
+            r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct MethodContract {
+                pub value: Felt,
+            }
+
+            #[contract::write_method]
+            pub fn set_value(value: Felt) {
+                let c = MethodContractRef::new(ContractMetadata::current());
+                c.value = value;
+            }
+
+            #[contract::view_method]
+            pub fn get_value() -> Felt {
+                let c = MethodContractRef::new(ContractMetadata::current());
+                c.value.get()
+            }
+            "#,
+        ));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+        assert_eq!(result.method_count, Some(2));
+
+        let compile_results = result
+            .compile_results
+            .as_ref()
+            .and_then(serde_json::Value::as_array)
+            .expect("missing compile_results");
+        assert_eq!(compile_results.len(), 2);
+
+        let contract_code = result.contract_code.as_ref().expect("missing contract_code");
+        assert_eq!(contract_code["functions"].as_array().map(Vec::len), Some(2));
+
+        let abi = result.abi.as_ref().expect("missing abi");
+        let methods = abi["contract"]["methods"].as_array().expect("methods should be array");
+        assert_eq!(methods.len(), 2);
+        assert_eq!(method_by_name(methods, "get_value")["state_mutability"].as_str(), Some("view"));
+        assert_eq!(method_by_name(methods, "set_value")["state_mutability"].as_str(), Some("external"));
+    }
+
+    #[test]
+    #[serial]
+    fn compile_project_discovers_two_standalone_contract_methods() {
+        let project = serde_json::json!({
+            "entry": ["main"],
+            "files": [[[
+                "main"
+            ], r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct ProjectContract {
+                pub value: Felt,
+            }
+
+            #[contract::write_method]
+            pub fn set_value(value: Felt) {
+                let c = ProjectContractRef::new(ContractMetadata::current());
+                c.value = value;
+            }
+
+            #[contract::view_method]
+            pub fn get_value() -> Felt {
+                let c = ProjectContractRef::new(ContractMetadata::current());
+                c.value.get()
+            }
+            "#]]
+        });
+        let result = parse_result(&compile_project(&project.to_string()));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+        assert_eq!(result.method_count, Some(2));
+        assert_eq!(
+            result.compile_results.as_ref().and_then(serde_json::Value::as_array).map(Vec::len),
+            Some(2)
+        );
+        assert_eq!(
+            result.contract_code.as_ref().and_then(|code| code["functions"].as_array()).map(Vec::len),
+            Some(2)
+        );
+        assert_eq!(
+            result.abi.as_ref().and_then(|abi| abi["contract"]["methods"].as_array()).map(Vec::len),
+            Some(2)
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn compile_source_rejects_view_method_with_state_write() {
+        let files = serde_json::json!({
+            "files": [[["main"], r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct BadViewContract {
+                pub value: Felt,
+            }
+
+            #[contract::view_method]
+            pub fn set_value(value: Felt) {
+                let c = BadViewContractRef::new(ContractMetadata::current());
+                c.value = value;
+            }
+            "#]]
+        });
+        let result = parse_result(&compile_project(&files.to_string()));
+
+        assert!(!result.success, "expected compile failure");
+        assert!(result.error.as_ref().is_some_and(|msg| msg.contains("marked #[contract::view_method]")));
+    }
+
+    fn method_by_name<'a>(methods: &'a [serde_json::Value], name: &str) -> &'a serde_json::Value {
+        methods
+            .iter()
+            .find(|method| method["name"].as_str() == Some(name))
+            .unwrap_or_else(|| panic!("missing method `{name}` in ABI methods: {methods:?}"))
+    }
+
+    fn method_names(methods: &[serde_json::Value]) -> Vec<&str> {
+        methods.iter().filter_map(|method| method["name"].as_str()).collect()
+    }
+
+    /// Matrix cell 1/4/5/6/7/11: all three attribute forms are accepted; ABI
+    /// `state_mutability` is body-driven via `is_view_function()` (writes →
+    /// "external", pure reads → "view"), not by the attribute form alone.
+    #[test]
+    #[serial]
+    fn compile_source_accepts_all_three_contract_method_attr_forms_in_abi() {
+        let files = serde_json::json!({
+            "files": [[["main"], r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct AttrMatrixContract {
+                pub value: Felt,
+            }
+
+            #[contract::write_method]
+            pub fn write_attr_writes(value: Felt) {
+                let c = AttrMatrixContractRef::new(ContractMetadata::current());
+                c.value = value;
+            }
+
+            #[contract::write_method]
+            pub fn write_attr_readonly() -> Felt {
+                let c = AttrMatrixContractRef::new(ContractMetadata::current());
+                c.value.get()
+            }
+
+            #[contract::view_method]
+            pub fn view_attr_readonly() -> Felt {
+                let c = AttrMatrixContractRef::new(ContractMetadata::current());
+                c.value.get()
+            }
+
+            #[contract_method]
+            pub fn bare_attr_writes(value: Felt) {
+                let c = AttrMatrixContractRef::new(ContractMetadata::current());
+                c.value = value;
+            }
+
+            #[contract_method]
+            pub fn bare_attr_readonly() -> Felt {
+                let c = AttrMatrixContractRef::new(ContractMetadata::current());
+                c.value.get()
+            }
+            "#]]
+        });
+        let result = parse_result(&compile_project(&files.to_string()));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+        let abi = result.abi.expect("missing abi");
+        let methods = abi["contract"]["methods"].as_array().expect("methods should be array");
+        let names = method_names(methods);
+        for expected in [
+            "write_attr_writes",
+            "write_attr_readonly",
+            "view_attr_readonly",
+            "bare_attr_writes",
+            "bare_attr_readonly",
+        ] {
+            assert!(names.contains(&expected), "expected `{expected}` in ABI methods, got {names:?}");
+        }
+
+        // write_method + state write → external
+        assert_eq!(
+            method_by_name(methods, "write_attr_writes")["state_mutability"].as_str(),
+            Some("external")
+        );
+        // write_method on a read-only body is allowed (no write-attr enforcement);
+        // ABI mutability follows the body, so pure reads are still "view".
+        assert_eq!(
+            method_by_name(methods, "write_attr_readonly")["state_mutability"].as_str(),
+            Some("view")
+        );
+        // view_method read-only getter → view
+        assert_eq!(
+            method_by_name(methods, "view_attr_readonly")["state_mutability"].as_str(),
+            Some("view")
+        );
+        // bare contract_method + state write → accepted, external
+        assert_eq!(
+            method_by_name(methods, "bare_attr_writes")["state_mutability"].as_str(),
+            Some("external")
+        );
+        // bare contract_method read-only → accepted; mutability is body-driven ("view")
+        assert_eq!(
+            method_by_name(methods, "bare_attr_readonly")["state_mutability"].as_str(),
+            Some("view")
+        );
+    }
+
+    /// Matrix cell 3: #[contract::view_method] that invokes an external contract
+    /// (mutating call path) must be rejected — not only direct storage writes.
+    #[test]
+    #[serial]
+    fn compile_source_rejects_view_method_with_mutating_contract_call() {
+        let files = serde_json::json!({
+            "files": [[["main"], r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct ViewInvokeContract {
+                pub value: Felt,
+            }
+
+            #[contract::view_method]
+            pub fn call_other() {
+                invoke_deferred(0, 1, [1]);
+            }
+            "#]]
+        });
+        let result = parse_result(&compile_project(&files.to_string()));
+
+        assert!(!result.success, "expected compile failure for view_method + invoke, got success with abi {:?}", result.abi);
+        assert!(
+            result.error.as_ref().is_some_and(|msg| {
+                msg.contains("marked #[contract::view_method]")
+                    && (msg.contains("writes state") || msg.contains("mutating contract call"))
+            }),
+            "unexpected error: {:?}",
+            result.error
+        );
+    }
+
+    /// Matrix cell 8: a public function with no contract-method attribute is
+    /// not discovered as a contract API method and must not appear in the ABI.
+    #[test]
+    #[serial]
+    fn compile_source_omits_functions_without_contract_method_attr_from_abi() {
+        let files = serde_json::json!({
+            "files": [[["main"], r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct NoAttrContract {
+                pub value: Felt,
+            }
+
+            #[contract::view_method]
+            pub fn get_value() -> Felt {
+                let c = NoAttrContractRef::new(ContractMetadata::current());
+                c.value.get()
+            }
+
+            pub fn helper_not_exported() -> Felt {
+                1
+            }
+
+            fn private_helper() -> Felt {
+                2
+            }
+            "#]]
+        });
+        let result = parse_result(&compile_project(&files.to_string()));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+        let abi = result.abi.expect("missing abi");
+        let methods = abi["contract"]["methods"].as_array().expect("methods should be array");
+        let names = method_names(methods);
+        assert_eq!(names, vec!["get_value"], "only attributed public methods belong in ABI, got {names:?}");
+        assert_eq!(method_by_name(methods, "get_value")["state_mutability"].as_str(), Some("view"));
+    }
+
+    /// Matrix cell 9: path must be exactly `contract`. `#[foo::view_method]` is
+    /// not a contract API method (not in ABI) and is not view-enforced.
+    #[test]
+    #[serial]
+    fn compile_source_ignores_malformed_contract_method_attr_path() {
+        let files = serde_json::json!({
+            "files": [[["main"], r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct BadPathContract {
+                pub value: Felt,
+            }
+
+            #[contract::view_method]
+            pub fn get_value() -> Felt {
+                let c = BadPathContractRef::new(ContractMetadata::current());
+                c.value.get()
+            }
+
+            // Wrong path segment — must NOT be treated as a contract method.
+            #[foo::view_method]
+            pub fn not_a_contract_method(value: Felt) {
+                let c = BadPathContractRef::new(ContractMetadata::current());
+                c.value = value;
+            }
+            "#]]
+        });
+        let result = parse_result(&compile_project(&files.to_string()));
+
+        assert!(
+            result.success,
+            "malformed path should not be treated as view_method (no enforcement); got {:?}",
+            result.error
+        );
+        let abi = result.abi.expect("missing abi");
+        let methods = abi["contract"]["methods"].as_array().expect("methods should be array");
+        let names = method_names(methods);
+        assert_eq!(names, vec!["get_value"], "#[foo::view_method] must not appear in ABI, got {names:?}");
+    }
+
+    /// Matrix cell 10: both bare `#[contract_method]` and `#[contract::view_method]`
+    /// on the same fn — view declaration is recognized (`any` over attrs), so a
+    /// writing body is rejected.
+    #[test]
+    #[serial]
+    fn compile_source_rejects_dual_bare_and_view_attr_when_body_writes() {
+        let files = serde_json::json!({
+            "files": [[["main"], r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct DualAttrContract {
+                pub value: Felt,
+            }
+
+            #[contract_method]
+            #[contract::view_method]
+            pub fn dual_write(value: Felt) {
+                let c = DualAttrContractRef::new(ContractMetadata::current());
+                c.value = value;
+            }
+            "#]]
+        });
+        let result = parse_result(&compile_project(&files.to_string()));
+
+        assert!(!result.success, "expected compile failure when view_method coexists with a writing body");
+        assert!(
+            result.error.as_ref().is_some_and(|msg| msg.contains("marked #[contract::view_method]")),
+            "unexpected error: {:?}",
+            result.error
+        );
+    }
+
+    /// Matrix cell 10 (read-only): dual bare + view_method on a pure getter is
+    /// accepted and ABI-marked view.
+    #[test]
+    #[serial]
+    fn compile_source_accepts_dual_bare_and_view_attr_when_body_is_readonly() {
+        let files = serde_json::json!({
+            "files": [[["main"], r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct DualAttrReadonlyContract {
+                pub value: Felt,
+            }
+
+            #[contract_method]
+            #[contract::view_method]
+            pub fn dual_get() -> Felt {
+                let c = DualAttrReadonlyContractRef::new(ContractMetadata::current());
+                c.value.get()
+            }
+            "#]]
+        });
+        let result = parse_result(&compile_project(&files.to_string()));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+        let abi = result.abi.expect("missing abi");
+        let methods = abi["contract"]["methods"].as_array().expect("methods should be array");
+        let names = method_names(methods);
+        assert_eq!(names, vec!["dual_get"]);
+        assert_eq!(method_by_name(methods, "dual_get")["state_mutability"].as_str(), Some("view"));
+    }
+
+    /// bare `#[contract_method]` may write state (no view enforcement).
+    #[test]
+    #[serial]
+    fn compile_source_allows_bare_contract_method_with_state_write() {
+        let files = serde_json::json!({
+            "files": [[["main"], r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct BareWriteContract {
+                pub value: Felt,
+            }
+
+            #[contract_method]
+            pub fn set_value(value: Felt) {
+                let c = BareWriteContractRef::new(ContractMetadata::current());
+                c.value = value;
+            }
+            "#]]
+        });
+        let result = parse_result(&compile_project(&files.to_string()));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+        let abi = result.abi.expect("missing abi");
+        let methods = abi["contract"]["methods"].as_array().expect("methods should be array");
+        assert_eq!(method_names(methods), vec!["set_value"]);
+        assert_eq!(
+            method_by_name(methods, "set_value")["state_mutability"].as_str(),
+            Some("external")
+        );
+    }
+
+    /// `#[contract::write_method]` may write state and is ABI-marked external.
+    #[test]
+    #[serial]
+    fn compile_source_allows_write_method_with_state_write() {
+        let files = serde_json::json!({
+            "files": [[["main"], r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct WriteOkContract {
+                pub value: Felt,
+            }
+
+            #[contract::write_method]
+            pub fn set_value(value: Felt) {
+                let c = WriteOkContractRef::new(ContractMetadata::current());
+                c.value = value;
+            }
+            "#]]
+        });
+        let result = parse_result(&compile_project(&files.to_string()));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+        let abi = result.abi.expect("missing abi");
+        let methods = abi["contract"]["methods"].as_array().expect("methods should be array");
+        assert_eq!(method_names(methods), vec!["set_value"]);
+        assert_eq!(
+            method_by_name(methods, "set_value")["state_mutability"].as_str(),
+            Some("external")
+        );
+    }
+
 
     #[test]
     #[serial]
@@ -1717,7 +2219,7 @@ mod tests {
                     "id": "root",
                     "manifest": "[package]\nname = \"root\"\ntype = \"bin\"\n",
                     "files": {
-                        "src/main.psy": "#[contract]\npub struct C {}\n#[contract_method]\nfn main() { assert_eq(1, 1, \"ok\"); }"
+                        "src/main.psy": "#[contract]\npub struct C {}\n#[contract::write_method]\nfn main() { assert_eq(1, 1, \"ok\"); }"
                     },
                     "dependencies": {}
                 }
@@ -1727,7 +2229,7 @@ mod tests {
         let result = parse_result(&compile_dargo_project(&project.to_string()));
 
         assert!(result.success, "expected compile success, got {:?}", result.error);
-        assert!(result.compile_results.as_ref().is_some_and(|items| !items.is_empty()));
+        assert!(result.compile_results.as_ref().is_some_and(|items| items.as_array().is_some_and(|a| !a.is_empty())));
     }
 
     #[test]

@@ -10,12 +10,12 @@ use psy_data::{
 };
 use psy_package::Workspace;
 use psy_prover::session::gen_contract_deploy_and_circuits_for_functions;
-use crate::cli::test_helpers::prepare_environment_with_real_contract;
 use psy_vm::vm::exec::PsyEvalSessionResult;
 
 use crate::cli::{
     compile_cmd::{compile_workspace_full, CompileOptions},
     doc_cmd::run_doc,
+    test_helpers::prepare_environment_with_real_contract,
 };
 
 /// Executes a circuit to calculate its return value
@@ -42,8 +42,7 @@ pub(crate) async fn run(mut args: ExecuteCommand, workspace: Workspace) -> crate
 
     // Compile the full workspace in order to generate any build artifacts.
     let compile_results = compile_workspace_full(&workspace, &args.compile_options)?;
-    args.parameters
-        .resize(compile_results.circuit_definitions.len(), Vec::new());
+    args.parameters.resize(compile_results.circuit_definitions.len(), Vec::new());
 
     let priv_key = QHashOut::rand();
     let wallet = SimplePsyZKSignatureManager::<C, D>::new();
