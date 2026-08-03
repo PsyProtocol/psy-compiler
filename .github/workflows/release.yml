@@ -96,13 +96,15 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.prepare.outputs.checkout_ref }}
 
-      - name: Authenticate GitHub dependency fetches
+      - name: Configure GitHub dependency fetches
         env:
           GH_TOKEN: ${{ secrets.PSY_RELEASE_REPOSITORY_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           : "${GH_TOKEN:?PSY_RELEASE_REPOSITORY_TOKEN is required}"
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
           auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic ${auth}"
 
