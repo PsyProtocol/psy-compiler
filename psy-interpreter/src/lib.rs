@@ -2079,4 +2079,34 @@ fn main() {}
             let _ = STD_PRIMITIVE_SCOPE_ID.take();
         };
     }
+
+    #[test]
+    #[serial]
+    fn test_empty_storage_struct_size() {
+        psy_common::setup_logging().ok();
+
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("psy_empty_storage_struct_{unique}.psy"));
+        let source = r#"
+#[derive(Storage)]
+pub struct EmptyStorage {}
+
+fn main() {
+    assert_eq(EmptyStorage::size(), 0, "Error: EmptyStorage::size() should be 0");
+}
+"#;
+        fs::write(&path, source).unwrap();
+
+        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+        interpreter
+            .typecheck_single(path.clone())
+            .expect("empty storage struct should typecheck without panicking");
+
+        let _ = fs::remove_file(path);
+
+        #[allow(static_mut_refs)]
+        unsafe {
+            let _ = STD_PRIMITIVE_SCOPE_ID.take();
+        };
+    }
 }
