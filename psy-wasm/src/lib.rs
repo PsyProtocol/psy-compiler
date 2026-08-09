@@ -8,6 +8,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use psy_abi::{AbiExtractor, Abi};
 use psy_common::Graph;
 use psy_package::{resolve_source_workspace, MemoryResolver, PackageId, PackageSources, RelativeFilePath, VfsPath};
+use psy_config::network_constants::VM_TYPE_STANRDARD_DAPEN_V1;
 use psy_vm::dpn::{
     eval::executor::{ExecutionContext, ExecutionResult, InMemoryStateBackend, StateBackend, VmExecutor},
     ops::state_cmd::data::DPNStateCmd,
@@ -1272,7 +1273,7 @@ fn extract_contract_code(compile_results: &[DPNFunctionCircuitDefinition], state
                 method_id: circuit.method_id,
                 num_inputs: circuit.circuit_inputs.len(),
                 num_outputs: circuit.circuit_outputs.len(),
-                vm_type: 0,
+                vm_type: VM_TYPE_STANRDARD_DAPEN_V1,
                 code_base64: BASE64_STANDARD.encode(bytes),
             })
         })
@@ -1669,6 +1670,54 @@ mod tests {
         assert_eq!(state[0]["name"].as_str(), Some("balances"));
         assert_eq!(state[0]["type"]["map_kind"].as_str(), Some("map"));
         assert!(abi["contract"]["methods"].is_array());
+    }
+
+    #[test]
+    #[serial]
+    fn compile_source_emits_canonical_dapen_vm_type() {
+        // A stale zero here is rejected by the prover compile bridge.
+        let result = parse_result(&compile_source(
+            r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct MapContract {
+                pub balances: Map<Hash, Hash, 128u32>,
+            }
+
+            #[contract::write_method]
+            pub fn set_balance() {
+                let c = MapContractRef::new(ContractMetadata::current());
+                let key: Hash = [1, 0, 0, 0];
+                let value: Hash = [11, 22, 33, 44];
+                c.balances.insert(key, value);
+            }
+            "#,
+        ));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+
+        let contract_code = result.contract_code.expect("missing contract_code");
+        let functions = contract_code["functions"]
+            .as_array()
+            .expect("contract_code functions must be a non-empty array");
+        assert!(!functions.is_empty(), "contract_code must emit at least one function");
+
+        for function in functions {
+            let vm_type = function["vm_type"].as_u64();
+            assert_eq!(
+                vm_type,
+                Some(VM_TYPE_STANRDARD_DAPEN_V1 as u64),
+                "every emitted contract function must carry the canonical DAPEN VM type \
+                 (VM_TYPE_STANRDARD_DAPEN_V1 = {}), got {:?}",
+                VM_TYPE_STANRDARD_DAPEN_V1,
+                vm_type,
+            );
+            assert_ne!(
+                vm_type,
+                Some(0),
+                "legacy vm_type: 0 must no longer appear in compiler output",
+            );
+        }
     }
 
     #[test]

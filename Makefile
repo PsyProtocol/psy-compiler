@@ -189,6 +189,7 @@ compile-counter-abi:
 	@cd $(COUNTER_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyCounterContractRef --abi-name counter --method-names set_value increment
 
 PSY_GENESIS ?= $(PWD)/../psy-genesis
+PSY_NODE ?= $(PWD)/../psy-node
 GENESIS_CONTRACTS_FILE := $(PSY_GENESIS)/genesis_contracts.json
 GENESIS_ABI_DIR := $(PSY_GENESIS)/genesis_abi
 ABI_OUTPUT_DIR := $(PWD)/target/genesis_abi
@@ -200,6 +201,10 @@ gen-deploy-json: build \
 	compile-mining-rewards-contract compile-deposit-tree-contract \
 	compile-withdrawal-tree-contract compile-faucet-contract
 	@mkdir -p $(PSY_GENESIS) $(GENESIS_ABI_DIR)
+	@test -f $(TOKEN_CONTRACT_PATH)/target/token.json || { echo "error: missing compiled token artifact: $(TOKEN_CONTRACT_PATH)/target/token.json"; exit 1; }
+	@test -d $(PSY_NODE)/client_prover || { echo "error: missing psy-node client_prover directory: $(PSY_NODE)/client_prover"; exit 1; }
+	@cp $(TOKEN_CONTRACT_PATH)/target/token.json $(PSY_NODE)/client_prover/token.json
+	@echo "refreshed $(PSY_NODE)/client_prover/token.json from compiled token artifact"
 	@cargo run --release --package dargo --example gen_deploy_json -- \
 		$(GENESIS_CONTRACTS_FILE) \
 		$(TOKEN_CONTRACT_PATH)/target/token.json \
@@ -216,11 +221,12 @@ gen-deploy-json: build \
 	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyDepositTreeContractRef --abi-name deposit_tree --output-dir $(ABI_OUTPUT_DIR) --method-names get_root get_chain_root is_known_root_hash is_known_root set_chain_root append_leaf append_deposit batch_append_deposits_2 batch_append_deposits_5
 	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyWithdrawalTreeContractRef --abi-name withdrawal_tree --output-dir $(ABI_OUTPUT_DIR) --method-names get_root get_chain_root append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
 	@cd $(FAUCET_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyFaucetContractRef --abi-name faucet --output-dir $(ABI_OUTPUT_DIR) --method-names faucet
-	@# Copy regenerated ABIs to genesis_abi/ with canonical names
-	@cp $(ABI_OUTPUT_DIR)/token.abi.json           $(GENESIS_ABI_DIR)/PsyTokenContract.json
-	@cp $(ABI_OUTPUT_DIR)/usdt_token.abi.json      $(GENESIS_ABI_DIR)/USDTTokenContract.json
-	@cp $(ABI_OUTPUT_DIR)/mining_rewards.abi.json  $(GENESIS_ABI_DIR)/PsyPOWMiningRewardsClaimContract.json
-	@cp $(ABI_OUTPUT_DIR)/deposit_tree.abi.json    $(GENESIS_ABI_DIR)/PsyDepositTreeContract.json
-	@cp $(ABI_OUTPUT_DIR)/withdrawal_tree.abi.json $(GENESIS_ABI_DIR)/PsyWithdrawalTreeContract.json
-	@cp $(ABI_OUTPUT_DIR)/faucet.abi.json          $(GENESIS_ABI_DIR)/PsyFaucetContract.json
+	@cargo run --release --package dargo --example gen_deploy_abi_json -- \
+		$(GENESIS_ABI_DIR) \
+		$(ABI_OUTPUT_DIR)/token.abi.json:token \
+		$(ABI_OUTPUT_DIR)/mining_rewards.abi.json:mining_rewards \
+		$(ABI_OUTPUT_DIR)/deposit_tree.abi.json:deposit_tree \
+		$(ABI_OUTPUT_DIR)/withdrawal_tree.abi.json:withdrawal_tree \
+		$(ABI_OUTPUT_DIR)/usdt_token.abi.json:usdt \
+		$(ABI_OUTPUT_DIR)/faucet.abi.json:faucet
 	@echo "psy-genesis contract artifact + genesis_abi/ regenerated"

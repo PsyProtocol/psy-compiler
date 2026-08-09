@@ -25,6 +25,7 @@ tracing = { workspace = true }
 psy-abi = { workspace = true }
 psy-ast = { workspace = true }
 psy_common = { workspace = true }
+psy_config = { workspace = true }
 psy_vm = { workspace = true }
 psy-package = { workspace = true }
 

@@ -66,6 +66,7 @@ struct ProofPublicInputsPreimage {
     pub user_tree_root: Hash,
     pub checkpoint_id: Felt,
     pub note_root_slot: Felt,
+    pub token_contract_id: Felt,
     pub nullifier_hash: Hash,
 }
 
@@ -599,6 +600,7 @@ impl USDTTokenContractRef {
             user_tree_root,
             checkpoint_id,
             note_root_slot,
+            token_contract_id: get_contract_id(),
             nullifier_hash
         };
 
@@ -608,13 +610,14 @@ impl USDTTokenContractRef {
             preimage.user_tree_root[0], preimage.user_tree_root[1], preimage.user_tree_root[2], preimage.user_tree_root[3],
             preimage.checkpoint_id,
             preimage.note_root_slot,
+            preimage.token_contract_id,
             preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
         ]);
         let private_note_inclusion_fingerprint: Hash = [
-            7347800111836438430,
-            8296312334427448937,
-            7663862879523756293,
-            2475221133236141969
+            2482434993266711942,
+            6028864160300535936,
+            2827549014984201026,
+            3018365102481798071
         ];
         let leaf: Hash = hash_two_to_one(private_note_inclusion_fingerprint, public_inputs_hash);
 
