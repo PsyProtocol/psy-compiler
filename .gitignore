@@ -33,3 +33,5 @@ book/
 
 # Generated deployment files
 /aws*/
+
+.env
