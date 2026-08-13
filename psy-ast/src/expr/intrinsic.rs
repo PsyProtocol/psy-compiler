@@ -12,6 +12,10 @@ pub enum IntrinsicExprNode {
         contract_id: ExprId,
         location: Location,
     },
+    GetContractStateTreeHeight {
+        contract_id: ExprId,
+        location: Location,
+    },
     GetCallerContractId {
         location: Location,
     },

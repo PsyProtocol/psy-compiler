@@ -4,10 +4,6 @@ use clap::Args;
 use psy_abi::AbiExtractor;
 use psy_interpreter::interpret;
 use psy_package::Workspace;
-use psy_vm::dpn::{
-    ops::state_cmd::data::DPNStateCmd,
-    vm::def::DPNFunctionCircuitDefinition,
-};
 
 use crate::{
     cli::{
@@ -71,10 +67,9 @@ pub(crate) fn run(args: GenerateAbiCommand, workspace: Workspace) -> Result<()> 
         .map(|f| (f.name.clone(), (f.method_id, f.is_view_function())))
         .collect();
 
-    let state_tree_height = derive_state_tree_height(&result.compile_results);
-
     // Create ABI extractor and extract the ABI
     let extractor = AbiExtractor::new(args.contract_name.clone());
+    let state_tree_height = extractor.compute_state_tree_height(&mut result.ctx.program);
     let abi = extractor
         .extract_abi(&mut result.ctx.program, state_tree_height, &method_metadata)
         .map_err(|e| crate::errors::CliError::Generic(e.to_string()))?;
@@ -92,41 +87,4 @@ pub(crate) fn run(args: GenerateAbiCommand, workspace: Workspace) -> Result<()> 
 
     println!("Generate ABI file successfully: {}", abi_path.display());
     Ok(())
-}
-
-fn derive_state_tree_height(compile_results: &[DPNFunctionCircuitDefinition]) -> u16 {
-    let mut max_slot = None::<u64>;
-
-    for circuit in compile_results {
-        for cmd in &circuit.state_commands {
-            let slot = match cmd {
-                DPNStateCmd::SetContractStateSlotHash(c) => Some(c.slot_index),
-                DPNStateCmd::SetContractStateSlotSingle(c) => Some(c.sub_slot_index),
-                DPNStateCmd::SetContractStateSlotRange(c) => Some(c.sub_slot_index.saturating_add(c.value.len().saturating_sub(1) as u64)),
-                DPNStateCmd::SetIMTContractStateValue(c) => {
-                    let span = c.capacity.saturating_mul(4);
-                    Some(c.base_offset.saturating_add(span.saturating_sub(1)))
-                }
-                _ => None,
-            };
-
-            if let Some(slot) = slot {
-                max_slot = Some(max_slot.map_or(slot, |m| m.max(slot)));
-            }
-        }
-    }
-
-    let computed = match max_slot {
-        Some(max_slot) => ceil_log2(max_slot.saturating_add(1)),
-        None => 0,
-    };
-
-    computed.max(4)
-}
-
-fn ceil_log2(value: u64) -> u16 {
-    if value <= 1 {
-        return 0;
-    }
-    (u64::BITS - (value - 1).leading_zeros()) as u16
 }

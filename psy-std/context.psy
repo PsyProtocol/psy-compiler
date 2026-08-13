@@ -12,6 +12,10 @@ pub fn get_contract_deployer(contract_id: Felt) -> Hash {
     __ctx_get_contract_deployer(contract_id)
 }
 
+pub fn get_contract_state_tree_height(contract_id: Felt) -> Felt {
+    __ctx_get_contract_state_tree_height(contract_id)
+}
+
 pub fn get_caller_contract_id() -> Felt {
     __ctx_get_caller_contract_id()
 }

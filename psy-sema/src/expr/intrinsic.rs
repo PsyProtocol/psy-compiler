@@ -17,6 +17,11 @@ pub enum CheckedIntrinsicExprNode {
         type_id: TypeId,
         location: Location,
     },
+    GetContractStateTreeHeight {
+        contract_id: ExprId,
+        type_id: TypeId,
+        location: Location,
+    },
     GetCallerContractId {
         type_id: TypeId,
         location: Location,
