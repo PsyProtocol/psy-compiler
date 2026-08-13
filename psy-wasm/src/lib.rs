@@ -5,13 +5,12 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use psy_abi::{AbiExtractor, Abi};
+use psy_abi::{Abi, AbiExtractor};
 use psy_common::Graph;
 use psy_package::{resolve_source_workspace, MemoryResolver, PackageId, PackageSources, RelativeFilePath, VfsPath};
 use psy_config::network_constants::VM_TYPE_STANRDARD_DAPEN_V1;
 use psy_vm::dpn::{
     eval::executor::{ExecutionContext, ExecutionResult, InMemoryStateBackend, StateBackend, VmExecutor},
-    ops::state_cmd::data::DPNStateCmd,
     vm::def::DPNFunctionCircuitDefinition,
 };
 use serde::{Deserialize, Serialize};
@@ -398,7 +397,7 @@ pub fn compile_dargo_project(project_json: &str) -> String {
             };
 
             let compile_results_for_metadata = result.compile_results.clone();
-            let state_tree_height = derive_state_tree_height(&compile_results_for_metadata);
+            let state_tree_height = compute_state_tree_height(&mut result);
             let contract_code = match extract_contract_code(&compile_results_for_metadata, state_tree_height) {
                 Ok(value) => Some(value),
                 Err(error) => {
@@ -915,7 +914,7 @@ fn interpret_vfs_project(files: Vec<(PathBuf, String)>, entry_path: PathBuf, req
             };
 
             let compile_results_for_metadata = result.compile_results.clone();
-            let state_tree_height = derive_state_tree_height(&compile_results_for_metadata);
+            let state_tree_height = compute_state_tree_height(&mut result);
             let contract_code = extract_contract_code(&compile_results_for_metadata, state_tree_height).ok();
             let abi_value = extract_abi(&mut result, state_tree_height, &compile_results_for_metadata)
                 .ok()
@@ -1019,7 +1018,7 @@ fn compile_vfs_project_with_contract(
             };
 
             let compile_results_for_metadata = result.compile_results.clone();
-            let state_tree_height = derive_state_tree_height(&compile_results_for_metadata);
+            let state_tree_height = compute_state_tree_height(&mut result);
             let contract_code = match extract_contract_code(&compile_results_for_metadata, state_tree_height) {
                 Ok(value) => Some(value),
                 Err(error) => {
@@ -1286,41 +1285,8 @@ fn extract_contract_code(compile_results: &[DPNFunctionCircuitDefinition], state
     .map_err(|error| error.to_string())
 }
 
-fn derive_state_tree_height(compile_results: &[DPNFunctionCircuitDefinition]) -> u16 {
-    let mut max_slot = None::<u64>;
-
-    for circuit in compile_results {
-        for command in &circuit.state_commands {
-            let slot = match command {
-                DPNStateCmd::SetContractStateSlotHash(cmd) => Some(cmd.slot_index),
-                DPNStateCmd::SetContractStateSlotSingle(cmd) => Some(cmd.sub_slot_index),
-                DPNStateCmd::SetContractStateSlotRange(cmd) => Some(cmd.sub_slot_index.saturating_add(cmd.value.len().saturating_sub(1) as u64)),
-                DPNStateCmd::SetIMTContractStateValue(cmd) => {
-                    let span = cmd.capacity.saturating_mul(4);
-                    Some(cmd.base_offset.saturating_add(span.saturating_sub(1)))
-                }
-                _ => None,
-            };
-
-            if let Some(slot) = slot {
-                max_slot = Some(max_slot.map_or(slot, |current| current.max(slot)));
-            }
-        }
-    }
-
-    let computed = match max_slot {
-        Some(max_slot) => ceil_log2(max_slot.saturating_add(1)),
-        None => 0,
-    };
-
-    computed.max(4)
-}
-
-fn ceil_log2(value: u64) -> u16 {
-    if value <= 1 {
-        return 0;
-    }
-    (u64::BITS - (value - 1).leading_zeros()) as u16
+fn compute_state_tree_height(result: &mut psy_interpreter::InterpretResult) -> u16 {
+    AbiExtractor::new("contract".to_string()).compute_state_tree_height(&mut result.ctx.program)
 }
 
 fn extract_error_offset(error_msg: &str, sources: &HashMap<String, Arc<str>>) -> Option<usize> {

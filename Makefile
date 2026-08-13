@@ -204,6 +204,7 @@ gen-deploy-json: build \
 	@test -f $(TOKEN_CONTRACT_PATH)/target/token.json || { echo "error: missing compiled token artifact: $(TOKEN_CONTRACT_PATH)/target/token.json"; exit 1; }
 	@test -d $(PSY_NODE)/client_prover || { echo "error: missing psy-node client_prover directory: $(PSY_NODE)/client_prover"; exit 1; }
 	@cp $(TOKEN_CONTRACT_PATH)/target/token.json $(PSY_NODE)/client_prover/token.json
+	@cp $(TOKEN_CONTRACT_PATH)/target/token.abi.json $(PSY_NODE)/client_prover/token.abi.json
 	@echo "refreshed $(PSY_NODE)/client_prover/token.json from compiled token artifact"
 	@cargo run --release --package dargo --example gen_deploy_json -- \
 		$(GENESIS_CONTRACTS_FILE) \

@@ -75,6 +75,8 @@ pub enum Token<'input> {
     IntrinsicCtxGetContractId,
     #[token("__ctx_get_contract_deployer")]
     IntrinsicCtxGetContractDeployer,
+    #[token("__ctx_get_contract_state_tree_height")]
+    IntrinsicCtxGetContractStateTreeHeight,
     #[token("__ctx_get_caller_contract_id")]
     IntrinsicCtxGetCallerContractId,
     #[token("__ctx_get_checkpoint_id")]

@@ -980,6 +980,10 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let contract_id = self.interpret_expr(program, contract_id.clone(), ctx)?.to_felt();
                         CheckedValueRef::from_vec(type_id.clone(), self.context.get_contract_deployer(contract_id))
                     }
+                    CheckedIntrinsicExprNode::GetContractStateTreeHeight { contract_id, .. } => {
+                        let contract_id = self.interpret_expr(program, contract_id.clone(), ctx)?.to_felt();
+                        CheckedValueRef::from_felt(self.context.get_contract_state_tree_height(contract_id))
+                    }
                     CheckedIntrinsicExprNode::GetCallerContractId { .. } => CheckedValueRef::from_felt(self.context.get_caller_contract_id()),
                     CheckedIntrinsicExprNode::GetCheckpointId { .. } => CheckedValueRef::from_felt(self.context.get_checkpoint_id()),
                     CheckedIntrinsicExprNode::GetLastNonce { .. } => CheckedValueRef::from_felt(self.context.get_last_nonce()),
@@ -1129,7 +1133,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let contract_id = self.interpret_expr(program, contract_id.clone(), ctx)?.to_felt();
                         let offset = self.interpret_expr(program, offset.clone(), ctx)?.to_felt();
                         let value = self.context.op_get_state_felt(
-                            u16::try_from(self.context.get_constant_value(contract_state_tree_height)).unwrap(),
+                            contract_state_tree_height,
                             contract_id,
                             user_id,
                             offset,

@@ -2,7 +2,6 @@ use clap::Args;
 use plonky2::field::{goldilocks_field::GoldilocksField, types::Field};
 use psy_common::data::qhashout::QHashOut;
 use psy_common_circuit::circuits::zk_signature3::manager::SimplePsyZKSignatureManager;
-use psy_config::network_constants::GLOBAL_USER_TREE_HEIGHT;
 use psy_crypto::signature::zk::wallet::SimplePsyPrivateKey;
 use psy_data::{
     config::store_config::{PsyHasher, C, D},
@@ -48,7 +47,7 @@ pub(crate) async fn run(mut args: ExecuteCommand, workspace: Workspace) -> crate
     let wallet = SimplePsyZKSignatureManager::<C, D>::new();
     let priv_key_w = SimplePsyPrivateKey::new(priv_key);
     let pub_key_param = priv_key_w.get_public_key_param::<PsyHasher>();
-    let contract_state_tree_height = GLOBAL_USER_TREE_HEIGHT as usize;
+    let contract_state_tree_height = compile_results.state_tree_height as usize;
 
     let deployer = QHashOut::rand();
     let (circuits, deploy_cmd) =
