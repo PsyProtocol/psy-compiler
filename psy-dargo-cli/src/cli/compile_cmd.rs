@@ -4,7 +4,7 @@ use std::{
 };
 
 use clap::Args;
-use psy_abi::AbiExtractor;
+use psy_abi::{Abi, AbiExtractor};
 use psy_package::{ResolvedSourceWorkspace, VfsPath, Workspace};
 use psy_vm::dpn::{
     ops::{op_types::DPNOpType, state_cmd::data::DPNStateCmd},
@@ -39,9 +39,10 @@ pub struct CompilationResult {
 }
 
 #[derive(Serialize)]
-struct CompilationArtifact<'a> {
+struct CompilationArtifact {
     state_tree_height: u16,
-    circuit_definitions: &'a [DPNFunctionCircuitDefinition],
+    circuit_definitions: Vec<DPNFunctionCircuitDefinition>,
+    abi: Abi,
 }
 
 /// Parse and compile the entire workspace, then report errors.
@@ -67,10 +68,21 @@ pub fn compile_workspace_full(workspace: &Workspace, compile_options: &CompileOp
         println!("compile_result: {:?}", interpret_result.compile_results);
         println!("state_tree_height: {state_tree_height}");
     } else {
+        let method_metadata: HashMap<String, (u32, bool)> = interpret_result
+            .compile_results
+            .iter()
+            .map(|f| (f.name.clone(), (f.method_id, f.is_view_function())))
+            .collect();
+        let extractor = AbiExtractor::new(compile_options.contract_name.clone().unwrap_or_else(|| "contract".to_string()));
+        let abi = extractor
+            .extract_abi(&mut interpret_result.ctx.program, state_tree_height, &method_metadata)
+            .map_err(|e| crate::errors::CliError::Generic(e.to_string()))?;
+
         save_build_artifact_to_file(
             &CompilationArtifact {
                 state_tree_height,
-                circuit_definitions: &interpret_result.compile_results,
+                circuit_definitions: interpret_result.compile_results.clone(),
+                abi,
             },
             &workspace.package.name.to_string(),
             &workspace.target_dir,
