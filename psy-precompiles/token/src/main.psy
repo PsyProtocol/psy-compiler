@@ -389,6 +389,9 @@ impl PsyTokenContractRef {
 
     #[contract_method]
     pub fn simple_mint(amount: Felt) {
+        let deployer: Hash = get_contract_deployer(get_contract_id());
+        assert(Self::eq_hash(deployer, get_user_public_key_hash()), "only deployer can mint");
+
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         c.balance += amount;
     }
