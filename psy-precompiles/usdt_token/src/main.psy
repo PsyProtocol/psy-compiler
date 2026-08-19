@@ -88,7 +88,7 @@ pub struct USDTTokenContract {
     pub balance: Felt,
     pub last_claimed_pow_rewards_checkpoint_id: Felt,
     pub claimed_rewards: Felt,
-    pub other_user_info: [OtherUserInfo; 16777216],
+    pub other_user_info: [OtherUserInfo; 4294967296],
 
     pub note_count: Felt,
 
@@ -640,7 +640,7 @@ impl USDTTokenContractRef {
         let expected_user_tree_root: Hash = get_checkpoint_user_tree_root(preimage.checkpoint_id);
         assert(preimage.user_tree_root == expected_user_tree_root, "user tree root does not match checkpoint state");
 
-        assert(preimage.note_root_slot == 8388609, "invalid note root slot id");
+        assert(preimage.note_root_slot == 2147483649, "invalid note root slot id");
 
         let expected_receiver: Hash = hash([get_user_id(), 1337, random0, random1]);
         assert(preimage.receiver == expected_receiver, "receiver does not match claiming user");

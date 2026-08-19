@@ -28,6 +28,16 @@ impl From<u64> for ConstValue {
     }
 }
 
+impl ConstValue {
+    pub fn as_u64(&self) -> Option<u64> {
+        match self {
+            ConstValue::Felt(value) => Some(*value),
+            ConstValue::U32(value) => Some(u64::from(*value)),
+            ConstValue::Bool(_) => None,
+        }
+    }
+}
+
 impl Display for ConstValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -44,8 +54,8 @@ pub enum ValueNode<F: Clone + From<u32>> {
     Felt(F, Location),
     Bool(F, Location),
     U32(F, Location),
-    Array(u32, Vec<ExprId>, Location),
-    ArrayRepeat(ExprId, u32, Location),
+    Array(ConstValue, Vec<ExprId>, Location),
+    ArrayRepeat(ExprId, ConstValue, Location),
     Struct(ExprId, Vec<UncheckedType>, IndexMap<Identifier, ExprId>, Location),
 }
 

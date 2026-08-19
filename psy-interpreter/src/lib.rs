@@ -705,14 +705,18 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
         loop {
             let var_id = ctx.symbols.get_variable(Some(node.scope_id), &node.variable).unwrap();
-            let value_f = ctx.symbols.get_value(var_id).unwrap().to_u32();
+            let var_value = ctx.symbols.get_value(var_id).unwrap();
+            let value_f = var_value.to_value();
             // `a..b` follows Rust Range semantics: start >= end executes zero iterations.
             // Comparing constants (not F handles) and using `<` also guarantees the
             // increment below never overflows u32.
             if self.context.get_constant_value(value_f) < self.context.get_constant_value(end_f) {
                 self.interpret_expr(program, node.body, ctx)?;
-                let one = self.context.op_const_u32(1);
-                let value = CheckedValueRef::from_u32(self.context.op_u32_add(value_f, one));
+                let next = self.context.get_constant_value(value_f) + 1;
+                let value = match &*var_value.borrow() {
+                    CheckedValue::U32(_) => CheckedValueRef::from_u32(self.context.op_const_u32(u32::try_from(next).expect("u32 loop variable overflowed"))),
+                    _ => CheckedValueRef::from_felt(self.context.op_const(next)),
+                };
                 ctx.symbols.set_variable(node.scope_id, node.variable, value)?;
             } else {
                 ctx.symbols.exit_block();
@@ -810,8 +814,10 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 CheckedValue::Array(*type_id, values)
             }
             CheckedValueNode::ArrayRepeat(type_id, element, size, _location) => {
-                let mut values = Vec::with_capacity(*size as usize);
-                for _ in 0..*size {
+                let count = usize::try_from(size.as_u64().expect("array repeat length must be an integer"))
+                    .expect("array repeat length does not fit usize");
+                let mut values = Vec::with_capacity(count);
+                for _ in 0..count {
                     values.push(self.interpret_expr(program, *element, ctx)?);
                 }
                 CheckedValue::Array(*type_id, values)

@@ -103,7 +103,7 @@ pub enum TypeRef {
     },
     Array {
         item: Box<TypeRef>,
-        length: u32,
+        length: u64,
         item_felt_size: usize,
     },
     Map {
@@ -154,7 +154,7 @@ pub enum TypeAbiSpec {
         #[serde(rename = "type")]
         type_name: String,
         inner_type: String,
-        length: u32,
+        length: u64,
     },
 }impl TypeAbiSpec {
     pub fn from_unchecked_type<F: Clone + From<u32>>(unchecked_type: &UncheckedType, ctx: &DefaultVisitorContext<F, ()>) -> Self {
@@ -168,7 +168,7 @@ pub enum TypeAbiSpec {
                 TypeAbiSpec::Array {
                     type_name: "Array".to_string(),
                     inner_type,
-                    length: *size,
+                    length: size.as_u64().unwrap_or(0),
                 }
             }
             UncheckedType::Generic(identifier, _generics, _) => TypeAbiSpec::Basic(ctx.ident(*identifier).0.to_string()),
