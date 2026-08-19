@@ -19,7 +19,7 @@ pub trait Storage {
     pub fn write(offset: Felt, value: Self);
 }
 
-pub trait StorageAt<T: Storage, N: u32> {
+pub trait StorageAt<T: Storage, N: Felt> {
     pub fn read_at(
         contract_state_tree_height: Felt,
         user_id: Felt,
@@ -44,7 +44,7 @@ impl ToHash for Hash {
     }
 }
 
-impl<T, N: u32> ToHash for [T; N] {
+impl<T, N: Felt> ToHash for [T; N] {
     pub fn to_hash(self) -> Hash {
         hash(self)
     }
@@ -55,7 +55,7 @@ pub struct StorageRef<T> {
     pub metadata: ContractMetadata,
 }
 
-pub struct ArrayRef<T, N: u32> {
+pub struct ArrayRef<T, N: Felt> {
     pub offset: Felt,
     pub metadata: ContractMetadata,
 }
@@ -81,7 +81,7 @@ impl<T> StorageNew for StorageRef<T> {
     }
 }
 
-impl<T, N: u32> StorageNew for ArrayRef<T, N> {
+impl<T, N: Felt> StorageNew for ArrayRef<T, N> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
         return new ArrayRef<T, N> {
             offset,
@@ -186,7 +186,7 @@ impl Storage for u32 {
     }
 }
 
-impl<T: Storage, N: u32> Storage for [T; N] {
+impl<T: Storage, N: Felt> Storage for [T; N] {
     pub type RefType = ArrayRef<T, N>;
 
     pub fn size() -> Felt {
@@ -255,7 +255,7 @@ impl<K, V, C: u32> Storage for NamespacedMap<K, V, C> {
     }
 }
 
-impl<T: Storage, N: u32> StorageAt<T, N> for [T; N] {
+impl<T: Storage, N: Felt> StorageAt<T, N> for [T; N] {
     pub fn write_at(offset: Felt, index: Felt, value: T) {
         let offset = offset + (index * T::size());
         T::write(offset, value)
@@ -296,7 +296,7 @@ impl<T: Storage> StorageRef<T> {
 
 }
 
-impl<T: Storage, N: u32> ArrayRef<T, N> {
+impl<T: Storage, N: Felt> ArrayRef<T, N> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
         return new ArrayRef<T, N> {
             offset,
@@ -683,11 +683,11 @@ impl Eq<StorageRef<bool>> for StorageRef<bool> {
     }
 }
 
-impl<N: u32> Eq<[Felt; N]> for [Felt; N] {
+impl<N: Felt> Eq<[Felt; N]> for [Felt; N] {
     pub fn eq(self: Self, rhs: [Felt; N]) -> bool {
         let mut same = true;
-        for i in 0u32..N {
-            if self[i as Felt] != rhs[i as Felt] {
+        for i in 0..N {
+            if self[i] != rhs[i] {
                 same = false;
             }
         }
@@ -695,11 +695,11 @@ impl<N: u32> Eq<[Felt; N]> for [Felt; N] {
     }
 }
 
-impl<N: u32> Eq<[u32; N]> for [u32; N] {
+impl<N: Felt> Eq<[u32; N]> for [u32; N] {
     pub fn eq(self: Self, rhs: [u32; N]) -> bool {
         let mut same = true;
-        for i in 0u32..N {
-            if self[i as Felt] != rhs[i as Felt] {
+        for i in 0..N {
+            if self[i] != rhs[i] {
                 same = false;
             }
         }
@@ -708,39 +708,39 @@ impl<N: u32> Eq<[u32; N]> for [u32; N] {
 }
 
 
-impl<N: u32> EqAssign<[Felt; N]> for [StorageRef<Felt>; N] {
+impl<N: Felt> EqAssign<[Felt; N]> for [StorageRef<Felt>; N] {
     pub fn eq_assign(self: Self, rhs: [Felt; N]) {
-        for i in 0u32..N {
-            self[i as Felt].set(rhs[i as Felt]);
+        for i in 0..N {
+            self[i].set(rhs[i]);
         }
     }
 }
 
-impl<N: u32> EqAssign<[u32; N]> for [StorageRef<u32>; N] {
+impl<N: Felt> EqAssign<[u32; N]> for [StorageRef<u32>; N] {
     pub fn eq_assign(self: Self, rhs: [u32; N]) {
-        for i in 0u32..N {
-            self[i as Felt].set(rhs[i as Felt]);
+        for i in 0..N {
+            self[i].set(rhs[i]);
         }
     }
 }
 
-impl<T: Storage, N: u32> EqAssign<[T; N]> for ArrayRef<T, N> {
+impl<T: Storage, N: Felt> EqAssign<[T; N]> for ArrayRef<T, N> {
     pub fn eq_assign(self: Self, rhs: [T; N]) {
         self.set(rhs);
     }
 }
 
-impl<N: u32> EqAssign<[Felt; N]> for ArrayRef<Felt, N> {
+impl<N: Felt> EqAssign<[Felt; N]> for ArrayRef<Felt, N> {
     pub fn eq_assign(self: Self, rhs: [Felt; N]) {
         self.set(rhs);
     }
 }
 
-impl<N: u32> Eq<[Felt; N]> for ArrayRef<Felt, N> {
+impl<N: Felt> Eq<[Felt; N]> for ArrayRef<Felt, N> {
     pub fn eq(self: Self, rhs: [Felt; N]) -> bool {
         let mut same = true;
-        for i in 0u32..N {
-            if self.index(i as Felt).get() != rhs[i as Felt] {
+        for i in 0..N {
+            if self.index(i).get() != rhs[i] {
                 same = false;
             }
         }
@@ -748,11 +748,11 @@ impl<N: u32> Eq<[Felt; N]> for ArrayRef<Felt, N> {
     }
 }
 
-impl<N: u32> Eq<ArrayRef<Felt, N>> for ArrayRef<Felt, N> {
+impl<N: Felt> Eq<ArrayRef<Felt, N>> for ArrayRef<Felt, N> {
     pub fn eq(self: Self, rhs: ArrayRef<Felt, N>) -> bool {
         let mut same = true;
-        for i in 0u32..N {
-            if self.index(i as Felt).get() != rhs.index(i as Felt).get() {
+        for i in 0..N {
+            if self.index(i).get() != rhs.index(i).get() {
                 same = false;
             }
         }
@@ -760,17 +760,17 @@ impl<N: u32> Eq<ArrayRef<Felt, N>> for ArrayRef<Felt, N> {
     }
 }
 
-impl<N: u32> EqAssign<[u32; N]> for ArrayRef<u32, N> {
+impl<N: Felt> EqAssign<[u32; N]> for ArrayRef<u32, N> {
     pub fn eq_assign(self: Self, rhs: [u32; N]) {
         self.set(rhs);
     }
 }
 
-impl<N: u32> Eq<[u32; N]> for ArrayRef<u32, N> {
+impl<N: Felt> Eq<[u32; N]> for ArrayRef<u32, N> {
     pub fn eq(self: Self, rhs: [u32; N]) -> bool {
         let mut same = true;
-        for i in 0u32..N {
-            if self.index(i as Felt).get() != rhs[i as Felt] {
+        for i in 0..N {
+            if self.index(i).get() != rhs[i] {
                 same = false;
             }
         }
@@ -778,11 +778,11 @@ impl<N: u32> Eq<[u32; N]> for ArrayRef<u32, N> {
     }
 }
 
-impl<N: u32> Eq<ArrayRef<u32, N>> for ArrayRef<u32, N> {
+impl<N: Felt> Eq<ArrayRef<u32, N>> for ArrayRef<u32, N> {
     pub fn eq(self: Self, rhs: ArrayRef<u32, N>) -> bool {
         let mut same = true;
-        for i in 0u32..N {
-            if self.index(i as Felt).get() != rhs.index(i as Felt).get() {
+        for i in 0..N {
+            if self.index(i).get() != rhs.index(i).get() {
                 same = false;
             }
         }

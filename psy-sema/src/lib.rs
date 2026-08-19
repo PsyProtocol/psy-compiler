@@ -937,7 +937,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             IntrinsicExprNode::Keccak256 { data, location } => {
                 let data = self.visit_expr(data, ctx)?;
                 let u32_type = UncheckedType::Basic(Identifier::new(IdentId::TYPE_U32, location));
-                let keccak_out_ty = UncheckedType::Array(Box::new(u32_type), 8, location);
+                let keccak_out_ty = UncheckedType::Array(Box::new(u32_type), ConstValue::Felt(8), location);
                 let keccak_out_type_id = self.typecheck(&keccak_out_ty, ctx)?;
 
                 Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::Keccak256 {
@@ -3118,7 +3118,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
         self.typecheck_array(ctx)?;
 
         let felt_type = UncheckedType::Basic(Identifier::new(IdentId::TYPE_FELT, Location::default()));
-        let hash_ty_node = UncheckedType::Array(Box::new(felt_type), 4, Location::default());
+        let hash_ty_node = UncheckedType::Array(Box::new(felt_type), ConstValue::Felt(4), Location::default());
 
         let checked_hash_ty = self.typecheck(&hash_ty_node, ctx)?;
 
@@ -3169,7 +3169,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
         )?;
         let size = ctx.symbols.add_type_variable(
             ScopeKind::Module,
-            CheckedGenericParameter::new(IdentId::N, vec![U32_TYPE], ScopeId::primitive(), Location::default()),
+            CheckedGenericParameter::new(IdentId::N, vec![FELT_TYPE], ScopeId::primitive(), Location::default()),
         )?;
 
         let checked_array = CheckedArrayNode {

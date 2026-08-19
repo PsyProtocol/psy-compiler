@@ -1319,15 +1319,11 @@ ArgumentList: Vec<ExprNode<F>> = {
 
 ArrayExpression: ExprNode<F> = {
     <l:@L> "[" <elements:Comma<Expression>> "]" <r:@R> => ExprNode::<F>::Value(
-        ValueNode::Array(u32::try_from(elements.len()).unwrap(), expr_nodes.alloc_items(elements), Location::new(file_id, l, r)),
+        ValueNode::Array(ConstValue::Felt(u64::try_from(elements.len()).unwrap()), expr_nodes.alloc_items(elements), Location::new(file_id, l, r)),
     ),
-    <l:@L> "[" <element:Expression> ";" <n:U64> "]" <r:@R> =>? {
-        let location = Location::new(file_id, l, r);
-        let size = u32::try_from(n).map_err(|_| LalrpopError::User {
-            error: UserError::ArrayLengthOverflow { length: n, location },
-        })?;
-        Ok(ExprNode::<F>::Value(ValueNode::ArrayRepeat(expr_nodes.alloc_item(element), size, location)))
-    },
+    <l:@L> "[" <element:Expression> ";" <n:U64> "]" <r:@R> => ExprNode::<F>::Value(
+        ValueNode::ArrayRepeat(expr_nodes.alloc_item(element), ConstValue::Felt(n), Location::new(file_id, l, r))
+    ),
 }
 
 UseNode: (Identifier, Vec<Identifier>, Option<Identifier>) =
@@ -1369,13 +1365,7 @@ GenericType: UncheckedType = {
 }
 
 ArrayType: UncheckedType = {
-    <l:@L> "[" <ty:PathTy> ";" <n:U64> "]" <r:@R> =>? {
-        let location = Location::new(file_id, l, r);
-        let size = u32::try_from(n).map_err(|_| LalrpopError::User {
-            error: UserError::ArrayLengthOverflow { length: n, location },
-        })?;
-        Ok(UncheckedType::Array(Box::new(ty), size, location))
-    }
+    <l:@L> "[" <ty:PathTy> ";" <n:U64> "]" <r:@R> => UncheckedType::Array(Box::new(ty), ConstValue::Felt(n), Location::new(file_id, l, r))
 }
 
 ConstType: UncheckedType = {

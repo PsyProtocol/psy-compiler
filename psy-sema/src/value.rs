@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use enum_as_inner::EnumAsInner;
 use indexmap::IndexMap;
-use psy_ast::{ExprId, IdentId, Identifier, Location, NodeInfo, NodeType};
+use psy_ast::{ConstValue, ExprId, IdentId, Identifier, Location, NodeInfo, NodeType};
 use psy_vm::dpn::ops::{
     context_trait::{ContextFelt, DPNContext, ToFelts},
     op_types::DPNOpType,
@@ -23,7 +23,7 @@ pub enum CheckedValueNode<F> {
     Bool(F, Location),
     U32(F, Location),
     Array(TypeId, Vec<ExprId>, Location),
-    ArrayRepeat(TypeId, ExprId, u32, Location),
+    ArrayRepeat(TypeId, ExprId, ConstValue, Location),
     Tuple(TypeId, Vec<(TypeId, ExprId)>, Location),
     Struct(TypeId, IndexMap<Identifier, ExprId>, Location),
     Type(TypeId),

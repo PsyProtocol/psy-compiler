@@ -9,7 +9,7 @@ pub enum UncheckedType {
     Basic(Identifier), // u8, T
     Const(ConstValue, Location),
     Generic(Identifier, Vec<UncheckedType>, Location), // IndexMap<K, V>
-    Array(Box<UncheckedType>, u32, Location),          // [u8; 10]
+    Array(Box<UncheckedType>, ConstValue, Location),   // [u8; 10]
     Tuple(Vec<UncheckedType>, Location),
     FunctionSignature(Box<FunctionSignature>, Location),
     Path(Box<PathNode>),                                         // PathNode

@@ -292,12 +292,12 @@ fn preload_embedded_std<F: Clone + From<u32>>(program: &mut Program<F>) {
 mod tests {
     use std::path::PathBuf;
 
-    use psy_ast::{IdentId, Identifier, Location, Program, Visibility};
+    use psy_ast::{ConstValue, IdentId, Identifier, Location, Program, UncheckedType, Visibility};
     use psy_common::{FileId, Graph};
     use psy_lexer::{GenericTokenTransformer, Lexer};
     use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
 
-    use super::{LalrpopError, Parser, UserError, psy};
+    use super::{LalrpopError, Parser, psy};
 
     fn parse_source(source: &str) -> (Program<SymFeltRef>, Result<(), LalrpopError<'_>>) {
         let mut program = Program::new();
@@ -342,7 +342,7 @@ mod tests {
             .filter_map(|value| value.as_array_repeat())
             .collect::<Vec<_>>();
         assert_eq!(repeats.len(), 1);
-        assert_eq!(*repeats[0].1, 1_000_000);
+        assert_eq!(*repeats[0].1, ConstValue::Felt(1_000_000));
 
         let explicit_arrays = program
             .exprs
@@ -355,24 +355,29 @@ mod tests {
     }
 
     #[test]
-    fn array_repeat_length_overflow_is_an_error() {
-        let (_program, result) = parse_source("fn main() { let values = [0; 4294967296]; }");
-        assert!(matches!(
-            result,
-            Err(LalrpopError::User {
-                error: UserError::ArrayLengthOverflow { length: 4_294_967_296, .. }
-            })
-        ));
+    fn array_repeat_length_supports_felt_sized_constants() {
+        let (program, result) = parse_source("fn main() { let values = [0; 4294967296]; }");
+        result.unwrap();
+        let repeat = program
+            .exprs
+            .iter()
+            .filter_map(|expr| expr.as_value())
+            .find_map(|value| value.as_array_repeat())
+            .unwrap();
+        assert_eq!(*repeat.1, ConstValue::Felt(4_294_967_296));
     }
 
     #[test]
-    fn array_type_length_overflow_is_an_error() {
-        let (_program, result) = parse_source("fn main(values: [Felt; 4294967296]) {}");
-        assert!(matches!(
-            result,
-            Err(LalrpopError::User {
-                error: UserError::ArrayLengthOverflow { length: 4_294_967_296, .. }
+    fn array_type_length_supports_felt_sized_constants() {
+        let (program, result) = parse_source("fn main(values: [Felt; 4294967296]) {}");
+        result.unwrap();
+        assert!(program.defs.iter().any(|definition| {
+            definition.as_function().is_some_and(|function| {
+                matches!(
+                    &function.parameters[0].ty,
+                    UncheckedType::Array(_, ConstValue::Felt(4_294_967_296), _)
+                )
             })
-        ));
+        }));
     }
 }

@@ -1,6 +1,6 @@
-impl<T, N: u32> [T; N] {
-    pub const fn len() -> u32 {
-        return N + (1 as u32);
+impl<T, N: Felt> [T; N] {
+    pub const fn len() -> Felt {
+        return N + 1;
     }
 }
 
@@ -56,5 +56,5 @@ fn main() -> Felt {
     let echoed: Felt = b.echo#<Felt>(5);
     assert_eq(echoed, 5, "generic member call");
     b.data += 1;
-    b.data + (<[Felt; 3]>::len() as Felt) + b.extra + <Felt as Two<u32>>::two()
+    b.data + <[Felt; 3]>::len() + b.extra + <Felt as Two<u32>>::two()
 }

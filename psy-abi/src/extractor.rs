@@ -279,7 +279,7 @@ impl AbiExtractor {
                 let item_felt_size = self.felt_size_for_type(ctx, inner, &struct_nodes, &mut layouts);
                 TypeRef::Array {
                     item: Box::new(item),
-                    length: *size,
+                    length: size.as_u64().unwrap_or(0),
                     item_felt_size,
                 }
             }
@@ -671,10 +671,11 @@ impl AbiExtractor {
         match ty {
             UncheckedType::Array(inner, size, _) => {
                 let inner_size = self.felt_size_for_type(ctx, inner, struct_nodes, &mut layouts);
+                let length = size.as_u64().unwrap_or(0) as usize;
                 (
-                    inner_size.saturating_mul(*size as usize),
+                    inner_size.saturating_mul(length),
                     true,
-                    Some(*size as usize),
+                    Some(length),
                     Some(self.stringify_unchecked_type(ctx, inner)),
                     Some(inner_size),
                     false,
@@ -738,7 +739,7 @@ impl AbiExtractor {
         match ty {
             UncheckedType::Basic(identifier) => self.felt_size_for_named_type(ctx.ident(*identifier).0.as_str(), struct_nodes, layouts, ctx),
             UncheckedType::Path(path) => self.felt_size_for_type(ctx, &path.target, struct_nodes, layouts),
-            UncheckedType::Array(inner, size, _) => self.felt_size_for_type(ctx, inner, struct_nodes, layouts).saturating_mul(*size as usize),
+            UncheckedType::Array(inner, size, _) => self.felt_size_for_type(ctx, inner, struct_nodes, layouts).saturating_mul(size.as_u64().unwrap_or(0) as usize),
             UncheckedType::Tuple(items, _) => items.iter().map(|item| self.felt_size_for_type(ctx, item, struct_nodes, layouts)).sum(),
             UncheckedType::Generic(identifier, _, _) => self.felt_size_for_named_type(ctx.ident(*identifier).0.as_str(), struct_nodes, layouts, ctx),
             _ => 0,

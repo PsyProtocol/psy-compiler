@@ -2,6 +2,7 @@ use std::{collections::HashSet, marker::PhantomData};
 
 use indexmap::IndexMap;
 use psy_ast::*;
+use psy_vm::dpn::ops::context_trait::ContextFelt;
 
 #[derive(Debug)]
 pub struct StorageProcessor<'a> {
@@ -231,7 +232,7 @@ impl<'a> StorageProcessor<'a> {
     }
 
     fn generate_storage_at_impl<
-        F: Clone + From<u32>,
+        F: Clone + From<u32> + ContextFelt,
         C,
         V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
     >(
@@ -254,7 +255,7 @@ impl<'a> StorageProcessor<'a> {
                 ))))),
                 ty: UncheckedType::Generic(
                     Identifier::new(ctx.intern("ArrayRef"), attr.location),
-                    vec![elem_ty.as_ref().clone(), UncheckedType::Const(ConstValue::U32(*size), attr.location)],
+                    vec![elem_ty.as_ref().clone(), UncheckedType::Const(*size, attr.location)],
                     attr.location,
                 ),
                 body: methods,
@@ -297,7 +298,7 @@ impl<'a> StorageProcessor<'a> {
                     }
                     UncheckedType::Array(elem_ty, size, _) => UncheckedType::Generic(
                         Identifier::new(ctx.intern("ArrayRef"), attr.location),
-                        vec![elem_ty.as_ref().clone(), UncheckedType::Const(ConstValue::U32(*size), attr.location)],
+                        vec![elem_ty.as_ref().clone(), UncheckedType::Const(*size, attr.location)],
                         attr.location,
                     ),
                     _ => UncheckedType::Generic(
@@ -386,28 +387,28 @@ impl<'a> StorageProcessor<'a> {
                     }
                     _ => panic!("#[ref] attribute only supported on basic struct types"),
                 };
-                (base_type.clone(), 1, field.ty.clone())
+                (base_type.clone(), ConstValue::Felt(1), field.ty.clone())
             } else {
                 match &field.ty {
                     UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
                         if params.len() != 1 {
                             panic!("StorageRef must have exactly one generic parameter");
                         }
-                        (params[0].clone(), 1, field.ty.clone())
+                        (params[0].clone(), ConstValue::Felt(1), field.ty.clone())
                     }
                     UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
                         if params.len() != 2 {
                             panic!("ArrayRef must have exactly two generic parameters");
                         }
                         let size = match params[1] {
-                            UncheckedType::Const(ConstValue::U32(size), _) => size,
+                            UncheckedType::Const(size, _) => size,
                             _ => {
-                                panic!("Second generic parameter of ArrayRef must be a u32 const")
+                                panic!("Second generic parameter of ArrayRef must be a numeric const")
                             }
                         };
                         (params[0].clone(), size, field.ty.clone())
                     }
-                    _ => (field.ty.clone(), 1, field.ty.clone()),
+                    _ => (field.ty.clone(), ConstValue::Felt(1), field.ty.clone()),
                 }
             };
             let target_path = PathNode {
@@ -533,7 +534,7 @@ impl<'a> StorageProcessor<'a> {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
                         let base_name = type_name.strip_suffix("Ref").expect("generated ref type must end with Ref");
-                        (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), 1)
+                        (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), ConstValue::Felt(1))
                     }
                     _ => panic!("#[ref] attribute only supported on basic struct types"),
                 }
@@ -543,21 +544,21 @@ impl<'a> StorageProcessor<'a> {
                         if params.len() != 1 {
                             panic!("StorageRef must have exactly one generic parameter");
                         }
-                        (params[0].clone(), 1)
+                        (params[0].clone(), ConstValue::Felt(1))
                     }
                     UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
                         if params.len() != 2 {
                             panic!("ArrayRef must have exactly two generic parameters");
                         }
                         let size = match params[1] {
-                            UncheckedType::Const(ConstValue::U32(size), _) => size,
+                            UncheckedType::Const(size, _) => size,
                             _ => {
-                                panic!("Second generic parameter of ArrayRef must be a u32 const")
+                                panic!("Second generic parameter of ArrayRef must be a numeric const")
                             }
                         };
                         (params[0].clone(), size)
                     }
-                    _ => (field.ty.clone(), 1),
+                    _ => (field.ty.clone(), ConstValue::Felt(1)),
                 }
             };
 
@@ -568,7 +569,9 @@ impl<'a> StorageProcessor<'a> {
             }
 
             // A one-element array still has a valid index (zero).
-            if !is_ref_struct && matches!(&field.ty, UncheckedType::Array(_, array_size, _) if *array_size > 0) {
+            if !is_ref_struct
+                && matches!(&field.ty, UncheckedType::Array(_, array_size, _) if array_size.as_u64().unwrap_or(0) > 0)
+            {
                 methods.push(self.generate_getter_at(attr, &field_name.id, &field.ty, offset, ctx));
                 methods.push(self.generate_setter_at(attr, &field_name.id, &field.ty, offset, ctx));
             }
@@ -873,8 +876,8 @@ impl<'a> StorageProcessor<'a> {
                     panic!("ArrayRef must have exactly two generic parameters");
                 }
                 let array_size = match &params[1] {
-                    UncheckedType::Const(ConstValue::U32(size), _) => *size,
-                    _ => panic!("Second generic parameter of ArrayRef must be a u32 const"),
+                    UncheckedType::Const(size, _) => *size,
+                    _ => panic!("Second generic parameter of ArrayRef must be a numeric const"),
                 };
                 // Keep the array wrapper even for lengths zero and one. In
                 // particular, ArrayRef<T, 0> occupies zero storage slots.
@@ -1224,7 +1227,7 @@ impl<'a> StorageProcessor<'a> {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
                         let base_name = type_name.strip_suffix("Ref").expect("generated ref type must end with Ref");
-                        (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), 1)
+                        (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), ConstValue::Felt(1))
                     }
                     _ => panic!("#[ref] attribute only supported on basic struct types"),
                 }
@@ -1234,25 +1237,25 @@ impl<'a> StorageProcessor<'a> {
                         if params.len() != 1 {
                             panic!("StorageRef must have exactly one generic parameter");
                         }
-                        (params[0].clone(), 1)
+                        (params[0].clone(), ConstValue::Felt(1))
                     }
                     UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
                         if params.len() != 2 {
                             panic!("ArrayRef must have exactly two generic parameters");
                         }
                         let size = match params[1] {
-                            UncheckedType::Const(ConstValue::U32(size), _) => size,
+                            UncheckedType::Const(size, _) => size,
                             _ => {
-                                panic!("Second generic parameter of ArrayRef must be a u32 const")
+                                panic!("Second generic parameter of ArrayRef must be a numeric const")
                             }
                         };
                         (params[0].clone(), size)
                     }
-                    _ => (field.ty.clone(), 1),
+                    _ => (field.ty.clone(), ConstValue::Felt(1)),
                 }
             };
 
-            let read_expr = if size > 1 {
+            let read_expr = if size.as_u64().unwrap_or(0) > 1 {
                 let field_type = UncheckedType::Array(Box::new(inner_ty.clone()), size, attr.location);
                 let read_ident = Identifier::new(ctx.intern("read"), attr.location);
                 let read_path = PathNode {
@@ -1406,7 +1409,7 @@ impl<'a> StorageProcessor<'a> {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
                         let base_name = type_name.strip_suffix("Ref").expect("generated ref type must end with Ref");
-                        (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), 1)
+                        (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), ConstValue::Felt(1))
                     }
                     _ => panic!("#[ref] attribute only supported on basic struct types"),
                 }
@@ -1416,21 +1419,21 @@ impl<'a> StorageProcessor<'a> {
                         if params.len() != 1 {
                             panic!("StorageRef must have exactly one generic parameter");
                         }
-                        (params[0].clone(), 1)
+                        (params[0].clone(), ConstValue::Felt(1))
                     }
                     UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
                         if params.len() != 2 {
                             panic!("ArrayRef must have exactly two generic parameters");
                         }
                         let size = match params[1] {
-                            UncheckedType::Const(ConstValue::U32(size), _) => size,
+                            UncheckedType::Const(size, _) => size,
                             _ => {
-                                panic!("Second generic parameter of ArrayRef must be a u32 const")
+                                panic!("Second generic parameter of ArrayRef must be a numeric const")
                             }
                         };
                         (params[0].clone(), size)
                     }
-                    _ => (field.ty.clone(), 1),
+                    _ => (field.ty.clone(), ConstValue::Felt(1)),
                 }
             };
 
@@ -1440,7 +1443,7 @@ impl<'a> StorageProcessor<'a> {
                 location: attr.location,
             }));
 
-            let write_stmt = if size > 1 {
+            let write_stmt = if size.as_u64().unwrap_or(0) > 1 {
                 let field_type = UncheckedType::Array(Box::new(inner_ty.clone()), size, attr.location);
                 let write_ident = Identifier::new(ctx.intern("write"), attr.location);
                 let write_path = PathNode {
@@ -1951,7 +1954,7 @@ impl<'a> StorageProcessor<'a> {
     }
 
     fn generate_storage_read_at_method<
-        F: Clone + From<u32>,
+        F: Clone + From<u32> + ContextFelt,
         C,
         V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
     >(
@@ -2106,7 +2109,7 @@ impl<'a> StorageProcessor<'a> {
     }
 
     fn generate_storage_write_at_method<
-        F: Clone + From<u32>,
+        F: Clone + From<u32> + ContextFelt,
         C,
         V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
     >(
@@ -2231,14 +2234,14 @@ impl<'a> StorageProcessor<'a> {
     }
 
     fn generate_index_bounds_check<
-        F: Clone + From<u32>,
+        F: Clone + From<u32> + ContextFelt,
         C,
         V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
     >(
         &self,
         attr: &AttrNode,
         index_ident: Identifier,
-        bound: u32,
+        bound: ConstValue,
         ctx: &mut V,
     ) -> StmtId {
         let index_expr = ctx.alloc_expression(ExprNode::Path(PathNode {
@@ -2248,7 +2251,7 @@ impl<'a> StorageProcessor<'a> {
             is_ty: false,
             location: attr.location,
         }));
-        let bound_expr = ctx.alloc_expression(ExprNode::Value(ValueNode::U32(F::from(bound), attr.location)));
+        let bound_expr = ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::cns(bound.as_u64().unwrap_or(0)), attr.location)));
         let assert_node = IntrinsicStmtNode::Assert {
             left: ctx.alloc_expression(ExprNode::Binary(BinaryNode {
                 lhs: index_expr,
@@ -2331,7 +2334,7 @@ impl<'a> StorageProcessor<'a> {
     }
 }
 
-impl<'a, F: Clone + From<u32> + 'static, C> AstVisitor<F, C> for StorageProcessor<'a> {
+impl<'a, F: Clone + From<u32> + ContextFelt + 'static, C> AstVisitor<F, C> for StorageProcessor<'a> {
     type Context = DefaultVisitorContext<'a, F, C>;
     type ExprResult = ();
     type StmtResult = ();

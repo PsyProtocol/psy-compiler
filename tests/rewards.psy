@@ -32,8 +32,8 @@ struct UserNullifier {
 #[derive(Storage)]
 struct Contract {
     pub balance: Felt,
-    pub other_user_info: [OtherUserInfo; 16777216],
-    pub user_nullifiers: [UserNullifier; 16777216],
+    pub other_user_info: [OtherUserInfo; 4294967296],
+    pub user_nullifiers: [UserNullifier; 4294967296],
 }
 
 impl ContractRef {
@@ -111,7 +111,7 @@ impl ContractRef {
         let user_id = get_user_id();
 
         let user_nullifier_ref = c.user_nullifiers[user_id];
-        let current_nullifier = user_nullifier_ref;
+        let current_nullifier = user_nullifier_ref.get();
         assert(checkpoint_id > current_nullifier.last_claimed_checkpoint, "checkpoint must be greater than last claimed");
 
         let mut total_reward = 0;
@@ -172,7 +172,7 @@ impl ContractRef {
     #[contract_method]
     pub fn simple_burn(amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
-        let current_balance = c.balance;
+        let current_balance = c.balance.get();
         assert(current_balance >= amount, "insufficient balance");
         c.balance = current_balance - amount;
     }
@@ -180,10 +180,10 @@ impl ContractRef {
     #[contract_method]
     pub fn simple_transfer(recipient: Felt, amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
-        let current_balance = c.balance;
+        let current_balance = c.balance.get();
         assert(current_balance >= amount, "insufficient balance");
 
-        let mut recipient_info = c.other_user_info[recipient];
+        let mut recipient_info = c.other_user_info[recipient].get();
         assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
 
         c.other_user_info[recipient] = new OtherUserInfo {
@@ -204,10 +204,10 @@ impl ContractRef {
         let c = ContractRef::new(ContractMetadata::current());
 
         let sender_user_contract = ContractRef::new(ContractMetadata::new(get_contract_id(), sender));
-        let sender_other_user_info = sender_user_contract.other_user_info[self_user_id];
+        let sender_other_user_info = sender_user_contract.other_user_info[self_user_id].get();
         let sender_total_sent = sender_other_user_info.amount_sent;
 
-        let mut sender_info = c.other_user_info[sender];
+        let mut sender_info = c.other_user_info[sender].get();
         assert(sender_info.amount_claimed < sender_total_sent, "no tokens to claim from this sender");
         let claimed = sender_total_sent - sender_info.amount_claimed;
 

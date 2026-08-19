@@ -51,6 +51,7 @@ ci:
 	@$(DARGO_CLI_COMPILE) basic_ups.psy --contract-name=Contract --method-names simple_mint simple_transfer simple_claim
 	@$(DARGO_CLI_COMPILE) token.psy --contract-name=ContractRef --method-names simple_mint simple_transfer simple_claim
 	@$(DARGO_CLI_COMPILE) two_user_ups.psy --contract-name=Contract --method-names simple_mint simple_transfer simple_claim
+	@$(DARGO_CLI_COMPILE) rewards.psy --contract-name=ContractRef --method-names batch_claim_pm_rewards simple_mint simple_burn simple_transfer simple_claim
 
 	@$(DARGO_CLI_EXECUTE) assert_test.psy --parameters 2,3
 	@$(DARGO_CLI_EXECUTE) keccak256_test.psy
