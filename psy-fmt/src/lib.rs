@@ -443,7 +443,16 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
             .map(|&arg| self.visit_expr(arg, ctx))
             .collect::<Result<Vec<_>, Self::Error>>()?
             .join(", ");
-        Ok(format!("{}{}({})", self.visit_expr(variable, ctx)?, generic_parameters_content, args))
+        Ok(format!(
+            "{}{}({})",
+            self.visit_expr(variable, ctx)?,
+            if generic_parameters_content.is_empty() {
+                "".to_string()
+            } else {
+                format!("#{}", generic_parameters_content)
+            },
+            args
+        ))
     }
 
     fn visit_cast(&mut self, expr_id: ExprId, ctx: &mut Self::Context) -> Result<Self::ExprResult, Self::Error> {
