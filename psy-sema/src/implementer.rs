@@ -185,20 +185,26 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
         macro_rules! candidate_matches {
             ($candidate:expr) => {{
                 if let Some(expected) = expected_parameters {
-                    let signature = ctx.symbols[$candidate].signature();
-                    if signature.parameters.len() != expected.len() {
-                        false
+                    if let Some(signature) = ctx.symbols[$candidate].try_signature() {
+                        if signature.parameters.len() != expected.len() {
+                            false
+                        } else {
+                            self.infcx.enter_scope();
+                            let ok = signature
+                                .parameters
+                                .iter()
+                                .zip(expected.iter())
+                                .all(|(parameter_ty, expected_ty)| self.unify(*parameter_ty, *expected_ty, ctx));
+                            self.infcx.exit_scope();
+                            ok
+                        }
                     } else {
-                        self.infcx.enter_scope();
-                        let ok = signature
-                            .parameters
-                            .iter()
-                            .zip(expected.iter())
-                            .all(|(parameter_ty, expected_ty)| self.unify(*parameter_ty, *expected_ty, ctx));
-                        self.infcx.exit_scope();
-                        ok
+                        false
                     }
                 } else {
+                    // Plain member lookup is also used for associated types and
+                    // constants (for example `T::RefType`). Only call sites that
+                    // provide expected parameters require a callable candidate.
                     true
                 }
             }};
