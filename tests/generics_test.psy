@@ -40,6 +40,9 @@ impl<K: One, T: Two<K>> Box<K, T> {
             extra: T::two(),
         };
     }
+    pub fn echo<U>(self: Self, value: U) -> U {
+        value
+    }
 }
 
 // input:
@@ -50,6 +53,8 @@ fn main() -> Felt {
         extra: 1,
     };
     let mut b: Box<u32, Felt> = <Box<u32, Felt>>::new(42);
+    let echoed: Felt = b.echo#<Felt>(5);
+    assert_eq(echoed, 5, "generic member call");
     b.data += 1;
     b.data + (<[Felt; 3]>::len() as Felt) + b.extra + <Felt as Two<u32>>::two()
 }
