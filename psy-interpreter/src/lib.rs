@@ -1661,11 +1661,61 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     ) -> Result<(CheckedValueRef<F>, VarId)> {
         let (inner_value, inner_var_id) = self.interpret_assignment_target(program, node, &program[index_access_node.target], path, ctx)?;
 
-        let index = IndexPath::Felt(self.interpret_expr(program, index_access_node.index, ctx)?.to_felt());
+        let checked_index = self.interpret_expr(program, index_access_node.index, ctx)?;
+        let index_value = match &*checked_index.borrow() {
+            CheckedValue::Felt(value) | CheckedValue::U32(value) => value.clone(),
+            _ => {
+                return Err(Error::SemaError(SemaError::TypeMismatch {
+                    location: index_access_node.location,
+                    expected: vec![FELT_TYPE, U32_TYPE],
+                    found: checked_index.type_id(),
+                }));
+            }
+        };
+        let mut constant_index = None;
+        if is_constant_op(self.context.get_op_type(index_value)) {
+            let index = self.context.get_constant_value(index_value) as usize;
+            constant_index = Some(index);
+            let length = match &*inner_value.borrow() {
+                CheckedValue::Array(_, elements) => Some(elements.len()),
+                _ => None,
+            };
+            if let Some(length) = length {
+                if index >= length {
+                    return Err(Error::SemaError(SemaError::IndexOutOfBounds {
+                        location: index_access_node.location,
+                        index,
+                        length,
+                    }));
+                }
+            }
+        }
+
+        let index = IndexPath::Felt(index_value);
 
         path.push(index.clone());
 
-        Ok((inner_value.get_path(&mut self.context, &[index]).unwrap(), inner_var_id))
+        let old_value = inner_value.get_path(&mut self.context, &[index]).ok_or_else(|| {
+            let length = match &*inner_value.borrow() {
+                CheckedValue::Array(_, elements) => elements.len(),
+                _ => 0,
+            };
+            if let Some(index) = constant_index {
+                Error::SemaError(SemaError::IndexOutOfBounds {
+                    location: index_access_node.location,
+                    index,
+                    length,
+                })
+            } else {
+                Error::SemaError(SemaError::TypeMismatch {
+                    location: index_access_node.location,
+                    expected: vec![ARRAY_TYPE],
+                    found: inner_value.type_id(),
+                })
+            }
+        })?;
+
+        Ok((old_value, inner_var_id))
     }
 
     fn interpret_tuple_assignment(
