@@ -68,6 +68,27 @@ fn match_u32_test(input: u32) -> Felt {
     result + extra
 }
 
+// Regression coverage for boolean match exhaustiveness and wildcard lowering.
+fn wildcard_only() -> Felt {
+    match true {  
+        _ => 7,
+    }
+}
+
+fn literal_and_wildcard(value: bool) -> Felt {
+    match value {  
+        true => 1, 
+        _ => 2,
+    }
+}
+
+fn true_and_false(value: bool) -> Felt {
+    match value {  
+        true => 3, 
+        false => 4,
+    }
+}
+
 // input:100
 // output:
 fn main(a: Felt) {
@@ -106,4 +127,9 @@ fn main(a: Felt) {
     // 55 + 450
     assert_eq(match_u32_test(99u32), 505, "test match u32 99 failed");
     // 55 + 450
+    assert_eq(wildcard_only(), 7, "wildcard-only bool match");
+    assert_eq(literal_and_wildcard(true), 1, "true literal match");
+    assert_eq(literal_and_wildcard(false), 2, "wildcard fallback match");
+    assert_eq(true_and_false(true), 3, "true arm match");
+    assert_eq(true_and_false(false), 4, "false arm match");
 }
