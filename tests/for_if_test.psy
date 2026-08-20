@@ -3,6 +3,15 @@ struct TestSibling {
 }
 
 #[test]
+fn test_for_empty_range() {
+    let mut sum: u32 = 0u32;
+    for i in 5u32..3u32 {
+        sum += i;
+    }
+    assert_eq(sum, 0u32, "empty range should execute zero iterations");
+}
+
+#[test]
 fn test_for_if_simple() {
     let mut test_array: [TestSibling; 3] = [new TestSibling {
             value: [1, 2, 3, 4],
