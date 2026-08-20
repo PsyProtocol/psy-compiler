@@ -1802,6 +1802,11 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 //note: use the first arm return value to initialize the return value
                 return_value = self.interpret_expr(program, first_arm.body, ctx)?;
             } else {
+                // A wildcard-only match has no preceding `if` block. Execute it
+                // directly instead of trying to emit an unmatched `else`.
+                if match_node.cases.len() == 1 {
+                    return self.interpret_expr(program, first_arm.body, ctx);
+                }
                 wildcard_case = Some(first_arm);
             }
         }

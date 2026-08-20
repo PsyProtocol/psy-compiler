@@ -2648,10 +2648,14 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         }
 
         if scrutinee_type == BOOL_TYPE {
-            if !match_node.arms.len() == 2 {
+            let has_wildcard = match_node
+                .arms
+                .iter()
+                .any(|arm| matches!(arm.pattern, MatchPattern::PlaceHolder(_)));
+            if !has_wildcard && match_node.arms.len() != 2 {
                 return Err(Error::IncompleteMatch {
                     location: match_node.location,
-                    message: "Boolean match must have 2 arms".to_string(),
+                    message: "Boolean match must cover both true and false".to_string(),
                 });
             }
         }
