@@ -706,7 +706,10 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         loop {
             let var_id = ctx.symbols.get_variable(Some(node.scope_id), &node.variable).unwrap();
             let value_f = ctx.symbols.get_value(var_id).unwrap().to_u32();
-            if value_f != end_f {
+            // `a..b` follows Rust Range semantics: start >= end executes zero iterations.
+            // Comparing constants (not F handles) and using `<` also guarantees the
+            // increment below never overflows u32.
+            if self.context.get_constant_value(value_f) < self.context.get_constant_value(end_f) {
                 self.interpret_expr(program, node.body, ctx)?;
                 let one = self.context.op_const_u32(1);
                 let value = CheckedValueRef::from_u32(self.context.op_u32_add(value_f, one));
