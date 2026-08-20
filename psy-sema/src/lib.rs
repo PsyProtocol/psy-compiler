@@ -139,7 +139,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             Some(&[type_id, checked_index.ty()]),
             ctx,
         )?;
-        let signature = ctx.symbols[callee_ty].signature();
+        let signature = ctx.symbols[callee_ty].try_signature().ok_or_else(|| Error::InvalidFunctionArguments {
+            location: index_access_node.location,
+            method_name: callee_ty,
+            expected: "a callable index method".to_string(),
+            found: "a non-callable member".to_string(),
+        })?;
 
         if signature.parameters.len() != 2 {
             return Err(Error::InvalidFunctionArguments {
@@ -1301,7 +1306,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
             let eq_ident = Identifier::new(ctx.intern("eq"), binary_node.location);
             let method_ty = self.find_member(lhs_ty, None, Some(binary_node.location), eq_ident, Some(&[lhs_ty, rhs_ty]), ctx)?;
-            let signature = ctx.symbols[method_ty].signature();
+            let signature = ctx.symbols[method_ty].try_signature().ok_or_else(|| Error::InvalidFunctionArguments {
+                location: binary_node.location,
+                method_name: method_ty,
+                expected: "a callable equality method".to_string(),
+                found: "a non-callable member".to_string(),
+            })?;
 
             if signature.parameters.len() != 2 {
                 return Err(Error::InvalidFunctionArguments {
@@ -1549,7 +1559,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
         }
 
-        let signature = ctx.symbols[ty].signature();
+        let signature = ctx.symbols[ty].try_signature().ok_or_else(|| Error::InvalidFunctionArguments {
+            location: call_node.location,
+            method_name: ty,
+            expected: "a callable value".to_string(),
+            found: "a non-callable value".to_string(),
+        })?;
 
         if call_node.args.len() != signature.parameters.len() {
             return Err(Error::InvalidFunctionArguments {
@@ -1638,7 +1653,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
         }
 
-        let signature = ctx.symbols[callee_ty].signature();
+        let signature = ctx.symbols[callee_ty].try_signature().ok_or_else(|| Error::InvalidFunctionArguments {
+            location: call_node.location,
+            method_name: callee_ty,
+            expected: "a callable member".to_string(),
+            found: "a non-callable member".to_string(),
+        })?;
         if signature.parameters.len() != expected_parameters.len() {
             return Err(Error::InvalidFunctionArguments {
                 location: call_node.location,
@@ -1872,7 +1892,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
         let method_ident = Identifier::new(ctx.intern(assign_method), assignment_node.location);
         let method_ty = self.find_member(lhs_ty, None, Some(assignment_node.location), method_ident, Some(&[lhs_ty, rhs_ty]), ctx)?;
-        let signature = ctx.symbols[method_ty].signature();
+        let signature = ctx.symbols[method_ty].try_signature().ok_or_else(|| Error::InvalidFunctionArguments {
+            location: assignment_node.location,
+            method_name: method_ty,
+            expected: "a callable assignment method".to_string(),
+            found: "a non-callable member".to_string(),
+        })?;
 
         let callee_target = self.program.exprs.alloc_item(checked_lhs.clone());
         let callee = self.program.exprs.alloc_item(CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
@@ -2023,7 +2048,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 } else {
                     let eq_ident = Identifier::new(ctx.intern("eq"), location);
                     let method_ty = self.find_member(lhs_ty, None, Some(location), eq_ident, Some(&[lhs_ty, rhs_ty]), ctx)?;
-                    let signature = ctx.symbols[method_ty].signature();
+                    let signature = ctx.symbols[method_ty].try_signature().ok_or_else(|| Error::InvalidFunctionArguments {
+                        location,
+                        method_name: method_ty,
+                        expected: "a callable equality method".to_string(),
+                        found: "a non-callable member".to_string(),
+                    })?;
 
                     if signature.parameters.len() != 2 {
                         return Err(Error::InvalidFunctionArguments {

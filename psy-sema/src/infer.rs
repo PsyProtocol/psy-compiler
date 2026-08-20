@@ -126,7 +126,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
             (Type::LambdaFunction(f), Type::FunctionSignature(sig)) | (Type::FunctionSignature(sig), Type::LambdaFunction(f)) => {
                 &f.signature() == sig
             }
-            (Type::Const(c), Type::Const(d)) => c.ty == d.ty,
+            // Const types include both the underlying type and the evaluated
+            // constant value. Comparing only `ty` would unify e.g. `2` and
+            // `3` when they are used as array-length/generic parameters.
+            (Type::Const(c), Type::Const(d)) => c.ty == d.ty && c.value == d.value,
             (Type::Const(c), _) => c.ty == rhs_ty,
             (_, Type::Const(c)) => c.ty == lhs_ty,
             _ => lhs_ty == rhs_ty,
