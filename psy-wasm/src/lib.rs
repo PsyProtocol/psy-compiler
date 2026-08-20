@@ -1503,6 +1503,26 @@ mod tests {
 
     #[test]
     #[serial]
+    fn compile_source_rejects_constant_out_of_bounds_array_write() {
+        let result = parse_result(&compile_source(
+            r#"
+                fn main() {
+                    let mut values: [Felt; 2] = [10, 20];
+                    values[2] = 99;
+                }
+                "#,
+        ));
+
+        assert!(!result.success, "expected constant out-of-bounds array write to fail compilation");
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("index out of bounds"),
+            "unexpected error: {:?}",
+            result.error
+        );
+    }
+
+    #[test]
+    #[serial]
     fn compile_project_with_module_succeeds() {
         let files = serde_json::json!({
             "entry": ["main"],
