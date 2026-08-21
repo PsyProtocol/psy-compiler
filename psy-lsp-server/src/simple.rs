@@ -151,7 +151,6 @@ impl QLspSimple {
             .program
             .file_resolver
             .resolve_id(path)
-            .cloned()
             .ok_or_else(|| QLspError::FileIdNotFound(path.clone()))
     }
 
@@ -406,7 +405,7 @@ impl LanguageServer for QLspSimple {
             .resolve_content(&location.file_id)
             .ok_or_else(|| QLspError::Internal(format!("Cannot resolve file content for file_id: {:?}", location.file_id)))?;
 
-        let range = span_to_range(&target_location, source_text);
+        let range = span_to_range(&target_location, &source_text);
 
         let target_path = ctx
             .program
@@ -414,7 +413,7 @@ impl LanguageServer for QLspSimple {
             .resolve_path(&target_location.file_id)
             .ok_or_else(|| QLspError::Internal("Cannot resolve path for target file_id".into()))?;
 
-        let target_uri = if target_path == &path {
+        let target_uri = if target_path == *path {
             uri.clone()
         } else {
             Url::from_file_path(target_path).map_err(|_| QLspError::InvalidUri("Invalid target file path".to_string()))?
@@ -454,7 +453,7 @@ impl LanguageServer for QLspSimple {
             .iter()
             .filter_map(|loc| {
                 ctx.program.file_resolver.resolve_content(&loc.file_id).map(|source| {
-                    let range = span_to_range(loc, source);
+                    let range = span_to_range(loc, &source);
                     Location { uri: uri.clone(), range }
                 })
             })

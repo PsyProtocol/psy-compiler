@@ -143,7 +143,7 @@ impl AbiExtractor {
             let Some(module_path) = ctx.program().file_resolver.resolve_path(&module.data().file_id) else {
                 continue;
             };
-            let module_path = normalize_path_for_prefix(module_path);
+            let module_path = normalize_path_for_prefix(&module_path);
             if module_path.starts_with(&package_root) {
                 defs.extend(module.data().definitions.iter().copied());
             }

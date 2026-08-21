@@ -1,7 +1,6 @@
 use std::{
-    cell::UnsafeCell,
     path::{Component, Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 use indexmap::IndexMap;
@@ -11,23 +10,20 @@ pub struct FileId(pub usize);
 
 #[derive(Debug)]
 pub struct FileResolver {
-    file_contents: UnsafeCell<Vec<Arc<str>>>,
-    file_ids: UnsafeCell<IndexMap<PathBuf, FileId>>,
-    file_paths: UnsafeCell<Vec<PathBuf>>,
+    state: RwLock<FileResolverState>,
 }
 
-unsafe impl Sync for FileResolver {}
+#[derive(Clone, Debug)]
+struct FileResolverState {
+    file_contents: Vec<Arc<str>>,
+    file_ids: IndexMap<PathBuf, FileId>,
+    file_paths: Vec<PathBuf>,
+}
 
 impl Clone for FileResolver {
     fn clone(&self) -> Self {
-        let file_contents = unsafe { &*self.file_contents.get() };
-        let file_ids = unsafe { &*self.file_ids.get() };
-        let file_paths = unsafe { &*self.file_paths.get() };
-
         FileResolver {
-            file_contents: UnsafeCell::new(file_contents.clone()),
-            file_ids: UnsafeCell::new(file_ids.clone()),
-            file_paths: UnsafeCell::new(file_paths.clone()),
+            state: RwLock::new(self.state.read().expect("file resolver lock poisoned").clone()),
         }
     }
 }
@@ -35,89 +31,71 @@ impl Clone for FileResolver {
 impl FileResolver {
     pub fn new() -> Self {
         Self {
-            file_contents: UnsafeCell::new(Vec::with_capacity(20)),
-            file_ids: UnsafeCell::new(IndexMap::new()),
-            file_paths: UnsafeCell::new(Vec::with_capacity(20)),
+            state: RwLock::new(FileResolverState {
+                file_contents: Vec::with_capacity(20),
+                file_ids: IndexMap::new(),
+                file_paths: Vec::with_capacity(20),
+            }),
         }
     }
 
-    pub fn resolve_id(&self, file_path: &Path) -> Option<&FileId> {
+    pub fn resolve_id(&self, file_path: &Path) -> Option<FileId> {
         let file_path = normalize_resolved_path(file_path);
-        unsafe {
-            let file_ids = &mut *self.file_ids.get();
-            file_ids.get(&file_path)
-        }
+        self.state.read().expect("file resolver lock poisoned").file_ids.get(&file_path).copied()
     }
 
-    pub fn resolve_path(&self, file_id: &FileId) -> Option<&PathBuf> {
-        unsafe {
-            let file_paths = &mut *self.file_paths.get();
-            let file_id = file_id.0;
-            file_paths.get(file_id)
-        }
+    pub fn resolve_path(&self, file_id: &FileId) -> Option<PathBuf> {
+        self.state.read().expect("file resolver lock poisoned").file_paths.get(file_id.0).cloned()
     }
 
     pub fn resolve_file(&self, file_path: PathBuf) -> std::io::Result<FileId> {
         let file_path = normalize_resolved_path(&file_path);
-        unsafe {
-            let file_ids = &mut *self.file_ids.get();
-            if let Some(&file_id) = file_ids.get(&file_path) {
-                return Ok(file_id);
-            }
-
-            let file_contents = &mut *self.file_contents.get();
-            let file_paths = &mut *self.file_paths.get();
-            let file_id = FileId(file_contents.len());
-            file_contents.push(Arc::<str>::from(std::fs::read_to_string(&file_path)?));
-            file_paths.push(file_path.clone());
-            file_ids.insert(file_path, file_id);
-            Ok(file_id)
+        let mut state = self.state.write().expect("file resolver lock poisoned");
+        if let Some(&file_id) = state.file_ids.get(&file_path) {
+            return Ok(file_id);
         }
+
+        let content = Arc::<str>::from(std::fs::read_to_string(&file_path)?);
+        let file_id = FileId(state.file_contents.len());
+        state.file_contents.push(content);
+        state.file_paths.push(file_path.clone());
+        state.file_ids.insert(file_path, file_id);
+        Ok(file_id)
     }
 
     pub fn add_file(&self, file_path: PathBuf, content: impl Into<Arc<str>>) -> FileId {
         let file_path = normalize_resolved_path(&file_path);
         let content = content.into();
-        unsafe {
-            let file_ids = &mut *self.file_ids.get();
-            if let Some(&file_id) = file_ids.get(&file_path) {
-                let file_contents = &mut *self.file_contents.get();
-                file_contents[file_id.0] = content;
-                return file_id;
-            }
-
-            let file_contents = &mut *self.file_contents.get();
-            let file_paths = &mut *self.file_paths.get();
-            let file_id = FileId(file_contents.len());
-            file_contents.push(content);
-            file_paths.push(file_path.clone());
-            file_ids.insert(file_path, file_id);
-            file_id
+        let mut state = self.state.write().expect("file resolver lock poisoned");
+        if let Some(&file_id) = state.file_ids.get(&file_path) {
+            state.file_contents[file_id.0] = content;
+            return file_id;
         }
+
+        let file_id = FileId(state.file_contents.len());
+        state.file_contents.push(content);
+        state.file_paths.push(file_path.clone());
+        state.file_ids.insert(file_path, file_id);
+        file_id
     }
 
-    pub fn resolve_content(&self, file_id: &FileId) -> Option<&str> {
-        unsafe {
-            let file_contents = &*self.file_contents.get();
-            file_contents.get(file_id.0).map(|s| s.as_ref())
-        }
+    pub fn resolve_content(&self, file_id: &FileId) -> Option<Arc<str>> {
+        self.state.read().expect("file resolver lock poisoned").file_contents.get(file_id.0).cloned()
     }
 
-    pub fn resolve_path_content(&self, file_path: &Path) -> Option<&str> {
-        let file_id = self.resolve_id(file_path).copied()?;
+    pub fn resolve_path_content(&self, file_path: &Path) -> Option<Arc<str>> {
+        let file_id = self.resolve_id(file_path)?;
         self.resolve_content(&file_id)
     }
 
     pub fn files(&self) -> Vec<(PathBuf, Arc<str>)> {
-        unsafe {
-            let file_paths = &*self.file_paths.get();
-            let file_contents = &*self.file_contents.get();
-            file_paths
-                .iter()
-                .cloned()
-                .zip(file_contents.iter().cloned())
-                .collect()
-        }
+        let state = self.state.read().expect("file resolver lock poisoned");
+        state
+            .file_paths
+            .iter()
+            .cloned()
+            .zip(state.file_contents.iter().cloned())
+            .collect()
     }
 }
 
@@ -128,7 +106,16 @@ impl Default for FileResolver {
 }
 
 fn normalize_resolved_path(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| normalize_path(path))
+    #[cfg(miri)]
+    {
+        // Miri's default isolation mode does not support `realpath`.
+        normalize_path(path)
+    }
+
+    #[cfg(not(miri))]
+    {
+        path.canonicalize().unwrap_or_else(|_| normalize_path(path))
+    }
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
@@ -155,4 +142,51 @@ fn normalize_path(path: &Path) -> PathBuf {
     }
 
     normalized_path
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn content_reference_survives_update() {
+        let resolver = FileResolver::new();
+        let path = PathBuf::from("content_update_test.psy");
+        let file_id = resolver.add_file(path.clone(), "old content");
+        let old_content = resolver.resolve_content(&file_id).unwrap();
+
+        let updated_file_id = resolver.add_file(path, "new content");
+
+        assert_eq!(updated_file_id, file_id);
+        assert_eq!(&*old_content, "old content");
+        assert_eq!(&*resolver.resolve_content(&file_id).unwrap(), "new content");
+    }
+
+    #[test]
+    fn concurrent_adds_keep_resolver_state_consistent() {
+        let resolver = Arc::new(FileResolver::new());
+        let mut threads = Vec::new();
+
+        for thread_id in 0..8 {
+            let resolver = Arc::clone(&resolver);
+            threads.push(std::thread::spawn(move || {
+                for file_index in 0..50 {
+                    let path = PathBuf::from(format!("concurrent_{thread_id}_{file_index}.psy"));
+                    resolver.add_file(path, format!("{thread_id}:{file_index}"));
+                }
+            }));
+        }
+
+        for thread in threads {
+            thread.join().unwrap();
+        }
+
+        let files = resolver.files();
+        assert_eq!(files.len(), 400);
+        for (path, content) in files {
+            let file_id = resolver.resolve_id(&path).unwrap();
+            assert_eq!(resolver.resolve_path(&file_id).as_deref(), Some(path.as_path()));
+            assert_eq!(resolver.resolve_content(&file_id).as_deref(), Some(content.as_ref()));
+        }
+    }
 }

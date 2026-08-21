@@ -77,12 +77,12 @@ impl<'a, 'b, F: ContextFelt + From<u32>, C: DPNContext<F>> Parser<'a, 'b, F, C> 
         let file_id = program.file_resolver.resolve_file(current_path.clone())?;
         let file_content = program.file_resolver.resolve_content(&file_id).ok_or(Error::FileUnresolved)?;
 
-        let lexer = Lexer::new(file_content);
+        let lexer = Lexer::new(&file_content);
         let transformer = GenericTokenTransformer::new(lexer);
         let tokens: Vec<_> = transformer.collect::<psy_lexer::Result<Vec<_>>>()?;
         let module = psy::ModuleParser::new()
             .parse(
-                file_content,
+                &file_content,
                 file_id,
                 Identifier::new(module_name, Location::new(file_id, location.start, location.end)),
                 &mut program.exprs,
