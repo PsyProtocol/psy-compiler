@@ -21,7 +21,7 @@ impl<F: ContextFelt + From<u32> + 'static, C: DPNContext<F>> TypeCheckerVisitorC
                 "cant resolve file `{}`",
                 file_path.display().to_string()
             )))?;
-        let module_id = self.find_module_id(*file_id).ok_or(Error::AnyhowError(anyhow::anyhow!(
+        let module_id = self.find_module_id(file_id).ok_or(Error::AnyhowError(anyhow::anyhow!(
             "cant resolve module file `{}`",
             file_path.display().to_string()
         )))?;
