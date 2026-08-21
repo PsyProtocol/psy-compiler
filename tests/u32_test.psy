@@ -10,6 +10,13 @@ fn main(a: u32, b: u32) -> Felt {
     assert_eq(z, 289u32, "z == 289");
     z = z % 2u32;
     assert_eq(z, 1u32, "z == 1");
+    // u32 %= must lower to the u32 mod op, not the felt one.
+    let mut m: u32 = 7u32;
+    m %= 3u32;
+    assert_eq(m, 1u32, "constant operand m %= 3");
+    let mut n: u32 = z + 6u32;
+    n %= a;
+    assert_eq(n, 1u32, "variable operand n %= a");
     let bb: bool = z as bool;
     return bb as Felt;
 }
