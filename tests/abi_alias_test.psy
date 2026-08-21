@@ -1,0 +1,27 @@
+type BaseAmount = Felt;
+
+type Amount = BaseAmount;
+
+type AmountHistory = [Amount; 2];
+
+type Digest = Hash;
+
+#[derive(Storage)]
+pub struct AccountState {
+    pub balance: Amount,
+    pub digest: Digest,
+}
+
+type Account = AccountState;
+
+#[contract]
+#[derive(Storage)]
+pub struct AliasContract {
+    pub amount: Amount,
+    pub history: AmountHistory,
+    pub account: Account,
+    pub tail: Felt,
+}
+
+fn main() {
+}

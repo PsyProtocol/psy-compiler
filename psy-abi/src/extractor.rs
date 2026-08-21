@@ -308,6 +308,10 @@ impl AbiExtractor {
 
     /// Map a named type to a `TypeRef` — primitives, structs, or unknown (Felt fallback).
     fn named_type_to_typeref<F: Clone + From<u32>>(&self, name: &str, ctx: &DefaultVisitorContext<F, ()>) -> TypeRef {
+        if let Some(target) = self.type_alias_target(ctx, name) {
+            return self.unchecked_type_to_typeref(ctx, target);
+        }
+
         match name {
             "Felt" => TypeRef::Primitive { name: PrimitiveTypeName::Felt },
             "Bool" | "bool" => TypeRef::Primitive { name: PrimitiveTypeName::Bool },
@@ -567,6 +571,23 @@ impl AbiExtractor {
         structs
     }
 
+    fn type_alias_target<'a, F: Clone + From<u32>>(
+        &self,
+        ctx: &'a DefaultVisitorContext<F, ()>,
+        name: &str,
+    ) -> Option<&'a UncheckedType> {
+        for i in 0..ctx.program().defs.len() {
+            let def_id = DefId::from(i);
+            let Some(alias) = ctx.definition(def_id).as_type_alias() else {
+                continue;
+            };
+            if ctx.ident(alias.name.id).0 == name {
+                return Some(&alias.ty);
+            }
+        }
+        None
+    }
+
     fn compute_struct_layouts<F: Clone + From<u32>>(
         &self,
         ctx: &DefaultVisitorContext<F, ()>,
@@ -731,6 +752,10 @@ impl AbiExtractor {
         layouts: &mut HashMap<String, StructLayout>,
         ctx: &DefaultVisitorContext<F, ()>,
     ) -> usize {
+        if let Some(target) = self.type_alias_target(ctx, type_name) {
+            return self.felt_size_for_type(ctx, target, struct_nodes, layouts);
+        }
+
         match type_name {
             "Felt" | "bool" | "Bool" | "u64" | "i64" | "u32" => 1,
             "u256" | "QHashOut" | "Hash" => 4,
