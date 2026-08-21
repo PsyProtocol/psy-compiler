@@ -113,10 +113,11 @@ impl<T: Clone + Eq + Hash> Graph<T> {
     }
 
     pub fn ts<'a, E: From<Error>>(&'a self, visitor: &mut impl FnMut(&'a T) -> Result<(), E>) -> Result<(), E> {
-        let starting_nodes = self.starting_nodes();
         let mut colors = HashMap::new();
-        for node in starting_nodes {
-            self.ts_inner(node, &mut colors, visitor)?;
+        for node in self.edges.keys() {
+            if !colors.contains_key(node) {
+                self.ts_inner(node, &mut colors, visitor)?;
+            }
         }
         Ok(())
     }
@@ -149,5 +150,32 @@ impl<T: Clone + Eq + Hash> Graph<T> {
 
     pub fn check_cycle<E: From<Error>>(&self) -> Result<(), E> {
         self.ts::<E>(&mut |_| Ok(()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_cycle_without_starting_nodes() {
+        let mut graph = Graph::new();
+        graph.add_edge("A", "B");
+        graph.add_edge("B", "A");
+
+        let result: Result<(), Error> = graph.check_cycle();
+
+        assert!(matches!(result, Err(Error::CycleGraph)));
+    }
+
+    #[test]
+    fn checks_disconnected_components() {
+        let mut graph = Graph::new();
+        graph.add_edge("A", "B");
+        graph.add_edge("C", "D");
+
+        let result: Result<(), Error> = graph.check_cycle();
+
+        assert!(result.is_ok());
     }
 }
