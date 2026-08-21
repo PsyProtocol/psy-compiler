@@ -292,11 +292,34 @@ fn preload_embedded_std<F: Clone + From<u32>>(program: &mut Program<F>) {
 mod tests {
     use std::path::PathBuf;
 
-    use psy_ast::Program;
-    use psy_common::Graph;
-    use psy_vm::dpn::ops::exec_context::QExecContext;
+    use psy_ast::{IdentId, Identifier, Location, Program, Visibility};
+    use psy_common::{FileId, Graph};
+    use psy_lexer::{GenericTokenTransformer, Lexer};
+    use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
 
-    use super::Parser;
+    use super::{LalrpopError, Parser, UserError, psy};
+
+    fn parse_source(source: &str) -> (Program<SymFeltRef>, Result<(), LalrpopError<'_>>) {
+        let mut program = Program::new();
+        let mut ctx = QExecContext::new();
+        let file_id = FileId(0);
+        let tokens = GenericTokenTransformer::new(Lexer::new(source)).collect::<Result<Vec<_>, _>>().unwrap();
+        let result = psy::ModuleParser::new()
+            .parse(
+                source,
+                file_id,
+                Identifier::new(IdentId::CRATE, Location::new(file_id, 0, source.len())),
+                &mut program.exprs,
+                &mut program.stmts,
+                &mut program.defs,
+                &mut program.interner,
+                Visibility::Private,
+                &mut ctx,
+                tokens,
+            )
+            .map(|_| ());
+        (program, result)
+    }
     #[test]
     fn test_psy_parser() {
         let mut program = Program::new();
@@ -305,5 +328,51 @@ mod tests {
         crate_path_graph.add_node(PathBuf::from("../tests/storage_test.psy"));
         let mut parser = Parser::new(&mut program, &mut ctx, crate_path_graph);
         parser.parse().unwrap();
+    }
+
+    #[test]
+    fn array_repeat_keeps_one_element_expression() {
+        let (program, result) = parse_source("fn main() { let repeated = [1 + 2; 1000000]; let explicit = [1, 2, 3]; }");
+        result.unwrap();
+
+        let repeats = program
+            .exprs
+            .iter()
+            .filter_map(|expr| expr.as_value())
+            .filter_map(|value| value.as_array_repeat())
+            .collect::<Vec<_>>();
+        assert_eq!(repeats.len(), 1);
+        assert_eq!(*repeats[0].1, 1_000_000);
+
+        let explicit_arrays = program
+            .exprs
+            .iter()
+            .filter_map(|expr| expr.as_value())
+            .filter_map(|value| value.as_array())
+            .collect::<Vec<_>>();
+        assert_eq!(explicit_arrays.len(), 1);
+        assert_eq!(explicit_arrays[0].1.len(), 3);
+    }
+
+    #[test]
+    fn array_repeat_length_overflow_is_an_error() {
+        let (_program, result) = parse_source("fn main() { let values = [0; 4294967296]; }");
+        assert!(matches!(
+            result,
+            Err(LalrpopError::User {
+                error: UserError::ArrayLengthOverflow { length: 4_294_967_296, .. }
+            })
+        ));
+    }
+
+    #[test]
+    fn array_type_length_overflow_is_an_error() {
+        let (_program, result) = parse_source("fn main(values: [Felt; 4294967296]) {}");
+        assert!(matches!(
+            result,
+            Err(LalrpopError::User {
+                error: UserError::ArrayLengthOverflow { length: 4_294_967_296, .. }
+            })
+        ));
     }
 }

@@ -501,6 +501,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                         *value = self.rewrite_expr(*value, ctx)?;
                     }
                 }
+                CheckedValueNode::ArrayRepeat(type_id, value, _size, _location) => {
+                    *type_id = self.substitute_all(*type_id, ctx)?;
+                    *value = self.rewrite_expr(*value, ctx)?;
+                }
                 CheckedValueNode::Tuple(type_id, vec, _location) => {
                     *type_id = self.substitute_all(*type_id, ctx)?;
                     for value in vec {

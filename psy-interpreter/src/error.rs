@@ -70,6 +70,13 @@ pub fn lowering_parse_error<F: Clone + From<u32> + ContextFelt>(error: &psy_pars
         ParseError::ExternFnNotInStd => format!("{}", error),
         ParseError::FunctionBodyMissing => format!("{}", error),
         ParseError::InvalidSelfParameter => format!("{}", error),
+        ParseError::ArrayLengthOverflow { length, location } => build_report(
+            *location,
+            "ArrayLengthOverflow",
+            format!("Array length {length} exceeds the maximum supported length of {}.", u32::MAX),
+            program,
+        )
+        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
         ParseError::InvalidToken { location } => {
             build_report(location.clone(), "InvalidToken", "Invalid Token.", program).unwrap_or_else(|e| format!("Failed to build report: {}", e))
         }

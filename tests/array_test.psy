@@ -11,6 +11,21 @@ struct Person {
 // input:0,1
 // output: 340
 fn main(a: Felt, b: Felt) -> Felt {
+    let repeated: [Felt; 4] = [a + 2; 4];
+    assert_eq(repeated[0], a + 2, "array repeat first element");
+    assert_eq(repeated[3], a + 2, "array repeat last element");
+    let mut nested_repeat: [[Felt; 3]; 2] = [[b + 4; 3]; 2];
+    nested_repeat[0][0] = 99;
+    assert_eq(nested_repeat[0][0], 99, "nested repeat mutation");
+    assert_eq(nested_repeat[1][0], b + 4, "nested repeat values are independent");
+    let from_var: Felt = 9;
+    let mut variable_repeat: [Felt; 2] = [from_var; 2];
+    variable_repeat[0] += 1;
+    assert_eq(variable_repeat[0], 10, "repeat with variable element, mutated copy");
+    assert_eq(variable_repeat[1], 9, "repeat elements are independent copies");
+    let computed_repeat: [Felt; 4] = [from_var + 2; 4];
+    assert_eq(computed_repeat[3], 11, "repeat expression element");
+    let empty_repeat: [Felt; 0] = [123; 0];
     let hw1: HW = new HW {
         height: 180,
         weight: 140,

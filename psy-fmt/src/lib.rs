@@ -356,6 +356,7 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
                     .collect::<Result<Vec<_>, Self::Error>>()?
                     .join(", ")
             ),
+            ValueNode::ArrayRepeat(value, size, _) => format!("[{}; {}]", self.visit_expr(value, ctx)?, size),
             ValueNode::Struct(name, generic_parameters, field_values, _location) => {
                 let name = self.visit_path(name, ctx)?;
 
