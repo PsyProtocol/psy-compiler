@@ -32,6 +32,9 @@ pub struct DepositClaimEvent {
     pub shield_address: Hash,
     pub nullifier_hash: Hash,
     pub amount: Felt,
+    pub source_chain_index: Felt,
+    pub note_commitment: Hash,
+    pub deposit_index: Felt,
 }
 
 
@@ -382,6 +385,9 @@ impl PsyTokenContractRef {
             shield_address,
             nullifier_hash,
             amount: amount_felt,
+            source_chain_index,
+            note_commitment,
+            deposit_index,
         };
         event_data.emit();
 
