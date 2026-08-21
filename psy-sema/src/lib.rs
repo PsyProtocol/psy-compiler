@@ -219,7 +219,14 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
         }
 
-        let fields = ctx.symbols[type_id].as_struct().unwrap().fields.clone();
+        let fields = ctx.symbols[type_id]
+            .as_struct()
+            .ok_or(Error::UnresolvedMember {
+                location: member_access_node.location,
+                member_name: member_access_node.field.id,
+            })?
+            .fields
+            .clone();
         let CheckedStructField {
             ty: field_type, visibility, ..
         } = fields.get(&member_access_node.field).ok_or(Error::UnresolvedMember {

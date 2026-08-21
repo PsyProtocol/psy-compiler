@@ -2184,6 +2184,52 @@ fn main(a: u32, b: u32) -> u32 {
 
     #[test]
     #[serial]
+    fn non_struct_member_access_returns_error_instead_of_panicking() {
+        let cases = [
+            ("felt", "fn main() { let value: Felt = 1; value.missing; }"),
+            ("u32", "fn main() { let value: u32 = 1u32; value.missing; }"),
+            ("bool", "fn main() { let value: bool = true; value.missing; }"),
+            ("array", "fn main() { let value: [Felt; 2] = [1, 2]; value.missing; }"),
+            ("tuple", "fn main() { let value = (1, 2); value.missing; }"),
+            (
+                "function",
+                "fn identity(value: Felt) -> Felt { value } fn main() { let value = identity; value.missing; }",
+            ),
+            ("void", "fn noop() {} fn main() { noop().missing; }"),
+            (
+                "generic_result",
+                "fn identity<T>(value: T) -> T { value } fn main() { identity#<Felt>(1).missing; }",
+            ),
+            (
+                "missing_struct_field",
+                "struct Item { pub value: Felt } fn main() { let item = new Item { value: 1 }; item.missing; }",
+            ),
+            ("missing_member_call", "fn main() { let value: Felt = 1; value.missing(); }"),
+        ];
+
+        for (index, (name, source)) in cases.into_iter().enumerate() {
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!("psy_non_struct_member_{name}_{unique}_{index}.psy"));
+            fs::write(&path, source).unwrap();
+
+            let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+            let error = match interpreter.typecheck_single(path.clone()) {
+                Ok(_) => panic!("invalid member access must be rejected for {name}"),
+                Err(error) => error,
+            };
+            let message = format!("{error:#}");
+            assert!(message.contains("unresolved member"), "unexpected error for {name}: {message}");
+
+            fs::remove_file(path).unwrap();
+            #[allow(static_mut_refs)]
+            unsafe {
+                let _ = STD_PRIMITIVE_SCOPE_ID.take();
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
     fn test_empty_storage_struct_size() {
         psy_common::setup_logging().ok();
 
