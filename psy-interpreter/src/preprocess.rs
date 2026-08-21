@@ -381,7 +381,7 @@ impl<'a> StorageProcessor<'a> {
                 let base_type = match &field.ty {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
-                        let base_name = type_name.trim_end_matches("Ref");
+                        let base_name = type_name.strip_suffix("Ref").expect("generated ref type must end with Ref");
                         UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
                     }
                     _ => panic!("#[ref] attribute only supported on basic struct types"),
@@ -441,7 +441,7 @@ impl<'a> StorageProcessor<'a> {
             }));
             field_inits.insert(field_name.clone(), new_call);
 
-            let field_size = self.generate_field_size(attr, &field.ty, ctx);
+            let field_size = self.generate_struct_field_size(attr, field, ctx);
             offset = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
                 lhs: offset,
                 operator: BinaryOperator::Add,
@@ -528,11 +528,11 @@ impl<'a> StorageProcessor<'a> {
         // Add per-field accessors for #[storage] structs or array fields
         let mut offset = ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(0), attr.location)));
         for (field_name, field) in &struct_node.fields {
-            let (inner_ty, size) = if self.has_ref_type_attr(&field.attrs, ctx) {
+            let (inner_ty, size) = if is_ref_struct && self.has_ref_type_attr(&field.attrs, ctx) {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
-                        let base_name = type_name.trim_end_matches("Ref");
+                        let base_name = type_name.strip_suffix("Ref").expect("generated ref type must end with Ref");
                         (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), 1)
                     }
                     _ => panic!("#[ref] attribute only supported on basic struct types"),
@@ -567,13 +567,20 @@ impl<'a> StorageProcessor<'a> {
                 methods.push(self.generate_setter(attr, &field_name.id, &inner_ty, offset, ctx));
             }
 
-            // Generate get_at/set_at for array fields (size > 1) in non-Ref structs
-            if size > 1 && !is_ref_struct {
+            // A one-element array still has a valid index (zero).
+            if !is_ref_struct && matches!(&field.ty, UncheckedType::Array(_, array_size, _) if *array_size > 0) {
                 methods.push(self.generate_getter_at(attr, &field_name.id, &field.ty, offset, ctx));
                 methods.push(self.generate_setter_at(attr, &field_name.id, &field.ty, offset, ctx));
             }
 
-            let field_size = self.generate_field_size(attr, &inner_ty, ctx);
+            // Advance by the complete field footprint. For ArrayRef<T, N>,
+            // passing only `inner_ty` advances by one element and makes the
+            // following field overlap the array.
+            let field_size = if is_ref_struct {
+                self.generate_struct_field_size(attr, field, ctx)
+            } else {
+                self.generate_field_size(attr, &field.ty, ctx)
+            };
             offset = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
                 lhs: offset,
                 operator: BinaryOperator::Add,
@@ -604,7 +611,7 @@ impl<'a> StorageProcessor<'a> {
         ctx: &mut V,
     ) -> TraitImplNode {
         let ref_name = ctx.ident(ref_struct.name.id).to_string();
-        let base_name = ref_name.trim_end_matches("Ref");
+        let base_name = ref_name.strip_suffix("Ref").expect("generated ref type must end with Ref");
         let base_ident = Identifier::new(ctx.intern(base_name), attr.location);
         let base_ty = UncheckedType::Basic(base_ident);
         let rhs_ident = Identifier::new(ctx.intern("rhs"), attr.location);
@@ -699,7 +706,8 @@ impl<'a> StorageProcessor<'a> {
         attr: &AttrNode,
         ctx: &mut V,
     ) -> TraitImplNode {
-        let base_name = ctx.ident(ref_struct.name.id).0.to_string().trim_end_matches("Ref").to_string();
+        let ref_name = ctx.ident(ref_struct.name.id).0.to_string();
+        let base_name = ref_name.strip_suffix("Ref").expect("generated ref type must end with Ref").to_string();
         let base_ty = UncheckedType::Basic(Identifier::new(ctx.intern(base_name.as_str()), attr.location));
 
         let rhs_ident = Identifier::new(ctx.intern("rhs"), attr.location);
@@ -868,20 +876,9 @@ impl<'a> StorageProcessor<'a> {
                     UncheckedType::Const(ConstValue::U32(size), _) => *size,
                     _ => panic!("Second generic parameter of ArrayRef must be a u32 const"),
                 };
-                if array_size > 1 {
-                    UncheckedType::Array(Box::new(params[0].clone()), array_size, attr.location)
-                } else {
-                    params[0].clone()
-                }
-            }
-            UncheckedType::Basic(ident) => {
-                let type_name = ctx.ident(ident.id).0.to_string();
-                if type_name.ends_with("Ref") {
-                    let base_name = type_name.trim_end_matches("Ref");
-                    UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
-                } else {
-                    field_type.clone()
-                }
+                // Keep the array wrapper even for lengths zero and one. In
+                // particular, ArrayRef<T, 0> occupies zero storage slots.
+                UncheckedType::Array(Box::new(params[0].clone()), array_size, attr.location)
             }
             _ => field_type.clone(),
         };
@@ -901,6 +898,33 @@ impl<'a> StorageProcessor<'a> {
         ctx.alloc_expression(ExprNode::Call(node))
     }
 
+    fn generate_struct_field_size<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
+    >(
+        &self,
+        attr: &AttrNode,
+        field: &StructField,
+        ctx: &mut V,
+    ) -> ExprId {
+        let field_type = if self.has_ref_type_attr(&field.attrs, ctx) {
+            match &field.ty {
+                UncheckedType::Basic(ident) => {
+                    let type_name = ctx.ident(ident.id).0.to_string();
+                    let base_name = type_name
+                        .strip_suffix("Ref")
+                        .expect("#[ref] field type must use its generated Ref type");
+                    UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
+                }
+                _ => panic!("#[ref] attribute only supported on basic struct types"),
+            }
+        } else {
+            field.ty.clone()
+        };
+        self.generate_field_size(attr, &field_type, ctx)
+    }
+
     fn generate_storage_size_method<
         F: Clone + From<u32>,
         C,
@@ -918,36 +942,10 @@ impl<'a> StorageProcessor<'a> {
             None => ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(0), attr.location))),
         };
         for (_, field) in fields {
-            let inner_ty = if self.has_ref_type_attr(&field.attrs, ctx) {
-                match &field.ty {
-                    UncheckedType::Basic(ident) => {
-                        let type_name = ctx.ident(ident.id).0.to_string();
-                        let base_name = type_name.trim_end_matches("Ref");
-                        UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
-                    }
-                    _ => panic!("#[ref] attribute only supported on basic struct types"),
-                }
-            } else {
-                match &field.ty {
-                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
-                        if params.len() != 1 {
-                            panic!("StorageRef must have exactly one generic parameter");
-                        }
-                        params[0].clone()
-                    }
-                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
-                        if params.len() != 2 {
-                            panic!("ArrayRef must have exactly two generic parameters");
-                        }
-                        params[0].clone()
-                    }
-                    _ => field.ty.clone(),
-                }
-            };
             let node = BinaryNode {
                 lhs: sum,
                 operator: BinaryOperator::Add,
-                rhs: self.generate_field_size(attr, &inner_ty, ctx),
+                rhs: self.generate_field_size(attr, &field.ty, ctx),
                 location: attr.location,
             };
             sum = ctx.alloc_expression(ExprNode::Binary(node));
@@ -1025,17 +1023,7 @@ impl<'a> StorageProcessor<'a> {
         let mut field_reads = IndexMap::new();
         let mut offset = offset_expr;
         for (field_name, field) in &struct_node.fields {
-            let inner_ty = if self.has_ref_type_attr(&field.attrs, ctx) {
-                match &field.ty {
-                    UncheckedType::Basic(ident) => {
-                        let type_name = ctx.ident(ident.id).0.to_string();
-                        let base_name = type_name.trim_end_matches("Ref");
-                        UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
-                    }
-                    _ => panic!("#[ref] attribute only supported on basic struct types"),
-                }
-            } else {
-                match &field.ty {
+            let inner_ty = match &field.ty {
                     UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
                         if params.len() != 1 {
                             panic!("StorageRef must have exactly one generic parameter");
@@ -1049,11 +1037,12 @@ impl<'a> StorageProcessor<'a> {
                         params[0].clone()
                     }
                     _ => field.ty.clone(),
-                }
             };
             let (_key, value) = self.generate_field_read(attr, &field_name.id, &inner_ty, offset, csth_expr, user_id_expr, contract_id_expr, ctx);
             field_reads.insert(field_name.clone(), value);
-            let field_size = self.generate_field_size(attr, &inner_ty, ctx);
+            // Keep this in sync with the getter: ArrayRef fields occupy
+            // N * T::size(), not just T::size().
+            let field_size = self.generate_field_size(attr, &field.ty, ctx);
             offset = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
                 lhs: offset,
                 operator: BinaryOperator::Add,
@@ -1146,17 +1135,7 @@ impl<'a> StorageProcessor<'a> {
         let mut field_writes = Vec::new();
         let mut offset = offset_expr;
         for (field_name, field) in &struct_node.fields {
-            let inner_ty = if self.has_ref_type_attr(&field.attrs, ctx) {
-                match &field.ty {
-                    UncheckedType::Basic(ident) => {
-                        let type_name = ctx.ident(ident.id).0.to_string();
-                        let base_name = type_name.trim_end_matches("Ref");
-                        UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
-                    }
-                    _ => panic!("#[ref] attribute only supported on basic struct types"),
-                }
-            } else {
-                match &field.ty {
+            let inner_ty = match &field.ty {
                     UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
                         if params.len() != 1 {
                             panic!("StorageRef must have exactly one generic parameter");
@@ -1170,11 +1149,10 @@ impl<'a> StorageProcessor<'a> {
                         params[0].clone()
                     }
                     _ => field.ty.clone(),
-                }
             };
             let stmt_id = self.generate_field_write(attr, &field_name.id, &inner_ty, offset, ctx);
             field_writes.push(stmt_id);
-            let field_size = self.generate_field_size(attr, &inner_ty, ctx);
+            let field_size = self.generate_field_size(attr, &field.ty, ctx);
             offset = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
                 lhs: offset,
                 operator: BinaryOperator::Add,
@@ -1245,7 +1223,7 @@ impl<'a> StorageProcessor<'a> {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
-                        let base_name = type_name.trim_end_matches("Ref");
+                        let base_name = type_name.strip_suffix("Ref").expect("generated ref type must end with Ref");
                         (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), 1)
                     }
                     _ => panic!("#[ref] attribute only supported on basic struct types"),
@@ -1343,7 +1321,7 @@ impl<'a> StorageProcessor<'a> {
             };
             field_reads.insert(field_name.clone(), read_expr);
 
-            let field_size = self.generate_field_size(attr, &inner_ty, ctx);
+            let field_size = self.generate_struct_field_size(attr, field, ctx);
             offset = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
                 lhs: offset,
                 operator: BinaryOperator::Add,
@@ -1353,7 +1331,8 @@ impl<'a> StorageProcessor<'a> {
         }
 
         let base_struct_name = if ctx.ident(struct_node.name.id).to_string().ends_with("Ref") {
-            let base_name = ctx.ident(struct_node.name.id).to_string().trim_end_matches("Ref").to_string();
+            let ref_name = ctx.ident(struct_node.name.id).to_string();
+            let base_name = ref_name.strip_suffix("Ref").expect("generated ref type must end with Ref").to_string();
             Identifier::new(ctx.intern(base_name), attr.location)
         } else {
             struct_node.name
@@ -1426,7 +1405,7 @@ impl<'a> StorageProcessor<'a> {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
-                        let base_name = type_name.trim_end_matches("Ref");
+                        let base_name = type_name.strip_suffix("Ref").expect("generated ref type must end with Ref");
                         (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), 1)
                     }
                     _ => panic!("#[ref] attribute only supported on basic struct types"),
@@ -1502,7 +1481,7 @@ impl<'a> StorageProcessor<'a> {
             };
             stmts.push(write_stmt);
 
-            let field_size = self.generate_field_size(attr, &inner_ty, ctx);
+            let field_size = self.generate_struct_field_size(attr, field, ctx);
             offset = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
                 lhs: offset,
                 operator: BinaryOperator::Add,
@@ -1519,7 +1498,8 @@ impl<'a> StorageProcessor<'a> {
         }));
 
         let base_struct_name = if ctx.ident(struct_node.name.id).to_string().ends_with("Ref") {
-            let base_name = ctx.ident(struct_node.name.id).to_string().trim_end_matches("Ref").to_string();
+            let ref_name = ctx.ident(struct_node.name.id).to_string();
+            let base_name = ref_name.strip_suffix("Ref").expect("generated ref type must end with Ref").to_string();
             Identifier::new(ctx.intern(base_name), attr.location)
         } else {
             struct_node.name
