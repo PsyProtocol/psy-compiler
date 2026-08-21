@@ -131,6 +131,12 @@ ci:
 	       -- \
 	       --nocapture
 
+	@RUST_LOG=${LOG_LEVEL} cargo test --profile ${PROFILE} \
+	       --package psy-wasm \
+	       compile_source_expands_type_aliases_in_abi_layout \
+	       -- \
+	       --nocapture
+
 update-snapshots:
 	@cargo insta review
 
