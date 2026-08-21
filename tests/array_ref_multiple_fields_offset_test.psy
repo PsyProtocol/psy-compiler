@@ -1,0 +1,134 @@
+// Regression test for ArrayRef field offsets. Each array occupies two storage
+// slots, so `right` must start after both slots used by `left`.
+#[contract]
+#[derive(Storage)]
+pub struct C {
+    pub left: [Felt; 2],
+    pub right: [Felt; 2],
+}
+
+// The most common victim shape: a scalar after an array must land past every
+// slot the array occupies, not past its first element.
+#[derive(Storage)]
+pub struct ScalarAfterArray {
+    pub pre: Felt,
+    pub arr: [Felt; 2],
+    pub post: Felt,
+}
+
+// A zero-length ArrayRef must not consume a storage slot. This exercises the
+// generated Ref layout directly: `tail` must retain the supplied base offset.
+#[derive(Storage)]
+pub struct ZeroLengthArrayLayout {
+    pub empty: [Felt; 0],
+    pub tail: Felt,
+}
+
+// `Ref` is a legal suffix for an ordinary storage type. Its name must not make
+// layout generation silently look for a different type named `Ordinary`.
+#[derive(Storage)]
+pub struct OrdinaryRef {
+    pub first: Felt,
+    pub second: Felt,
+}
+
+#[derive(Storage)]
+pub struct RefSuffixLayout {
+    pub prefix: Felt,
+    pub value: OrdinaryRef,
+}
+
+#[storage]
+#[derive(Storage)]
+pub struct SingleElementArrayLayout {
+    pub values: [Felt; 1],
+}
+
+// Mixing an array with a #[ref] struct field exercises the nested
+// field.get()/set() member-call paths, which advance by the field footprint.
+#[derive(Storage)]
+pub struct Profile {
+    pub age: Felt,
+    pub level: Felt,
+}
+
+#[derive(Storage)]
+pub struct ArrayThenRef {
+    pub arr: [Felt; 2],
+    #[ref]
+    pub profile: Profile,
+}
+
+fn main() {
+    assert_eq(RefSuffixLayout::size(), 3, "ordinary Ref-suffixed type keeps its own size");
+    assert_eq(C::size(), 4, "size sums full array footprints");
+    assert_eq(ScalarAfterArray::size(), 4, "scalar after array sums full footprint");
+    SingleElementArrayLayout::set_values_at(0, 77);
+    let only: Felt = SingleElementArrayLayout::get_values_at(0, get_user_id(), get_contract_id(), 0);
+    assert_eq(only, 77, "single-element array generates get_at/set_at");
+    let zero = ZeroLengthArrayLayoutRef::new(9, ContractMetadata::current());
+    assert_eq(zero.empty.offset, 9, "zero-length array base offset");
+    assert_eq(zero.tail.offset, 9, "zero-length array must not advance offset");
+    assert_eq(ZeroLengthArrayLayout::size(), 1, "zero-length array contributes zero to size");
+    zero.set(new ZeroLengthArrayLayout {
+        empty: [],
+        tail: 5,
+    });
+    let zero_snapshot: ZeroLengthArrayLayout = zero.get();
+    assert_eq(zero_snapshot.tail, 5, "zero-length array bulk set/get round-trip");
+    let scalar = ScalarAfterArrayRef::new(0, ContractMetadata::current());
+    scalar.pre = 1;
+    scalar.arr[0] = 2;
+    scalar.arr[1] = 3;
+    scalar.post = 4;
+    assert_eq(scalar.pre, 1, "scalar before array keeps its slot");
+    assert_eq(scalar.arr[0], 2, "scalar-after-array arr[0]");
+    assert_eq(scalar.arr[1], 3, "scalar-after-array arr[1]");
+    assert_eq(scalar.post, 4, "scalar after array lands past both slots");
+    let scalar_snapshot: ScalarAfterArray = scalar.get();
+    assert_eq(scalar_snapshot.pre, 1, "scalar-after-array bulk get pre");
+    assert_eq(scalar_snapshot.arr[0], 2, "scalar-after-array bulk get arr[0]");
+    assert_eq(scalar_snapshot.arr[1], 3, "scalar-after-array bulk get arr[1]");
+    assert_eq(scalar_snapshot.post, 4, "scalar-after-array bulk get post");
+    let mixed = ArrayThenRefRef::new(0, ContractMetadata::current());
+    mixed.arr[0] = 6;
+    mixed.arr[1] = 7;
+    mixed.profile = new Profile {
+        age: 8,
+        level: 9,
+    };
+    assert_eq(mixed.arr[0], 6, "array before #[ref] keeps its slots");
+    assert_eq(mixed.arr[1], 7, "array before #[ref] keeps its slots");
+    assert_eq(mixed.profile.age, 8, "#[ref] after array lands past both slots");
+    assert_eq(mixed.profile.level, 9, "#[ref] after array lands past both slots");
+    let mixed_snapshot: ArrayThenRef = mixed.get();
+    assert_eq(mixed_snapshot.arr[0], 6, "mixed bulk get arr[0]");
+    assert_eq(mixed_snapshot.arr[1], 7, "mixed bulk get arr[1]");
+    assert_eq(mixed_snapshot.profile.age, 8, "mixed bulk get profile.age");
+    assert_eq(mixed_snapshot.profile.level, 9, "mixed bulk get profile.level");
+    let c = CRef::new(ContractMetadata::current());
+    c.left[0] = 11;
+    c.left[1] = 12;
+    c.right[0] = 21;
+    c.right[1] = 22;
+    assert_eq(c.left[0], 11, "left[0] must use its own slot");
+    assert_eq(c.left[1], 12, "left[1] must not overlap right[0]");
+    assert_eq(c.right[0], 21, "right[0] must start after the full left array");
+    assert_eq(c.right[1], 22, "right[1] must use its own slot");
+    // Exercise the generated whole-struct CRef::get(), not only the per-field
+    // index accessors. This is the path whose offset calculation previously
+    // advanced by one element instead of the complete array footprint.
+    let snapshot: C = c.get();
+    assert_eq(snapshot.left[0], 11, "bulk get left[0]");
+    assert_eq(snapshot.left[1], 12, "bulk get left[1]");
+    assert_eq(snapshot.right[0], 21, "bulk get right[0]");
+    assert_eq(snapshot.right[1], 22, "bulk get right[1]");
+    c.set(new C {
+        left: [31, 32],
+        right: [41, 42],
+    });
+    assert_eq(c.left[0], 31, "bulk set left[0]");
+    assert_eq(c.left[1], 32, "bulk set left[1]");
+    assert_eq(c.right[0], 41, "bulk set right[0]");
+    assert_eq(c.right[1], 42, "bulk set right[1]");
+}
