@@ -948,7 +948,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             (CheckedValue::U32(l), CheckedValue::U32(r), SubAssign) => CheckedValueRef::from_u32(self.context.op_u32_sub(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), MulAssign) => CheckedValueRef::from_u32(self.context.op_u32_mul(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), DivAssign) => CheckedValueRef::from_u32(self.context.op_u32_div(*l, *r)),
-            (CheckedValue::U32(l), CheckedValue::U32(r), ModAssign) => CheckedValueRef::from_u32(self.context.op_mod(*l, *r)),
+            (CheckedValue::U32(l), CheckedValue::U32(r), ModAssign) => CheckedValueRef::from_u32(self.context.op_u32_mod(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), BitAndAssign) => CheckedValueRef::from_u32(self.context.op_u32_and(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), BitOrAssign) => CheckedValueRef::from_u32(self.context.op_u32_or(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), BitXorAssign) => CheckedValueRef::from_u32(self.context.op_u32_xor(*l, *r)),
@@ -2140,6 +2140,39 @@ fn main() {}
         unsafe {
             let _ = STD_PRIMITIVE_SCOPE_ID.take();
         };
+    }
+
+    #[test]
+    #[serial]
+    fn test_u32_mod_assign_lowers_to_u32_mod() {
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("psy_u32_mod_assign_{unique}.psy"));
+        let source = r#"
+fn main(a: u32, b: u32) -> u32 {
+    let mut value = a;
+    value %= b;
+    return value;
+}
+"#;
+        fs::write(&path, source).unwrap();
+
+        let mut crate_path_graph = Graph::new();
+        crate_path_graph.add_node(path.clone());
+        let result = super::interpret(None, vec!["main".to_string()], crate_path_graph)
+            .expect("u32 %= program should compile");
+        let definitions = &result.compile_results[0].definitions;
+
+        assert!(
+            definitions.iter().any(|definition| definition.op_type == DPNOpType::U32Mod),
+            "u32 %= must emit U32Mod; emitted ops: {:?}",
+            definitions.iter().map(|definition| definition.op_type).collect::<Vec<_>>()
+        );
+        assert!(
+            definitions.iter().all(|definition| definition.op_type != DPNOpType::Mod),
+            "u32 %= must not emit the felt Mod op"
+        );
+
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
