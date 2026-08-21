@@ -23,6 +23,7 @@ pub enum CheckedValueNode<F> {
     Bool(F, Location),
     U32(F, Location),
     Array(TypeId, Vec<ExprId>, Location),
+    ArrayRepeat(TypeId, ExprId, u32, Location),
     Tuple(TypeId, Vec<(TypeId, ExprId)>, Location),
     Struct(TypeId, IndexMap<Identifier, ExprId>, Location),
     Type(TypeId),

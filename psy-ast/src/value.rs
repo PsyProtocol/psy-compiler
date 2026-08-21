@@ -45,6 +45,7 @@ pub enum ValueNode<F: Clone + From<u32>> {
     Bool(F, Location),
     U32(F, Location),
     Array(u32, Vec<ExprId>, Location),
+    ArrayRepeat(ExprId, u32, Location),
     Struct(ExprId, Vec<UncheckedType>, IndexMap<Identifier, ExprId>, Location),
 }
 
@@ -70,6 +71,7 @@ impl<F: Clone + From<u32>> Display for ValueNode<F> {
                 }
                 write!(f, ")")
             }
+            ValueNode::ArrayRepeat(expr_id, size, _) => write!(f, "ArrayRepeat({:?}; {})", expr_id, size),
             ValueNode::Struct(name, _, fields, _) => {
                 write!(f, "Struct {:?} {{ ", name)?;
                 for (i, (field_name, field_value)) in fields.iter().enumerate() {

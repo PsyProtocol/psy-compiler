@@ -809,6 +809,13 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 }
                 CheckedValue::Array(*type_id, values)
             }
+            CheckedValueNode::ArrayRepeat(type_id, element, size, _location) => {
+                let mut values = Vec::with_capacity(*size as usize);
+                for _ in 0..*size {
+                    values.push(self.interpret_expr(program, *element, ctx)?);
+                }
+                CheckedValue::Array(*type_id, values)
+            }
             CheckedValueNode::Struct(type_id, field_values, _location) => {
                 let mut values = IndexMap::new();
                 for (field_name, field_value) in field_values {

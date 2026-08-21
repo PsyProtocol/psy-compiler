@@ -1221,6 +1221,38 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
                 Ok(CheckedExprNode::Value(CheckedValueNode::Array(type_id, elements, location)))
             }
+            ValueNode::ArrayRepeat(element, size, location) => {
+                let checked_element = self.visit_expr(element, ctx)?;
+                let inner_ty = checked_element.ty();
+                let element = self.program.exprs.alloc_item(checked_element);
+
+                let underlying_type_id = ctx.symbols.get_type_id(Some(ScopeId::primitive()), IdentId::TYPE_ARRAY).unwrap();
+                let size_ty = self.populate_constant(size.into(), ctx)?;
+
+                let &CheckedArrayNode {
+                    inner_ty: generic_inner_ty,
+                    size_ty: generic_size_ty,
+                    ..
+                } = ctx.symbols[underlying_type_id].as_array().unwrap();
+
+                if !self.unify(generic_inner_ty, inner_ty, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location,
+                        expected: vec![generic_inner_ty],
+                        found: inner_ty,
+                    });
+                }
+                if !self.unify(generic_size_ty, size_ty, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location,
+                        expected: vec![generic_size_ty],
+                        found: size_ty,
+                    });
+                }
+
+                let type_id = self.substitute_all(underlying_type_id, ctx)?;
+                Ok(CheckedExprNode::Value(CheckedValueNode::ArrayRepeat(type_id, element, size, location)))
+            }
             ValueNode::Struct(path, generic_args, data, location) => Ok({
                 let checked_path_node = self.visit_expr(path, ctx)?;
                 // Keep the instantiated struct type from the path. Falling back to `poly_of`
