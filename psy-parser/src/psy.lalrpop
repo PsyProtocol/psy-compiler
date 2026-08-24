@@ -833,6 +833,14 @@ IntrinsicExpression: ExprNode<F> = {
             }
         )
     },
+    <l:@L> <variable:CTX_GET_CONTRACT_STATE_TREE_HEIGHT> "(" <contract_id:Expression> ")" <r:@R> => {
+        ExprNode::Intrinsic(
+            IntrinsicExprNode::GetContractStateTreeHeight {
+                contract_id: expr_nodes.alloc_item(contract_id),
+                location: Location::new(file_id, l, r)
+            }
+        )
+    },
     <l:@L> <variable:CTX_GET_CALLER_CONTRACT_ID> "(" ")" <r:@R> => {
         ExprNode::Intrinsic(
             IntrinsicExprNode::GetCallerContractId {
@@ -1462,6 +1470,7 @@ extern {
         CTX_GET_USER_ID => Token::IntrinsicCtxGetUserId,
         CTX_GET_CONTRACT_ID => Token::IntrinsicCtxGetContractId,
         CTX_GET_CONTRACT_DEPLOYER => Token::IntrinsicCtxGetContractDeployer,
+        CTX_GET_CONTRACT_STATE_TREE_HEIGHT => Token::IntrinsicCtxGetContractStateTreeHeight,
         CTX_GET_CALLER_CONTRACT_ID => Token::IntrinsicCtxGetCallerContractId,
         CTX_GET_CHECKPOINT_ID => Token::IntrinsicCtxGetCheckpointId,
         CTX_GET_CHECKPOINT_STATS => Token::IntrinsicCtxGetCheckpointStats,

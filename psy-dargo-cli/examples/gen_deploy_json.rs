@@ -1,5 +1,5 @@
-/// Tool to convert one or more compiled contract JSON files
-/// (Vec<DPNFunctionCircuitDefinition>) into genesis_contracts.json
+/// Tool to convert one or more compiled contract JSON artifacts into
+/// genesis_contracts.json
 /// (Vec<PQBCDeployContract>) for use in genesis config.
 ///
 /// Usage:
@@ -24,10 +24,24 @@ use psy_common::data::qhashout::QHashOut;
 use psy_data::config::store_config::{C, D};
 use psy_prover::session::gen_contract_deploy_and_circuits_for_functions;
 use psy_vm::dpn::vm::def::DPNFunctionCircuitDefinition;
+use serde::Deserialize;
 
 // Default genesis deployer (from existing genesis_contracts.json)
 const DEFAULT_DEPLOYER: &str = "f83aa03c3e21321421696202b90f4dab0a9f87237c231bbba58b8f93c799126e";
 const DEFAULT_STATE_TREE_HEIGHT: u8 = 32;
+
+#[derive(Deserialize)]
+struct CompilationArtifact {
+    state_tree_height: u16,
+    circuit_definitions: Vec<DPNFunctionCircuitDefinition>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CompilationArtifactInput {
+    Current(CompilationArtifact),
+    Legacy(Vec<DPNFunctionCircuitDefinition>),
+}
 
 fn get_file_stem(path: &str) -> String {
     Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or("contract").to_string()
@@ -68,19 +82,29 @@ fn main() -> anyhow::Result<()> {
 
         let deployer = QHashOut::from_str(deployer_hex).map_err(|e| anyhow::anyhow!("Invalid deployer hex for {}: {}", input_path, e))?;
 
-        // Read input JSON (Vec<DPNFunctionCircuitDefinition>)
+        // New compiler artifacts carry the authoritative layout-derived height.
+        // Continue accepting legacy bare definition arrays with the old default.
         let input_json = fs::read_to_string(input_path).map_err(|e| anyhow::anyhow!("Failed to read {}: {}", input_path, e))?;
-        let defs: Vec<DPNFunctionCircuitDefinition> =
+        let artifact: CompilationArtifactInput =
             serde_json::from_str(&input_json).map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", input_path, e))?;
+        let (state_tree_height, defs) = match artifact {
+            CompilationArtifactInput::Current(artifact) => (
+                u8::try_from(artifact.state_tree_height)
+                    .map_err(|_| anyhow::anyhow!("state_tree_height {} in {} exceeds u8", artifact.state_tree_height, input_path))?,
+                artifact.circuit_definitions,
+            ),
+            CompilationArtifactInput::Legacy(defs) => (DEFAULT_STATE_TREE_HEIGHT, defs),
+        };
 
-        let (_circuits, deploy_contract) = gen_contract_deploy_and_circuits_for_functions::<C, D>(deployer, DEFAULT_STATE_TREE_HEIGHT, &defs)?;
+        let (_circuits, deploy_contract) = gen_contract_deploy_and_circuits_for_functions::<C, D>(deployer, state_tree_height, &defs)?;
 
         println!(
-            "[{}] contract={} name={} functions={} whitelist={} deployer={}",
+            "[{}] contract={} name={} functions={} state_tree_height={} whitelist={} deployer={}",
             i,
             input_path,
             name,
             defs.len(),
+            state_tree_height,
             deploy_contract.function_whitelist.len(),
             deployer_hex
         );

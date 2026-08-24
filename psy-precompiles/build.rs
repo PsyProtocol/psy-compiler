@@ -1,11 +1,12 @@
 use std::{
     env, fs,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use anyhow::Result;
 use minijinja::{context, Environment};
 use psy_config::{ContractConfigGoldilocks, PrecompilesBuildConfigGoldilocks};
+use psy_abi::AbiExtractor;
 
 fn main() -> Result<()> {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR")?;
@@ -89,11 +90,18 @@ fn compile_one_contract(contract: &ContractConfigGoldilocks, manifest_dir: &str,
                     &interpret_result.compile_results,
                 );
 
+                let state_tree_height = AbiExtractor::new(contract.contract_name.clone())
+                    .compute_state_tree_height(&mut interpret_result.ctx.program);
+                let artifact = serde_json::json!({
+                    "state_tree_height": state_tree_height,
+                    "circuit_definitions": &interpret_result.compile_results,
+                });
+
                 use dargo::cli::save_build_artifact_to_file;
-                if let Err(e) = save_build_artifact_to_file(&interpret_result.compile_results, &contract.name, &target_dir) {
+                if let Err(e) = save_build_artifact_to_file(&artifact, &contract.name, &target_dir) {
                     println!("cargo:warning=Failed to save build artifact to target dir for {}: {}", contract.name, e);
                 }
-                if let Err(e) = save_build_artifact_to_file(&interpret_result.compile_results, &contract.name, out_path) {
+                if let Err(e) = save_build_artifact_to_file(&artifact, &contract.name, out_path) {
                     println!("cargo:warning=Failed to save build artifact to OUT_DIR for {}: {}", contract.name, e);
                 }
                 Ok(())
@@ -119,7 +127,11 @@ fn generate_precompile_api(config: &PrecompilesBuildConfigGoldilocks, out_path: 
 // Runtime lazy loading for {{ contract.name }} contract
 fn load_{{ contract.name }}_functions() -> Vec<DPNFunctionCircuitDefinition> {
     let json_data = include_str!(concat!(env!("OUT_DIR"), "/{{ contract.name }}.json"));
-    serde_json::from_str(json_data).unwrap_or_else(|_| Vec::new())
+    serde_json::from_str::<serde_json::Value>(json_data)
+        .ok()
+        .and_then(|v| v.get("circuit_definitions").cloned())
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
 }
 
 static {{ contract.name | upper }}_FUNCTIONS_ONCE: std::sync::OnceLock<Vec<DPNFunctionCircuitDefinition>> = std::sync::OnceLock::new();

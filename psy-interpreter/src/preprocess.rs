@@ -911,8 +911,13 @@ impl<'a> StorageProcessor<'a> {
         attr: &AttrNode,
         ctx: &mut V,
     ) -> DefId {
-        let mut sum = self.generate_field_size(attr, &struct_node.fields.iter().next().unwrap().1.ty, ctx);
-        for (_, field) in struct_node.fields.iter().skip(1) {
+        let mut fields = struct_node.fields.iter();
+        let mut sum = match fields.next() {
+            Some((_, first)) => self.generate_field_size(attr, &first.ty, ctx),
+            // Empty storage structs occupy zero slots.
+            None => ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(0), attr.location))),
+        };
+        for (_, field) in fields {
             let inner_ty = if self.has_ref_type_attr(&field.attrs, ctx) {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {

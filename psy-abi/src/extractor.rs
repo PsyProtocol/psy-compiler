@@ -156,8 +156,9 @@ impl AbiExtractor {
 
     /// Extract the ABI from the same checked program.
     ///
-    /// `state_tree_height` and `method_metadata` come from the compiler
-    /// pipeline (the same data `extract_contract_abi` consumes).
+    /// `state_tree_height` is computed once at the build step via
+    /// [`compute_state_tree_height`](Self::compute_state_tree_height) and
+    /// passed in here; `method_metadata` comes from the compiler pipeline.
     pub fn extract_abi<F: Clone + From<u32>>(
         &self,
         program: &mut Program<F>,
@@ -213,7 +214,9 @@ impl AbiExtractor {
         }
 
         // --- Build state layout ---
-        let state = contract_struct
+        // `total_virtual_felts` is a byproduct of the field walk; the authoritative
+        // height is computed at the build step (see `compute_state_tree_height`).
+        let (state, _total_virtual_felts) = contract_struct
             .map(|sn| self.extract_canonical_state(&ctx, sn, &struct_nodes, &struct_layouts))
             .unwrap_or_default();
 
@@ -230,6 +233,31 @@ impl AbiExtractor {
             },
             types,
         })
+    }
+
+    /// Compute the contract state-tree height from the storage layout.
+    ///
+    /// This mirrors the computation done inside
+    /// [`extract_abi`](Self::extract_abi) so callers that need the height
+    /// independently (e.g. to build a contract-code artifact) stay
+    /// consistent with the emitted ABI.
+    ///
+    /// Each state-tree leaf packs four felts, so the height is
+    /// `ceil(log2(ceil(total_felts / 4)))` (min 4), where `total_felts` is the
+    /// contract's total state felt footprint. It is intentionally *not* derived
+    /// from the compiled circuits' `state_commands`: those carry circuit
+    /// wire ids, not slot magnitudes, and would silently underestimate
+    /// contracts with large dynamically-indexed arrays (e.g. `[T;
+    /// 16_777_216]`).
+    pub fn compute_state_tree_height<F: Clone + From<u32>>(&self, program: &mut Program<F>) -> u16 {
+        let ctx = DefaultVisitorContext::<F, ()>::new(program);
+        let contract_struct = self.find_contract_struct(&ctx);
+        let struct_nodes = self.collect_struct_nodes(&ctx);
+        let struct_layouts = self.compute_struct_layouts(&ctx, &struct_nodes);
+        let (_, total_virtual_felts) = contract_struct
+            .map(|sn| self.extract_canonical_state(&ctx, sn, &struct_nodes, &struct_layouts))
+            .unwrap_or_default();
+        state_tree_height_for_total_felts(total_virtual_felts)
     }
 
     /// Convert an `UncheckedType` into a `TypeRef`.
@@ -315,13 +343,18 @@ impl AbiExtractor {
     }
 
     /// Build state fields from the contract struct.
+    ///
+    /// Returns `(fields, total_virtual_felts)`, where `total_virtual_felts` is
+    /// the running offset accumulated over all state fields (including
+    /// private fields and the IMT-map aligned region) — the contract's
+    /// total felt footprint, used to size the state tree height.
     fn extract_canonical_state<F: Clone + From<u32>>(
         &self,
         ctx: &DefaultVisitorContext<F, ()>,
         contract_struct: &StructNode,
         struct_nodes: &BTreeMap<String, &StructNode>,
         struct_layouts: &HashMap<String, StructLayout>,
-    ) -> Vec<AbiStateField> {
+    ) -> (Vec<AbiStateField>, usize) {
         let mut offset = 0usize;
         let mut fields = Vec::new();
 
@@ -360,7 +393,7 @@ impl AbiExtractor {
             offset = field_offset;
         }
 
-        fields
+        (fields, offset)
     }
 
     /// Compute felt_size for a type and whether it's a map (for alignment).
@@ -775,9 +808,31 @@ fn normalize_path_for_prefix(path: &Path) -> std::path::PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// `ceil(log2(value))` for `value >= 1`; returns 0 for `value <= 1`.
+fn ceil_log2(value: u64) -> u16 {
+    if value <= 1 {
+        return 0;
+    }
+    (u64::BITS - (value - 1).leading_zeros()) as u16
+}
+
+fn state_tree_height_for_total_felts(total_felts: usize) -> u16 {
+    let total_leaves = total_felts.max(1).saturating_add(3) / 4;
+    ceil_log2(total_leaves as u64).max(4)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn state_tree_height_accounts_for_four_felts_per_leaf() {
+        assert_eq!(state_tree_height_for_total_felts(0), 4);
+        assert_eq!(state_tree_height_for_total_felts(64), 4);
+        assert_eq!(state_tree_height_for_total_felts(65), 5);
+        assert_eq!(state_tree_height_for_total_felts(128), 5);
+        assert_eq!(state_tree_height_for_total_felts(129), 6);
+    }
 
     #[test]
     fn test_abi_extractor_creation() {

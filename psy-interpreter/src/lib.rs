@@ -980,6 +980,10 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let contract_id = self.interpret_expr(program, contract_id.clone(), ctx)?.to_felt();
                         CheckedValueRef::from_vec(type_id.clone(), self.context.get_contract_deployer(contract_id))
                     }
+                    CheckedIntrinsicExprNode::GetContractStateTreeHeight { contract_id, .. } => {
+                        let contract_id = self.interpret_expr(program, contract_id.clone(), ctx)?.to_felt();
+                        CheckedValueRef::from_felt(self.context.get_contract_state_tree_height(contract_id))
+                    }
                     CheckedIntrinsicExprNode::GetCallerContractId { .. } => CheckedValueRef::from_felt(self.context.get_caller_contract_id()),
                     CheckedIntrinsicExprNode::GetCheckpointId { .. } => CheckedValueRef::from_felt(self.context.get_checkpoint_id()),
                     CheckedIntrinsicExprNode::GetLastNonce { .. } => CheckedValueRef::from_felt(self.context.get_last_nonce()),
@@ -1129,7 +1133,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let contract_id = self.interpret_expr(program, contract_id.clone(), ctx)?.to_felt();
                         let offset = self.interpret_expr(program, offset.clone(), ctx)?.to_felt();
                         let value = self.context.op_get_state_felt(
-                            u16::try_from(self.context.get_constant_value(contract_state_tree_height)).unwrap(),
+                            contract_state_tree_height,
                             contract_id,
                             user_id,
                             offset,
@@ -2071,6 +2075,36 @@ fn main() {}
             err_msg.contains("Only one Map is currently supported per contract"),
             "unexpected error: {err_msg}"
         );
+
+        let _ = fs::remove_file(path);
+
+        #[allow(static_mut_refs)]
+        unsafe {
+            let _ = STD_PRIMITIVE_SCOPE_ID.take();
+        };
+    }
+
+    #[test]
+    #[serial]
+    fn test_empty_storage_struct_size() {
+        psy_common::setup_logging().ok();
+
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("psy_empty_storage_struct_{unique}.psy"));
+        let source = r#"
+#[derive(Storage)]
+pub struct EmptyStorage {}
+
+fn main() {
+    assert_eq(EmptyStorage::size(), 0, "Error: EmptyStorage::size() should be 0");
+}
+"#;
+        fs::write(&path, source).unwrap();
+
+        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+        interpreter
+            .typecheck_single(path.clone())
+            .expect("empty storage struct should typecheck without panicking");
 
         let _ = fs::remove_file(path);
 

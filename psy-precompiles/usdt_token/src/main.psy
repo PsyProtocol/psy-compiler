@@ -619,12 +619,12 @@ impl USDTTokenContractRef {
             preimage.token_contract_id,
             preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
         ]);
-        let private_note_inclusion_fingerprint: Hash = [
-            2482434993266711942,
-            6028864160300535936,
-            2827549014984201026,
-            3018365102481798071
-        ];
+        let private_note_inclusion_fingerprint: Hash = [                          
+            1133983815954452530,                                                  
+            11643641005412181396,                                                 
+            4562608820308473451,                                                  
+            14673158639327927697                                                  
+        ];        
         let leaf: Hash = hash_two_to_one(private_note_inclusion_fingerprint, public_inputs_hash);
 
         let mut current: Hash = leaf;

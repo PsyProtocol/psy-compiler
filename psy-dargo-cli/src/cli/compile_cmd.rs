@@ -4,8 +4,13 @@ use std::{
 };
 
 use clap::Args;
+use psy_abi::{Abi, AbiExtractor};
 use psy_package::{ResolvedSourceWorkspace, VfsPath, Workspace};
-use psy_vm::dpn::vm::def::DPNFunctionCircuitDefinition;
+use psy_vm::dpn::{
+    ops::{op_types::DPNOpType, state_cmd::data::DPNStateCmd},
+    vm::def::DPNFunctionCircuitDefinition,
+};
+use serde::Serialize;
 
 use crate::{
     cli::{
@@ -28,8 +33,16 @@ pub fn run(args: CompileCommand, workspace: Workspace) -> Result<()> {
 }
 
 pub struct CompilationResult {
+    pub state_tree_height: u16,
     pub circuit_definitions: Vec<DPNFunctionCircuitDefinition>,
     pub function_metadata: HashMap<String, FunctionNode>,
+}
+
+#[derive(Serialize)]
+struct CompilationArtifact {
+    state_tree_height: u16,
+    circuit_definitions: Vec<DPNFunctionCircuitDefinition>,
+    abi: Abi,
 }
 
 /// Parse and compile the entire workspace, then report errors.
@@ -46,19 +59,38 @@ pub fn compile_workspace_full(workspace: &Workspace, compile_options: &CompileOp
         &mut interpret_result.typechecker,
         &interpret_result.compile_results,
     );
+    let state_tree_height = AbiExtractor::new(compile_options.contract_name.clone().unwrap_or_else(|| "contract".to_string()))
+        .compute_state_tree_height(&mut interpret_result.ctx.program);
+    validate_static_state_accesses(state_tree_height, &interpret_result.compile_results)?;
 
     if compile_options.debug {
         println!("workspace: {:?}", workspace);
         println!("compile_result: {:?}", interpret_result.compile_results);
+        println!("state_tree_height: {state_tree_height}");
     } else {
+        let method_metadata: HashMap<String, (u32, bool)> = interpret_result
+            .compile_results
+            .iter()
+            .map(|f| (f.name.clone(), (f.method_id, f.is_view_function())))
+            .collect();
+        let extractor = AbiExtractor::new(compile_options.contract_name.clone().unwrap_or_else(|| "contract".to_string()));
+        let abi = extractor
+            .extract_abi(&mut interpret_result.ctx.program, state_tree_height, &method_metadata)
+            .map_err(|e| crate::errors::CliError::Generic(e.to_string()))?;
+
         save_build_artifact_to_file(
-            &interpret_result.compile_results,
+            &CompilationArtifact {
+                state_tree_height,
+                circuit_definitions: interpret_result.compile_results.clone(),
+                abi,
+            },
             &workspace.package.name.to_string(),
             &workspace.target_dir,
         )?;
     }
 
     Ok(CompilationResult {
+        state_tree_height,
         circuit_definitions: interpret_result.compile_results,
         function_metadata,
     })
@@ -107,11 +139,102 @@ pub fn compile_source_workspace_full(workspace: &ResolvedSourceWorkspace, compil
         &mut interpret_result.typechecker,
         &interpret_result.compile_results,
     );
+    let state_tree_height = AbiExtractor::new(compile_options.contract_name.clone().unwrap_or_else(|| "contract".to_string()))
+        .compute_state_tree_height(&mut interpret_result.ctx.program);
+    validate_static_state_accesses(state_tree_height, &interpret_result.compile_results)?;
 
     Ok(CompilationResult {
+        state_tree_height,
         circuit_definitions: interpret_result.compile_results,
         function_metadata,
     })
+}
+
+fn validate_static_state_accesses(state_tree_height: u16, circuits: &[DPNFunctionCircuitDefinition]) -> Result<()> {
+    let leaf_capacity = if state_tree_height >= u64::BITS as u16 {
+        None
+    } else {
+        Some(1u64 << state_tree_height)
+    };
+
+    for circuit in circuits {
+        let constants = circuit
+            .definitions
+            .iter()
+            .filter_map(|definition| {
+                let value = match definition.op_type {
+                    DPNOpType::Constant | DPNOpType::ConstantU32 => definition.inputs.first().copied(),
+                    DPNOpType::ConstantTrue => Some(1),
+                    DPNOpType::ConstantFalse => Some(0),
+                    _ => None,
+                }?;
+                Some((definition.get_combined_data_type_index(), value))
+            })
+            .collect::<HashMap<_, _>>();
+
+        for (command_index, command) in circuit.state_commands.iter().enumerate() {
+            let constant = |wire: &u64| constants.get(wire).copied();
+            let access = match command {
+                DPNStateCmd::SetContractStateSlotHash(command) => constant(&command.slot_index).map(|leaf| ("SetContractStateSlotHash", leaf)),
+                DPNStateCmd::SetContractStateSlotSingle(command) => {
+                    constant(&command.sub_slot_index).map(|felt| ("SetContractStateSlotSingle", felt / 4))
+                }
+                DPNStateCmd::SetContractStateSlotRange(command) => constant(&command.sub_slot_index).and_then(|start| {
+                    let end = start.checked_add(command.value.len().saturating_sub(1) as u64)?;
+                    Some(("SetContractStateSlotRange", end / 4))
+                }),
+                DPNStateCmd::GetSelfUserCurrentContractStateSlotHash(command) => {
+                    constant(&command.slot_index).map(|leaf| ("GetSelfUserCurrentContractStateSlotHash", leaf))
+                }
+                DPNStateCmd::GetSelfUserCurrentContractStateSlotSingle(command) => {
+                    constant(&command.sub_slot_index).map(|felt| ("GetSelfUserCurrentContractStateSlotSingle", felt / 4))
+                }
+                DPNStateCmd::GetSelfUserCurrentContractStateSlotRange(command) => constant(&command.sub_slot_index).and_then(|start| {
+                    let end = start.checked_add(u64::from(command.length).saturating_sub(1))?;
+                    Some(("GetSelfUserCurrentContractStateSlotRange", end / 4))
+                }),
+                DPNStateCmd::SetIMTContractStateValue(command) => {
+                    static_imt_last_leaf(&constant, &command.base_offset, &command.capacity).map(|leaf| ("SetIMTContractStateValue", leaf))
+                }
+                DPNStateCmd::GetSelfUserCurrentIMTContractStateValue(command) => {
+                    static_imt_last_leaf(&constant, &command.base_offset, &command.capacity)
+                        .map(|leaf| ("GetSelfUserCurrentIMTContractStateValue", leaf))
+                }
+                DPNStateCmd::ContainsSelfUserCurrentIMTContractStateValue(command) => {
+                    static_imt_last_leaf(&constant, &command.base_offset, &command.capacity)
+                        .map(|leaf| ("ContainsSelfUserCurrentIMTContractStateValue", leaf))
+                }
+                _ => None,
+            };
+
+            if let (Some(capacity), Some((command_name, last_leaf))) = (leaf_capacity, access) {
+                if last_leaf >= capacity {
+                    return Err(crate::errors::CliError::Generic(format!(
+                        "state-tree sanity check failed: method '{}' command #{} ({}) statically accesses leaf {}, \
+                         but state_tree_height {} only provides leaves 0..{}",
+                        circuit.name,
+                        command_index,
+                        command_name,
+                        last_leaf,
+                        state_tree_height,
+                        capacity - 1,
+                    )));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn static_imt_last_leaf(constant: &impl Fn(&u64) -> Option<u64>, base_offset_wire: &u64, capacity_wire: &u64) -> Option<u64> {
+    let base_offset = constant(base_offset_wire)?;
+    let capacity = constant(capacity_wire)?;
+    if capacity == 0 {
+        return None;
+    }
+    let last_felt = base_offset.checked_add(capacity.checked_mul(4)?.checked_sub(1)?)?;
+    Some(last_felt / 4)
 }
 
 /// Options for the compile command
