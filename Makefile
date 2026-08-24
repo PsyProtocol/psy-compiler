@@ -126,6 +126,12 @@ ci:
 	       --nocapture
 
 	@RUST_LOG=${LOG_LEVEL} cargo test --profile ${PROFILE} \
+	       --package dargo \
+	       artifact_name_tests \
+	       -- \
+	       --nocapture
+
+	@RUST_LOG=${LOG_LEVEL} cargo test --profile ${PROFILE} \
 	       --package psy-sema \
 	       --package psy-interpreter \
 	       -- \

@@ -10,6 +10,7 @@ use crate::{
         compile_cmd::{CompileOptions, resolve_workspace_method_names},
         resolve_crate_path_graph,
         save_build_artifact_to_file,
+        validate_artifact_name,
     },
     errors::Result,
 };
@@ -43,6 +44,11 @@ pub(crate) struct GenerateAbiCommand {
 }
 
 pub(crate) fn run(args: GenerateAbiCommand, workspace: Workspace) -> Result<()> {
+    // `abi_name` is a file stem, not a path. Reject invalid input before the
+    // comparatively expensive parse/typecheck/compile pipeline.
+    let abi_stem = args.abi_name.clone().unwrap_or_else(|| args.contract_name.clone());
+    validate_artifact_name(&abi_stem)?;
+
     // Resolve the crate path graph
     let crate_path_graph = resolve_crate_path_graph(&workspace, args.entry_path.clone());
 
@@ -78,7 +84,6 @@ pub(crate) fn run(args: GenerateAbiCommand, workspace: Workspace) -> Result<()> 
     let output_dir = args.output_dir.unwrap_or_else(|| workspace.target_dir.clone());
 
     // Use abi_name if provided, otherwise derive from contract_name
-    let abi_stem = args.abi_name.unwrap_or_else(|| args.contract_name.clone());
     // Save ABI next to the compiled artifact without clobbering <contract>.json.
     let abi_filename = format!("{}.abi", abi_stem);
 

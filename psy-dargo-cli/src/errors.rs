@@ -27,6 +27,9 @@ pub enum CliError {
     #[error("Invalid package name {0}. Did you mean to use `--name`?")]
     InvalidPackageName(String),
 
+    #[error("Invalid artifact name `{0}`: expected a single file name without path components")]
+    InvalidArtifactName(String),
+
     #[error("Error: destination {} already exists", .0.display())]
     DestinationAlreadyExists(PathBuf),
 
