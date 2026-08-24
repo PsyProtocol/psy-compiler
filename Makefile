@@ -204,7 +204,6 @@ gen-deploy-json: build \
 	@test -f $(TOKEN_CONTRACT_PATH)/target/token.json || { echo "error: missing compiled token artifact: $(TOKEN_CONTRACT_PATH)/target/token.json"; exit 1; }
 	@test -d $(PSY_NODE)/client_prover || { echo "error: missing psy-node client_prover directory: $(PSY_NODE)/client_prover"; exit 1; }
 	@cp $(TOKEN_CONTRACT_PATH)/target/token.json $(PSY_NODE)/client_prover/token.json
-	@cp $(TOKEN_CONTRACT_PATH)/target/token.abi.json $(PSY_NODE)/client_prover/token.abi.json
 	@echo "refreshed $(PSY_NODE)/client_prover/token.json from compiled token artifact"
 	@cargo run --release --package dargo --example gen_deploy_json -- \
 		$(GENESIS_CONTRACTS_FILE) \
@@ -222,6 +221,9 @@ gen-deploy-json: build \
 	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyDepositTreeContractRef --abi-name deposit_tree --output-dir $(ABI_OUTPUT_DIR) --method-names get_root get_chain_root is_known_root_hash is_known_root set_chain_root append_leaf append_deposit batch_append_deposits_2 batch_append_deposits_5
 	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyWithdrawalTreeContractRef --abi-name withdrawal_tree --output-dir $(ABI_OUTPUT_DIR) --method-names get_root get_chain_root append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
 	@cd $(FAUCET_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyFaucetContractRef --abi-name faucet --output-dir $(ABI_OUTPUT_DIR) --method-names faucet
+	@# `compile` does not emit .abi.json — always source it from the freshly generated $(ABI_OUTPUT_DIR)
+	@cp $(ABI_OUTPUT_DIR)/token.abi.json $(PSY_NODE)/client_prover/token.abi.json
+	@echo "refreshed $(PSY_NODE)/client_prover/token.abi.json from $(ABI_OUTPUT_DIR)"
 	@cargo run --release --package dargo --example gen_deploy_abi_json -- \
 		$(GENESIS_ABI_DIR) \
 		$(ABI_OUTPUT_DIR)/token.abi.json:token \
