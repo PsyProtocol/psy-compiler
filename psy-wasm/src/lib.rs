@@ -1503,6 +1503,26 @@ mod tests {
 
     #[test]
     #[serial]
+    fn compile_source_rejects_constant_out_of_bounds_array_write() {
+        let result = parse_result(&compile_source(
+            r#"
+                fn main() {
+                    let mut values: [Felt; 2] = [10, 20];
+                    values[2] = 99;
+                }
+                "#,
+        ));
+
+        assert!(!result.success, "expected constant out-of-bounds array write to fail compilation");
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("index out of bounds"),
+            "unexpected error: {:?}",
+            result.error
+        );
+    }
+
+    #[test]
+    #[serial]
     fn compile_project_with_module_succeeds() {
         let files = serde_json::json!({
             "entry": ["main"],
@@ -1727,6 +1747,53 @@ mod tests {
         assert!(methods[0]["state_mutability"].as_str().is_some());
         assert!(methods[0]["input_felt_count"].as_u64().is_some());
         assert!(methods[0]["output_felt_count"].as_u64().is_some());
+    }
+
+    #[test]
+    #[serial]
+    fn compile_source_expands_type_aliases_in_abi_layout() {
+        let result = parse_result(&compile_source(include_str!("../../tests/abi_alias_test.psy")));
+
+        assert!(result.success, "expected compile success, got {:?}", result.error);
+
+        let abi = result.abi.expect("missing abi");
+        let state = abi["contract"]["state"].as_array().expect("state array");
+        assert_eq!(state.len(), 4);
+
+        assert_eq!(state[0]["name"].as_str(), Some("amount"));
+        assert_eq!(state[0]["type"]["kind"].as_str(), Some("primitive"));
+        assert_eq!(state[0]["type"]["name"].as_str(), Some("Felt"));
+        assert_eq!(state[0]["offset"].as_u64(), Some(0));
+        assert_eq!(state[0]["felt_size"].as_u64(), Some(1));
+
+        assert_eq!(state[1]["name"].as_str(), Some("history"));
+        assert_eq!(state[1]["type"]["kind"].as_str(), Some("array"));
+        assert_eq!(state[1]["type"]["item"]["kind"].as_str(), Some("primitive"));
+        assert_eq!(state[1]["type"]["item"]["name"].as_str(), Some("Felt"));
+        assert_eq!(state[1]["offset"].as_u64(), Some(1));
+        assert_eq!(state[1]["felt_size"].as_u64(), Some(2));
+
+        assert_eq!(state[2]["name"].as_str(), Some("account"));
+        assert_eq!(state[2]["type"]["kind"].as_str(), Some("struct"));
+        assert_eq!(state[2]["type"]["name"].as_str(), Some("AccountState"));
+        assert_eq!(state[2]["offset"].as_u64(), Some(3));
+        assert_eq!(state[2]["felt_size"].as_u64(), Some(5));
+
+        assert_eq!(state[3]["name"].as_str(), Some("tail"));
+        assert_eq!(state[3]["offset"].as_u64(), Some(8));
+        assert_eq!(state[3]["felt_size"].as_u64(), Some(1));
+
+        let account = abi["types"]
+            .as_array()
+            .expect("types array")
+            .iter()
+            .find(|ty| ty["name"].as_str() == Some("AccountState"))
+            .expect("AccountState ABI type");
+        assert_eq!(account["felt_size"].as_u64(), Some(5));
+        assert_eq!(account["fields"][0]["offset_within_parent"].as_u64(), Some(0));
+        assert_eq!(account["fields"][0]["felt_size"].as_u64(), Some(1));
+        assert_eq!(account["fields"][1]["offset_within_parent"].as_u64(), Some(1));
+        assert_eq!(account["fields"][1]["felt_size"].as_u64(), Some(4));
     }
 
     #[test]

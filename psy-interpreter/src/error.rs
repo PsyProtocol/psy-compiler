@@ -49,7 +49,7 @@ fn build_report<F: Clone + From<u32> + ContextFelt>(
             program
                 .file_resolver
                 .resolve_path_content(Path::new(x))
-                .map(ToOwned::to_owned)
+                .map(|source| source.to_string())
                 .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("missing source for {x}")))
         }),
         &mut output,
@@ -70,6 +70,13 @@ pub fn lowering_parse_error<F: Clone + From<u32> + ContextFelt>(error: &psy_pars
         ParseError::ExternFnNotInStd => format!("{}", error),
         ParseError::FunctionBodyMissing => format!("{}", error),
         ParseError::InvalidSelfParameter => format!("{}", error),
+        ParseError::ArrayLengthOverflow { length, location } => build_report(
+            *location,
+            "ArrayLengthOverflow",
+            format!("Array length {length} exceeds the maximum supported length of {}.", u32::MAX),
+            program,
+        )
+        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
         ParseError::InvalidToken { location } => {
             build_report(location.clone(), "InvalidToken", "Invalid Token.", program).unwrap_or_else(|e| format!("Failed to build report: {}", e))
         }
@@ -137,8 +144,8 @@ pub fn parse_error_to_diagnostic<F: Clone + From<u32> + ContextFelt>(error: &Par
             // Convert location to LSP range
             let file_content = program.file_resolver.resolve_content(&location.file_id).unwrap_or_default();
 
-            let range = span_to_range(location, file_content);
-            let file_path = program.file_resolver.resolve_path(&location.file_id).cloned();
+            let range = span_to_range(location, &file_content);
+            let file_path = program.file_resolver.resolve_path(&location.file_id);
             (Some(range), file_path, message)
         }
 
@@ -371,11 +378,11 @@ pub fn typecheck_error_to_diagnostic<F: Clone + From<u32> + ContextFelt, C>(
                 expected.iter().map(|ty| ctx.debug_type(ty.clone())).collect::<Vec<_>>().join(", "),
                 ctx.debug_type(found.clone())
             );
-            let file = ctx.program.file_resolver.resolve_path(&location.file_id).cloned();
+            let file = ctx.program.file_resolver.resolve_path(&location.file_id);
             (
                 Some(span_to_range(
                     location,
-                    ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
+                    ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
                 )),
                 file,
                 msg,
@@ -385,45 +392,45 @@ pub fn typecheck_error_to_diagnostic<F: Clone + From<u32> + ContextFelt, C>(
         SemaError::InvalidPathSegment { location, segment } => (
             Some(span_to_range(
                 location,
-                ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
+                ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
             )),
-            ctx.program.file_resolver.resolve_path(&location.file_id).cloned(),
+            ctx.program.file_resolver.resolve_path(&location.file_id),
             format!("Invalid path segment: {}", segment),
         ),
 
         SemaError::UnresolvedType { location, resolved_type } => (
             Some(span_to_range(
                 location,
-                ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
+                ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
             )),
-            ctx.program.file_resolver.resolve_path(&location.file_id).cloned(),
+            ctx.program.file_resolver.resolve_path(&location.file_id),
             format!("Unresolved type: {}", ctx.ident(*resolved_type)),
         ),
 
         SemaError::VariableAlreadyDefined { location, variable } => (
             Some(span_to_range(
                 location,
-                ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
+                ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
             )),
-            ctx.program.file_resolver.resolve_path(&location.file_id).cloned(),
+            ctx.program.file_resolver.resolve_path(&location.file_id),
             format!("Variable already defined: {}", ctx.ident(*variable)),
         ),
 
         SemaError::ImmutableVariable { location, variable } => (
             Some(span_to_range(
                 location,
-                ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
+                ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
             )),
-            ctx.program.file_resolver.resolve_path(&location.file_id).cloned(),
+            ctx.program.file_resolver.resolve_path(&location.file_id),
             format!("Variable {} is immutable", ctx.ident(*variable)),
         ),
 
         SemaError::InvalidReturn { location, message } => (
             Some(span_to_range(
                 location,
-                ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
+                ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
             )),
-            ctx.program.file_resolver.resolve_path(&location.file_id).cloned(),
+            ctx.program.file_resolver.resolve_path(&location.file_id),
             format!("Invalid return: {}", message),
         ),
 
@@ -436,9 +443,9 @@ pub fn typecheck_error_to_diagnostic<F: Clone + From<u32> + ContextFelt, C>(
             (
                 Some(span_to_range(
                     location,
-                    ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
+                    ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
                 )),
-                ctx.program.file_resolver.resolve_path(&location.file_id).cloned(),
+                ctx.program.file_resolver.resolve_path(&location.file_id),
                 label,
             )
         }

@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use enum_as_inner::EnumAsInner;
 use indexmap::IndexMap;
-use psy_ast::{ExprId, IdentId, Identifier, Location, NodeInfo, NodeType};
+use psy_ast::{ConstValue, ExprId, IdentId, Identifier, Location, NodeInfo, NodeType};
 use psy_vm::dpn::ops::{
     context_trait::{ContextFelt, DPNContext, ToFelts},
     op_types::DPNOpType,
@@ -10,12 +10,20 @@ use psy_vm::dpn::ops::{
 
 use crate::{Result, Type, TypeCheckerVisitorContext, TypeId, BOOL_TYPE, FELT_TYPE, U32_TYPE, VOID_TYPE};
 
+pub fn is_constant_op(op: DPNOpType) -> bool {
+    matches!(
+        op,
+        DPNOpType::Constant | DPNOpType::ConstantTrue | DPNOpType::ConstantFalse | DPNOpType::ConstantU32
+    )
+}
+
 #[derive(Clone, Debug, PartialEq, EnumAsInner)]
 pub enum CheckedValueNode<F> {
     Felt(F, Location),
     Bool(F, Location),
     U32(F, Location),
     Array(TypeId, Vec<ExprId>, Location),
+    ArrayRepeat(TypeId, ExprId, ConstValue, Location),
     Tuple(TypeId, Vec<(TypeId, ExprId)>, Location),
     Struct(TypeId, IndexMap<Identifier, ExprId>, Location),
     Type(TypeId),
@@ -317,13 +325,7 @@ impl<F: Clone + From<u32> + ContextFelt> CheckedValueRef<F> {
             CheckedValue::Array(_, arr) => {
                 let index = path[0].as_felt().unwrap();
                 let rest = &path[1..];
-                let const_types = [
-                    DPNOpType::Constant,
-                    DPNOpType::ConstantTrue,
-                    DPNOpType::ConstantFalse,
-                    DPNOpType::ConstantU32,
-                ];
-                if const_types.contains(&ctx.get_op_type(*index)) {
+                if is_constant_op(ctx.get_op_type(*index)) {
                     let index = ctx.get_constant_value(*index) as usize;
                     if let Some(inner) = arr.get_mut(index) {
                         inner.set_path(ctx, rest, index_condition, value)?;
@@ -378,13 +380,7 @@ impl<F: Clone + From<u32> + ContextFelt> CheckedValueRef<F> {
             CheckedValue::Array(_, arr) => {
                 let index = path[0].clone().into_felt().unwrap();
                 let rest = &path[1..];
-                let const_types = [
-                    DPNOpType::Constant,
-                    DPNOpType::ConstantTrue,
-                    DPNOpType::ConstantFalse,
-                    DPNOpType::ConstantU32,
-                ];
-                if const_types.contains(&ctx.get_op_type(index)) {
+                if is_constant_op(ctx.get_op_type(index)) {
                     let index = ctx.get_constant_value(index) as usize;
                     assert!(index < arr.len(), "array index must less than array length");
                     arr.get(index).and_then(|inner| inner.get_path(ctx, rest))

@@ -285,11 +285,15 @@ impl Type {
     }
 
     pub fn signature(&self) -> CheckedFunctionSignature {
+        self.try_signature().expect("signature requested for a non-callable type")
+    }
+
+    pub fn try_signature(&self) -> Option<CheckedFunctionSignature> {
         match self {
-            Type::Function(f) => f.signature(),
-            Type::LambdaFunction(l) => l.signature(),
-            Type::FunctionSignature(s) => s.clone(),
-            _ => unreachable!(),
+            Type::Function(f) => Some(f.signature()),
+            Type::LambdaFunction(l) => Some(l.signature()),
+            Type::FunctionSignature(s) => Some(s.clone()),
+            _ => None,
         }
     }
 

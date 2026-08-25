@@ -1319,16 +1319,11 @@ ArgumentList: Vec<ExprNode<F>> = {
 
 ArrayExpression: ExprNode<F> = {
     <l:@L> "[" <elements:Comma<Expression>> "]" <r:@R> => ExprNode::<F>::Value(
-        ValueNode::Array(u32::try_from(elements.len()).unwrap(), expr_nodes.alloc_items(elements), Location::new(file_id, l, r)),
+        ValueNode::Array(ConstValue::Felt(u64::try_from(elements.len()).unwrap()), expr_nodes.alloc_items(elements), Location::new(file_id, l, r)),
     ),
-    <l:@L> "[" <element:Expression> ";" <n:U64> "]" <r:@R> => ExprNode::<F>::Value({
-        let size = u32::try_from(n).unwrap();
-        let mut elements = Vec::with_capacity(size as usize);
-        for _ in 0..size {
-            elements.push(expr_nodes.alloc_item(element.clone()));
-        }
-        ValueNode::Array(size, elements, Location::new(file_id, l, r))
-    }),
+    <l:@L> "[" <element:Expression> ";" <n:U64> "]" <r:@R> => ExprNode::<F>::Value(
+        ValueNode::ArrayRepeat(expr_nodes.alloc_item(element), ConstValue::Felt(n), Location::new(file_id, l, r))
+    ),
 }
 
 UseNode: (Identifier, Vec<Identifier>, Option<Identifier>) =
@@ -1370,7 +1365,7 @@ GenericType: UncheckedType = {
 }
 
 ArrayType: UncheckedType = {
-    <l:@L> "[" <ty:PathTy> ";" <n:U64> "]" <r:@R> => UncheckedType::Array(Box::new(ty), u32::try_from(n).unwrap(), Location::new(file_id, l, r))
+    <l:@L> "[" <ty:PathTy> ";" <n:U64> "]" <r:@R> => UncheckedType::Array(Box::new(ty), ConstValue::Felt(n), Location::new(file_id, l, r))
 }
 
 ConstType: UncheckedType = {

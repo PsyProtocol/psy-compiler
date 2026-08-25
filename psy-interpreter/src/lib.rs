@@ -705,11 +705,18 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
         loop {
             let var_id = ctx.symbols.get_variable(Some(node.scope_id), &node.variable).unwrap();
-            let value_f = ctx.symbols.get_value(var_id).unwrap().to_u32();
-            if value_f != end_f {
+            let var_value = ctx.symbols.get_value(var_id).unwrap();
+            let value_f = var_value.to_value();
+            // `a..b` follows Rust Range semantics: start >= end executes zero iterations.
+            // Comparing constants (not F handles) and using `<` also guarantees the
+            // increment below never overflows u32.
+            if self.context.get_constant_value(value_f) < self.context.get_constant_value(end_f) {
                 self.interpret_expr(program, node.body, ctx)?;
-                let one = self.context.op_const_u32(1);
-                let value = CheckedValueRef::from_u32(self.context.op_u32_add(value_f, one));
+                let next = self.context.get_constant_value(value_f) + 1;
+                let value = match &*var_value.borrow() {
+                    CheckedValue::U32(_) => CheckedValueRef::from_u32(self.context.op_const_u32(u32::try_from(next).expect("u32 loop variable overflowed"))),
+                    _ => CheckedValueRef::from_felt(self.context.op_const(next)),
+                };
                 ctx.symbols.set_variable(node.scope_id, node.variable, value)?;
             } else {
                 ctx.symbols.exit_block();
@@ -802,6 +809,15 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             CheckedValueNode::Array(type_id, elements, _location) => {
                 let mut values = Vec::new();
                 for element in elements {
+                    values.push(self.interpret_expr(program, *element, ctx)?);
+                }
+                CheckedValue::Array(*type_id, values)
+            }
+            CheckedValueNode::ArrayRepeat(type_id, element, size, _location) => {
+                let count = usize::try_from(size.as_u64().expect("array repeat length must be an integer"))
+                    .expect("array repeat length does not fit usize");
+                let mut values = Vec::with_capacity(count);
+                for _ in 0..count {
                     values.push(self.interpret_expr(program, *element, ctx)?);
                 }
                 CheckedValue::Array(*type_id, values)
@@ -945,7 +961,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             (CheckedValue::U32(l), CheckedValue::U32(r), SubAssign) => CheckedValueRef::from_u32(self.context.op_u32_sub(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), MulAssign) => CheckedValueRef::from_u32(self.context.op_u32_mul(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), DivAssign) => CheckedValueRef::from_u32(self.context.op_u32_div(*l, *r)),
-            (CheckedValue::U32(l), CheckedValue::U32(r), ModAssign) => CheckedValueRef::from_u32(self.context.op_mod(*l, *r)),
+            (CheckedValue::U32(l), CheckedValue::U32(r), ModAssign) => CheckedValueRef::from_u32(self.context.op_u32_mod(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), BitAndAssign) => CheckedValueRef::from_u32(self.context.op_u32_and(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), BitOrAssign) => CheckedValueRef::from_u32(self.context.op_u32_or(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), BitXorAssign) => CheckedValueRef::from_u32(self.context.op_u32_xor(*l, *r)),
@@ -1658,11 +1674,61 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     ) -> Result<(CheckedValueRef<F>, VarId)> {
         let (inner_value, inner_var_id) = self.interpret_assignment_target(program, node, &program[index_access_node.target], path, ctx)?;
 
-        let index = IndexPath::Felt(self.interpret_expr(program, index_access_node.index, ctx)?.to_felt());
+        let checked_index = self.interpret_expr(program, index_access_node.index, ctx)?;
+        let index_value = match &*checked_index.borrow() {
+            CheckedValue::Felt(value) | CheckedValue::U32(value) => value.clone(),
+            _ => {
+                return Err(Error::SemaError(SemaError::TypeMismatch {
+                    location: index_access_node.location,
+                    expected: vec![FELT_TYPE, U32_TYPE],
+                    found: checked_index.type_id(),
+                }));
+            }
+        };
+        let mut constant_index = None;
+        if is_constant_op(self.context.get_op_type(index_value)) {
+            let index = self.context.get_constant_value(index_value) as usize;
+            constant_index = Some(index);
+            let length = match &*inner_value.borrow() {
+                CheckedValue::Array(_, elements) => Some(elements.len()),
+                _ => None,
+            };
+            if let Some(length) = length {
+                if index >= length {
+                    return Err(Error::SemaError(SemaError::IndexOutOfBounds {
+                        location: index_access_node.location,
+                        index,
+                        length,
+                    }));
+                }
+            }
+        }
+
+        let index = IndexPath::Felt(index_value);
 
         path.push(index.clone());
 
-        Ok((inner_value.get_path(&mut self.context, &[index]).unwrap(), inner_var_id))
+        let old_value = inner_value.get_path(&mut self.context, &[index]).ok_or_else(|| {
+            let length = match &*inner_value.borrow() {
+                CheckedValue::Array(_, elements) => elements.len(),
+                _ => 0,
+            };
+            if let Some(index) = constant_index {
+                Error::SemaError(SemaError::IndexOutOfBounds {
+                    location: index_access_node.location,
+                    index,
+                    length,
+                })
+            } else {
+                Error::SemaError(SemaError::TypeMismatch {
+                    location: index_access_node.location,
+                    expected: vec![ARRAY_TYPE],
+                    found: inner_value.type_id(),
+                })
+            }
+        })?;
+
+        Ok((old_value, inner_var_id))
     }
 
     fn interpret_tuple_assignment(
@@ -1799,6 +1865,11 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 //note: use the first arm return value to initialize the return value
                 return_value = self.interpret_expr(program, first_arm.body, ctx)?;
             } else {
+                // A wildcard-only match has no preceding `if` block. Execute it
+                // directly instead of trying to emit an unmatched `else`.
+                if match_node.cases.len() == 1 {
+                    return self.interpret_expr(program, first_arm.body, ctx);
+                }
                 wildcard_case = Some(first_arm);
             }
         }
@@ -2082,6 +2153,85 @@ fn main() {}
         unsafe {
             let _ = STD_PRIMITIVE_SCOPE_ID.take();
         };
+    }
+
+    #[test]
+    #[serial]
+    fn test_u32_mod_assign_lowers_to_u32_mod() {
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("psy_u32_mod_assign_{unique}.psy"));
+        let source = r#"
+fn main(a: u32, b: u32) -> u32 {
+    let mut value = a;
+    value %= b;
+    return value;
+}
+"#;
+        fs::write(&path, source).unwrap();
+
+        let mut crate_path_graph = Graph::new();
+        crate_path_graph.add_node(path.clone());
+        let result = super::interpret(None, vec!["main".to_string()], crate_path_graph)
+            .expect("u32 %= program should compile");
+        let definitions = &result.compile_results[0].definitions;
+
+        assert!(
+            definitions.iter().any(|definition| definition.op_type == DPNOpType::U32Mod),
+            "u32 %= must emit U32Mod; emitted ops: {:?}",
+            definitions.iter().map(|definition| definition.op_type).collect::<Vec<_>>()
+        );
+        assert!(
+            definitions.iter().all(|definition| definition.op_type != DPNOpType::Mod),
+            "u32 %= must not emit the felt Mod op"
+        );
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    #[serial]
+    fn non_struct_member_access_returns_error_instead_of_panicking() {
+        let cases = [
+            ("felt", "fn main() { let value: Felt = 1; value.missing; }"),
+            ("u32", "fn main() { let value: u32 = 1u32; value.missing; }"),
+            ("bool", "fn main() { let value: bool = true; value.missing; }"),
+            ("array", "fn main() { let value: [Felt; 2] = [1, 2]; value.missing; }"),
+            ("tuple", "fn main() { let value = (1, 2); value.missing; }"),
+            (
+                "function",
+                "fn identity(value: Felt) -> Felt { value } fn main() { let value = identity; value.missing; }",
+            ),
+            ("void", "fn noop() {} fn main() { noop().missing; }"),
+            (
+                "generic_result",
+                "fn identity<T>(value: T) -> T { value } fn main() { identity#<Felt>(1).missing; }",
+            ),
+            (
+                "missing_struct_field",
+                "struct Item { pub value: Felt } fn main() { let item = new Item { value: 1 }; item.missing; }",
+            ),
+            ("missing_member_call", "fn main() { let value: Felt = 1; value.missing(); }"),
+        ];
+
+        for (index, (name, source)) in cases.into_iter().enumerate() {
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!("psy_non_struct_member_{name}_{unique}_{index}.psy"));
+            fs::write(&path, source).unwrap();
+
+            let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+            let error = match interpreter.typecheck_single(path.clone()) {
+                Ok(_) => panic!("invalid member access must be rejected for {name}"),
+                Err(error) => error,
+            };
+            let message = format!("{error:#}");
+            assert!(message.contains("unresolved member"), "unexpected error for {name}: {message}");
+
+            fs::remove_file(path).unwrap();
+            #[allow(static_mut_refs)]
+            unsafe {
+                let _ = STD_PRIMITIVE_SCOPE_ID.take();
+            }
+        }
     }
 
     #[test]

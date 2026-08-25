@@ -8,7 +8,7 @@ struct OtherUserInfo {
 #[derive(Storage)]
 struct Contract {
     pub balance: Felt,
-    pub other_user_info: [OtherUserInfo; 16777216],
+    pub other_user_info: [OtherUserInfo; 4294967296],
 }
 
 impl ContractRef {

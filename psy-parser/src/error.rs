@@ -23,6 +23,8 @@ pub enum UserError {
     FunctionBodyMissing,
     #[error("Invalid self parameter")]
     InvalidSelfParameter,
+    #[error("Array length {length} exceeds the maximum supported length")]
+    ArrayLengthOverflow { length: u64, location: Location },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -49,6 +51,8 @@ pub enum Error {
     FunctionBodyMissing,
     #[error("Invalid self parameter")]
     InvalidSelfParameter,
+    #[error("Array length {length} exceeds the maximum supported length")]
+    ArrayLengthOverflow { length: u64, location: Location },
 
     #[error("invalid token")]
     InvalidToken { location: Location },
@@ -95,6 +99,7 @@ impl Error {
                 UserError::ExternFnNotInStd => Error::ExternFnNotInStd,
                 UserError::FunctionBodyMissing => Error::FunctionBodyMissing,
                 UserError::InvalidSelfParameter => Error::InvalidSelfParameter,
+                UserError::ArrayLengthOverflow { length, location } => Error::ArrayLengthOverflow { length, location },
             },
         }
     }

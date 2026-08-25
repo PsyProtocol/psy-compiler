@@ -18,6 +18,9 @@ fn add_one(i: Felt) -> Felt {
     return c;
 }
 
+fn fun(x: [Felt; 2]) {
+}
+
 // input:
 // output:
 fn main() {
@@ -30,4 +33,7 @@ fn main() {
     let mut g: Felt = add(1 + 3, add(3 + 5, 8 - mul(add(sub(10, 5), 5), 2)));
     let mut h: Felt = add_one(1);
     let mut i: Felt = add_one(add_one(add_one(add_one(add_one(add_one(add_one(add_one(add_one(1 + add_one(1 + add_one(1 + add_one(1 + 2)))) + 2) + 2) + 2))))));
+    // Expected pub Array (TypeId(432)), but found pub Array (TypeId(499))
+    // let x: [Felt; 3] = [1, 2, 3];
+    // fun(x);
 }

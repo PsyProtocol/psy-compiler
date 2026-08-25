@@ -139,7 +139,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             Some(&[type_id, checked_index.ty()]),
             ctx,
         )?;
-        let signature = ctx.symbols[callee_ty].signature();
+        let signature = ctx.symbols[callee_ty].try_signature().ok_or_else(|| Error::InvalidFunctionArguments {
+            location: index_access_node.location,
+            method_name: callee_ty,
+            expected: "a callable index method".to_string(),
+            found: "a non-callable member".to_string(),
+        })?;
 
         if signature.parameters.len() != 2 {
             return Err(Error::InvalidFunctionArguments {
@@ -214,7 +219,14 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
         }
 
-        let fields = ctx.symbols[type_id].as_struct().unwrap().fields.clone();
+        let fields = ctx.symbols[type_id]
+            .as_struct()
+            .ok_or(Error::UnresolvedMember {
+                location: member_access_node.location,
+                member_name: member_access_node.field.id,
+            })?
+            .fields
+            .clone();
         let CheckedStructField {
             ty: field_type, visibility, ..
         } = fields.get(&member_access_node.field).ok_or(Error::UnresolvedMember {
@@ -925,7 +937,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             IntrinsicExprNode::Keccak256 { data, location } => {
                 let data = self.visit_expr(data, ctx)?;
                 let u32_type = UncheckedType::Basic(Identifier::new(IdentId::TYPE_U32, location));
-                let keccak_out_ty = UncheckedType::Array(Box::new(u32_type), 8, location);
+                let keccak_out_ty = UncheckedType::Array(Box::new(u32_type), ConstValue::Felt(8), location);
                 let keccak_out_type_id = self.typecheck(&keccak_out_ty, ctx)?;
 
                 Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::Keccak256 {
@@ -1216,6 +1228,38 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
                 Ok(CheckedExprNode::Value(CheckedValueNode::Array(type_id, elements, location)))
             }
+            ValueNode::ArrayRepeat(element, size, location) => {
+                let checked_element = self.visit_expr(element, ctx)?;
+                let inner_ty = checked_element.ty();
+                let element = self.program.exprs.alloc_item(checked_element);
+
+                let underlying_type_id = ctx.symbols.get_type_id(Some(ScopeId::primitive()), IdentId::TYPE_ARRAY).unwrap();
+                let size_ty = self.populate_constant(size.into(), ctx)?;
+
+                let &CheckedArrayNode {
+                    inner_ty: generic_inner_ty,
+                    size_ty: generic_size_ty,
+                    ..
+                } = ctx.symbols[underlying_type_id].as_array().unwrap();
+
+                if !self.unify(generic_inner_ty, inner_ty, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location,
+                        expected: vec![generic_inner_ty],
+                        found: inner_ty,
+                    });
+                }
+                if !self.unify(generic_size_ty, size_ty, ctx) {
+                    return Err(Error::TypeMismatch {
+                        location,
+                        expected: vec![generic_size_ty],
+                        found: size_ty,
+                    });
+                }
+
+                let type_id = self.substitute_all(underlying_type_id, ctx)?;
+                Ok(CheckedExprNode::Value(CheckedValueNode::ArrayRepeat(type_id, element, size, location)))
+            }
             ValueNode::Struct(path, generic_args, data, location) => Ok({
                 let checked_path_node = self.visit_expr(path, ctx)?;
                 // Keep the instantiated struct type from the path. Falling back to `poly_of`
@@ -1301,7 +1345,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
             let eq_ident = Identifier::new(ctx.intern("eq"), binary_node.location);
             let method_ty = self.find_member(lhs_ty, None, Some(binary_node.location), eq_ident, Some(&[lhs_ty, rhs_ty]), ctx)?;
-            let signature = ctx.symbols[method_ty].signature();
+            let signature = ctx.symbols[method_ty].try_signature().ok_or_else(|| Error::InvalidFunctionArguments {
+                location: binary_node.location,
+                method_name: method_ty,
+                expected: "a callable equality method".to_string(),
+                found: "a non-callable member".to_string(),
+            })?;
 
             if signature.parameters.len() != 2 {
                 return Err(Error::InvalidFunctionArguments {
@@ -1549,7 +1598,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
         }
 
-        let signature = ctx.symbols[ty].signature();
+        let signature = ctx.symbols[ty].try_signature().ok_or_else(|| Error::InvalidFunctionArguments {
+            location: call_node.location,
+            method_name: ty,
+            expected: "a callable value".to_string(),
+            found: "a non-callable value".to_string(),
+        })?;
 
         if call_node.args.len() != signature.parameters.len() {
             return Err(Error::InvalidFunctionArguments {
@@ -1638,7 +1692,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
         }
 
-        let signature = ctx.symbols[callee_ty].signature();
+        let signature = ctx.symbols[callee_ty].try_signature().ok_or_else(|| Error::InvalidFunctionArguments {
+            location: call_node.location,
+            method_name: callee_ty,
+            expected: "a callable member".to_string(),
+            found: "a non-callable member".to_string(),
+        })?;
         if signature.parameters.len() != expected_parameters.len() {
             return Err(Error::InvalidFunctionArguments {
                 location: call_node.location,
@@ -1872,7 +1931,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
         let method_ident = Identifier::new(ctx.intern(assign_method), assignment_node.location);
         let method_ty = self.find_member(lhs_ty, None, Some(assignment_node.location), method_ident, Some(&[lhs_ty, rhs_ty]), ctx)?;
-        let signature = ctx.symbols[method_ty].signature();
+        let signature = ctx.symbols[method_ty].try_signature().ok_or_else(|| Error::InvalidFunctionArguments {
+            location: assignment_node.location,
+            method_name: method_ty,
+            expected: "a callable assignment method".to_string(),
+            found: "a non-callable member".to_string(),
+        })?;
 
         let callee_target = self.program.exprs.alloc_item(checked_lhs.clone());
         let callee = self.program.exprs.alloc_item(CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
@@ -2023,7 +2087,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 } else {
                     let eq_ident = Identifier::new(ctx.intern("eq"), location);
                     let method_ty = self.find_member(lhs_ty, None, Some(location), eq_ident, Some(&[lhs_ty, rhs_ty]), ctx)?;
-                    let signature = ctx.symbols[method_ty].signature();
+                    let signature = ctx.symbols[method_ty].try_signature().ok_or_else(|| Error::InvalidFunctionArguments {
+                        location,
+                        method_name: method_ty,
+                        expected: "a callable equality method".to_string(),
+                        found: "a non-callable member".to_string(),
+                    })?;
 
                     if signature.parameters.len() != 2 {
                         return Err(Error::InvalidFunctionArguments {
@@ -2648,10 +2717,14 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         }
 
         if scrutinee_type == BOOL_TYPE {
-            if !match_node.arms.len() == 2 {
+            let has_wildcard = match_node
+                .arms
+                .iter()
+                .any(|arm| matches!(arm.pattern, MatchPattern::PlaceHolder(_)));
+            if !has_wildcard && match_node.arms.len() != 2 {
                 return Err(Error::IncompleteMatch {
                     location: match_node.location,
-                    message: "Boolean match must have 2 arms".to_string(),
+                    message: "Boolean match must cover both true and false".to_string(),
                 });
             }
         }
@@ -3045,7 +3118,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
         self.typecheck_array(ctx)?;
 
         let felt_type = UncheckedType::Basic(Identifier::new(IdentId::TYPE_FELT, Location::default()));
-        let hash_ty_node = UncheckedType::Array(Box::new(felt_type), 4, Location::default());
+        let hash_ty_node = UncheckedType::Array(Box::new(felt_type), ConstValue::Felt(4), Location::default());
 
         let checked_hash_ty = self.typecheck(&hash_ty_node, ctx)?;
 
@@ -3096,7 +3169,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
         )?;
         let size = ctx.symbols.add_type_variable(
             ScopeKind::Module,
-            CheckedGenericParameter::new(IdentId::N, vec![U32_TYPE], ScopeId::primitive(), Location::default()),
+            CheckedGenericParameter::new(IdentId::N, vec![FELT_TYPE], ScopeId::primitive(), Location::default()),
         )?;
 
         let checked_array = CheckedArrayNode {

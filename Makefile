@@ -51,6 +51,7 @@ ci:
 	@$(DARGO_CLI_COMPILE) basic_ups.psy --contract-name=Contract --method-names simple_mint simple_transfer simple_claim
 	@$(DARGO_CLI_COMPILE) token.psy --contract-name=ContractRef --method-names simple_mint simple_transfer simple_claim
 	@$(DARGO_CLI_COMPILE) two_user_ups.psy --contract-name=Contract --method-names simple_mint simple_transfer simple_claim
+	@$(DARGO_CLI_COMPILE) rewards.psy --contract-name=ContractRef --method-names batch_claim_pm_rewards simple_mint simple_burn simple_transfer simple_claim
 
 	@$(DARGO_CLI_EXECUTE) assert_test.psy --parameters 2,3
 	@$(DARGO_CLI_EXECUTE) keccak256_test.psy
@@ -116,6 +117,7 @@ ci:
 	@$(DARGO_CLI_EXECUTE) two_user_ups.psy --contract-name=Contract --method-names=simple_mint --method-names=simple_transfer --parameters 1000 --parameters 2,100
 	@$(DARGO_CLI_EXECUTE) check_secp_sign_test.psy
 	@$(DARGO_CLI_EXECUTE) clear_entire_tree_test.psy
+	@$(DARGO_CLI_EXECUTE) array_ref_multiple_fields_offset_test.psy
 	@$(DARGO_CLI_TEST) tests/imt_intrinsic_test.psy
 
 	@RUST_LOG=${LOG_LEVEL} cargo test --profile ${PROFILE} \
@@ -125,8 +127,20 @@ ci:
 	       --nocapture
 
 	@RUST_LOG=${LOG_LEVEL} cargo test --profile ${PROFILE} \
+	       --package dargo \
+	       artifact_name_tests \
+	       -- \
+	       --nocapture
+
+	@RUST_LOG=${LOG_LEVEL} cargo test --profile ${PROFILE} \
 	       --package psy-sema \
 	       --package psy-interpreter \
+	       -- \
+	       --nocapture
+
+	@RUST_LOG=${LOG_LEVEL} cargo test --profile ${PROFILE} \
+	       --package psy-wasm \
+	       compile_source_expands_type_aliases_in_abi_layout \
 	       -- \
 	       --nocapture
 

@@ -77,12 +77,12 @@ impl<'a, 'b, F: ContextFelt + From<u32>, C: DPNContext<F>> Parser<'a, 'b, F, C> 
         let file_id = program.file_resolver.resolve_file(current_path.clone())?;
         let file_content = program.file_resolver.resolve_content(&file_id).ok_or(Error::FileUnresolved)?;
 
-        let lexer = Lexer::new(file_content);
+        let lexer = Lexer::new(&file_content);
         let transformer = GenericTokenTransformer::new(lexer);
         let tokens: Vec<_> = transformer.collect::<psy_lexer::Result<Vec<_>>>()?;
         let module = psy::ModuleParser::new()
             .parse(
-                file_content,
+                &file_content,
                 file_id,
                 Identifier::new(module_name, Location::new(file_id, location.start, location.end)),
                 &mut program.exprs,
@@ -292,11 +292,34 @@ fn preload_embedded_std<F: Clone + From<u32>>(program: &mut Program<F>) {
 mod tests {
     use std::path::PathBuf;
 
-    use psy_ast::Program;
-    use psy_common::Graph;
-    use psy_vm::dpn::ops::exec_context::QExecContext;
+    use psy_ast::{ConstValue, IdentId, Identifier, Location, Program, UncheckedType, Visibility};
+    use psy_common::{FileId, Graph};
+    use psy_lexer::{GenericTokenTransformer, Lexer};
+    use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
 
-    use super::Parser;
+    use super::{LalrpopError, Parser, psy};
+
+    fn parse_source(source: &str) -> (Program<SymFeltRef>, Result<(), LalrpopError<'_>>) {
+        let mut program = Program::new();
+        let mut ctx = QExecContext::new();
+        let file_id = FileId(0);
+        let tokens = GenericTokenTransformer::new(Lexer::new(source)).collect::<Result<Vec<_>, _>>().unwrap();
+        let result = psy::ModuleParser::new()
+            .parse(
+                source,
+                file_id,
+                Identifier::new(IdentId::CRATE, Location::new(file_id, 0, source.len())),
+                &mut program.exprs,
+                &mut program.stmts,
+                &mut program.defs,
+                &mut program.interner,
+                Visibility::Private,
+                &mut ctx,
+                tokens,
+            )
+            .map(|_| ());
+        (program, result)
+    }
     #[test]
     fn test_psy_parser() {
         let mut program = Program::new();
@@ -305,5 +328,56 @@ mod tests {
         crate_path_graph.add_node(PathBuf::from("../tests/storage_test.psy"));
         let mut parser = Parser::new(&mut program, &mut ctx, crate_path_graph);
         parser.parse().unwrap();
+    }
+
+    #[test]
+    fn array_repeat_keeps_one_element_expression() {
+        let (program, result) = parse_source("fn main() { let repeated = [1 + 2; 1000000]; let explicit = [1, 2, 3]; }");
+        result.unwrap();
+
+        let repeats = program
+            .exprs
+            .iter()
+            .filter_map(|expr| expr.as_value())
+            .filter_map(|value| value.as_array_repeat())
+            .collect::<Vec<_>>();
+        assert_eq!(repeats.len(), 1);
+        assert_eq!(*repeats[0].1, ConstValue::Felt(1_000_000));
+
+        let explicit_arrays = program
+            .exprs
+            .iter()
+            .filter_map(|expr| expr.as_value())
+            .filter_map(|value| value.as_array())
+            .collect::<Vec<_>>();
+        assert_eq!(explicit_arrays.len(), 1);
+        assert_eq!(explicit_arrays[0].1.len(), 3);
+    }
+
+    #[test]
+    fn array_repeat_length_supports_felt_sized_constants() {
+        let (program, result) = parse_source("fn main() { let values = [0; 4294967296]; }");
+        result.unwrap();
+        let repeat = program
+            .exprs
+            .iter()
+            .filter_map(|expr| expr.as_value())
+            .find_map(|value| value.as_array_repeat())
+            .unwrap();
+        assert_eq!(*repeat.1, ConstValue::Felt(4_294_967_296));
+    }
+
+    #[test]
+    fn array_type_length_supports_felt_sized_constants() {
+        let (program, result) = parse_source("fn main(values: [Felt; 4294967296]) {}");
+        result.unwrap();
+        assert!(program.defs.iter().any(|definition| {
+            definition.as_function().is_some_and(|function| {
+                matches!(
+                    &function.parameters[0].ty,
+                    UncheckedType::Array(_, ConstValue::Felt(4_294_967_296), _)
+                )
+            })
+        }));
     }
 }

@@ -11,7 +11,7 @@ pub(crate) mod test_helpers;
 
 use std::{
     collections::{HashSet, VecDeque},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 use clap::{Args, Parser, Subcommand};
@@ -149,6 +149,7 @@ pub fn resolve_crate_path_graph(workspace: &Workspace, entry_path: Option<PathBu
 }
 
 pub fn save_build_artifact_to_file<T: ?Sized + serde::Serialize>(build_artifact: &T, artifact_name: &str, output_dir: &Path) -> Result<PathBuf> {
+    validate_artifact_name(artifact_name)?;
     let artifact_path = output_dir.join(artifact_name);
     let artifact_path = match artifact_path.extension().and_then(|ext| ext.to_str()) {
         Some("json") => artifact_path,
@@ -165,6 +166,15 @@ pub fn save_build_artifact_to_file<T: ?Sized + serde::Serialize>(build_artifact:
     Ok(artifact_path)
 }
 
+pub fn validate_artifact_name(artifact_name: &str) -> Result<()> {
+    let mut components = Path::new(artifact_name).components();
+    let is_single_normal_component = matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none();
+    if artifact_name.is_empty() || artifact_name.contains(['/', '\\']) || !is_single_normal_component {
+        return Err(CliError::InvalidArtifactName(artifact_name.to_string()));
+    }
+    Ok(())
+}
+
 // Create the parent directory if needed and write the bytes to a file.
 pub fn write_to_file(bytes: &[u8], path: &Path) -> Result<()> {
     if let Some(dir) = path.parent() {
@@ -172,4 +182,43 @@ pub fn write_to_file(bytes: &[u8], path: &Path) -> Result<()> {
     }
     std::fs::write(path, bytes)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod artifact_name_tests {
+    use std::path::Path;
+
+    use super::{save_build_artifact_to_file, validate_artifact_name};
+    use crate::errors::CliError;
+
+    #[test]
+    fn accepts_single_artifact_file_names() {
+        for name in ["contract", "contract.abi", "contract-v1.abi", "合约.abi"] {
+            validate_artifact_name(name).unwrap();
+        }
+    }
+
+    #[test]
+    fn rejects_artifact_path_traversal_and_paths() {
+        for name in [
+            "",
+            ".",
+            "..",
+            "../escaped",
+            "nested/escaped",
+            "/tmp/escaped",
+            r"..\escaped",
+            r"C:\escaped",
+        ] {
+            let error = validate_artifact_name(name).expect_err(name);
+            assert!(matches!(error, CliError::InvalidArtifactName(ref invalid) if invalid == name));
+        }
+    }
+
+    #[test]
+    fn artifact_writer_rejects_paths_before_writing() {
+        let error = save_build_artifact_to_file(&serde_json::json!({}), "../escaped", Path::new("unused-output-dir"))
+            .expect_err("path traversal must be rejected");
+        assert!(matches!(error, CliError::InvalidArtifactName(ref invalid) if invalid == "../escaped"));
+    }
 }

@@ -143,7 +143,7 @@ impl AbiExtractor {
             let Some(module_path) = ctx.program().file_resolver.resolve_path(&module.data().file_id) else {
                 continue;
             };
-            let module_path = normalize_path_for_prefix(module_path);
+            let module_path = normalize_path_for_prefix(&module_path);
             if module_path.starts_with(&package_root) {
                 defs.extend(module.data().definitions.iter().copied());
             }
@@ -279,7 +279,7 @@ impl AbiExtractor {
                 let item_felt_size = self.felt_size_for_type(ctx, inner, &struct_nodes, &mut layouts);
                 TypeRef::Array {
                     item: Box::new(item),
-                    length: *size,
+                    length: size.as_u64().unwrap_or(0),
                     item_felt_size,
                 }
             }
@@ -308,6 +308,10 @@ impl AbiExtractor {
 
     /// Map a named type to a `TypeRef` — primitives, structs, or unknown (Felt fallback).
     fn named_type_to_typeref<F: Clone + From<u32>>(&self, name: &str, ctx: &DefaultVisitorContext<F, ()>) -> TypeRef {
+        if let Some(target) = self.type_alias_target(ctx, name) {
+            return self.unchecked_type_to_typeref(ctx, target);
+        }
+
         match name {
             "Felt" => TypeRef::Primitive { name: PrimitiveTypeName::Felt },
             "Bool" | "bool" => TypeRef::Primitive { name: PrimitiveTypeName::Bool },
@@ -567,6 +571,23 @@ impl AbiExtractor {
         structs
     }
 
+    fn type_alias_target<'a, F: Clone + From<u32>>(
+        &self,
+        ctx: &'a DefaultVisitorContext<F, ()>,
+        name: &str,
+    ) -> Option<&'a UncheckedType> {
+        for i in 0..ctx.program().defs.len() {
+            let def_id = DefId::from(i);
+            let Some(alias) = ctx.definition(def_id).as_type_alias() else {
+                continue;
+            };
+            if ctx.ident(alias.name.id).0 == name {
+                return Some(&alias.ty);
+            }
+        }
+        None
+    }
+
     fn compute_struct_layouts<F: Clone + From<u32>>(
         &self,
         ctx: &DefaultVisitorContext<F, ()>,
@@ -650,10 +671,11 @@ impl AbiExtractor {
         match ty {
             UncheckedType::Array(inner, size, _) => {
                 let inner_size = self.felt_size_for_type(ctx, inner, struct_nodes, &mut layouts);
+                let length = size.as_u64().unwrap_or(0) as usize;
                 (
-                    inner_size.saturating_mul(*size as usize),
+                    inner_size.saturating_mul(length),
                     true,
-                    Some(*size as usize),
+                    Some(length),
                     Some(self.stringify_unchecked_type(ctx, inner)),
                     Some(inner_size),
                     false,
@@ -717,7 +739,7 @@ impl AbiExtractor {
         match ty {
             UncheckedType::Basic(identifier) => self.felt_size_for_named_type(ctx.ident(*identifier).0.as_str(), struct_nodes, layouts, ctx),
             UncheckedType::Path(path) => self.felt_size_for_type(ctx, &path.target, struct_nodes, layouts),
-            UncheckedType::Array(inner, size, _) => self.felt_size_for_type(ctx, inner, struct_nodes, layouts).saturating_mul(*size as usize),
+            UncheckedType::Array(inner, size, _) => self.felt_size_for_type(ctx, inner, struct_nodes, layouts).saturating_mul(size.as_u64().unwrap_or(0) as usize),
             UncheckedType::Tuple(items, _) => items.iter().map(|item| self.felt_size_for_type(ctx, item, struct_nodes, layouts)).sum(),
             UncheckedType::Generic(identifier, _, _) => self.felt_size_for_named_type(ctx.ident(*identifier).0.as_str(), struct_nodes, layouts, ctx),
             _ => 0,
@@ -731,6 +753,10 @@ impl AbiExtractor {
         layouts: &mut HashMap<String, StructLayout>,
         ctx: &DefaultVisitorContext<F, ()>,
     ) -> usize {
+        if let Some(target) = self.type_alias_target(ctx, type_name) {
+            return self.felt_size_for_type(ctx, target, struct_nodes, layouts);
+        }
+
         match type_name {
             "Felt" | "bool" | "Bool" | "u64" | "i64" | "u32" => 1,
             "u256" | "QHashOut" | "Hash" => 4,

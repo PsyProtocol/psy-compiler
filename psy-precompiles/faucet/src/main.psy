@@ -9,7 +9,7 @@ struct FaucetClaim {
 #[contract]
 #[derive(Storage)]
 pub struct PsyFaucetContract {
-    pub claims: [FaucetClaim; 16777216],
+    pub claims: [FaucetClaim; 4294967296],
 }
 
 impl PsyFaucetContractRef {
