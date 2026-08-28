@@ -23,7 +23,7 @@ impl FooBool for Person {
 }
 
 fn main() -> Felt {
-    let p: Person = new Person {
+    let p: Person = Person {
         v: 1,
     };
     let a: Felt = p.foo(2);

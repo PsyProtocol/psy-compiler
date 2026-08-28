@@ -13,7 +13,7 @@ impl IdLike for User {
 }
 
 fn main() -> Felt {
-    let u: User = new User {
+    let u: User = User {
         id: 5,
     };
     let field_value: Felt = u.id;

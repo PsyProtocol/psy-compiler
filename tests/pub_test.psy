@@ -9,7 +9,7 @@ mod pub_mod {
             return self.x + self.y;
         }
         pub fn new(x: Felt, y: Felt) -> Add {
-            return new Add {
+            return Add {
                 x: x,
                 y: y,
             };
@@ -36,7 +36,7 @@ impl Test {
 // input:2,3
 // output:2
 fn main(a: Felt, b: Felt) -> Felt {
-    let t: Test = new Test {
+    let t: Test = Test {
         x: a,
         y: b,
     };

@@ -105,7 +105,7 @@ impl ContractRef {
 
         clear_entire_tree();
 
-        c.persistant_state = new PersistantState {
+        c.persistant_state = PersistantState {
             min_allowed_claimed_checkpoint: new_claim_checkpoint_id,
             last_claimed_ups_checkpoint_id: get_checkpoint_id(),
             claimed_rewards: 0,
@@ -167,7 +167,7 @@ impl ContractRef {
 
         c.claimed_guta_nullifiers[nullifier_index] = 1;
 
-        c.persistant_state = new PersistantState {
+        c.persistant_state = PersistantState {
             min_allowed_claimed_checkpoint: persistant_state.min_allowed_claimed_checkpoint,
             last_claimed_ups_checkpoint_id: current_checkpoint,
             claimed_rewards: old_claimed_rewards + proposed_reward,
@@ -197,7 +197,7 @@ impl ContractRef {
 
         clear_entire_tree();
 
-        c.persistant_state = new PersistantState {
+        c.persistant_state = PersistantState {
             min_allowed_claimed_checkpoint: new_claim_checkpoint_id,
             last_claimed_ups_checkpoint_id: get_checkpoint_id(),
             claimed_rewards: 0,
@@ -225,7 +225,7 @@ impl ContractRef {
 
         assert(proposed_reward > 0 && proposed_reward <= 1000000000, "invalid reward amount");
 
-        c.persistant_state = new PersistantState {
+        c.persistant_state = PersistantState {
             min_allowed_claimed_checkpoint: persistant_state.min_allowed_claimed_checkpoint,
             last_claimed_ups_checkpoint_id: current_checkpoint,
             claimed_rewards: old_claimed_rewards + proposed_reward,
@@ -236,7 +236,7 @@ impl ContractRef {
 
 fn main() {
     let c = ContractRef::new(ContractMetadata::current());
-    let initial_state = new PersistantState {
+    let initial_state = PersistantState {
         min_allowed_claimed_checkpoint: 0,
         last_claimed_ups_checkpoint_id: 0,
         claimed_rewards: 0,

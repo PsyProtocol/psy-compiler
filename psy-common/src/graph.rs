@@ -1,10 +1,9 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     hash::Hash,
-    ops::Deref,
 };
 
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 
 use crate::Error;
 
@@ -18,12 +17,12 @@ pub enum Color {
 
 #[derive(Clone, Debug)]
 pub struct Graph<T> {
-    edges: HashMap<T, IndexSet<T>>,
+    edges: IndexMap<T, IndexSet<T>>,
 }
 
 impl<T: Clone + Eq + Hash> Graph<T> {
     pub fn new() -> Self {
-        Self { edges: HashMap::new() }
+        Self { edges: IndexMap::new() }
     }
 
     pub fn add_node(&mut self, node: T) {
@@ -50,11 +49,11 @@ impl<T: Clone + Eq + Hash> Graph<T> {
     }
 
     pub fn starting_nodes(&self) -> Vec<&T> {
-        let mut starting_nodes = self.edges.keys().collect::<HashSet<_>>();
+        let mut starting_nodes = self.edges.keys().collect::<IndexSet<_>>();
         for node in self.edges.keys() {
             if let Some(neighbors) = self.edges.get(node) {
                 for neighbor in neighbors {
-                    starting_nodes.remove(neighbor);
+                    starting_nodes.shift_remove(neighbor);
                 }
             }
         }
@@ -71,7 +70,7 @@ impl<T: Clone + Eq + Hash> Graph<T> {
     fn dfs_inner<'a>(&'a self, node: &'a T, parent: Option<&'a T>, visitor: &mut impl FnMut(&'a T, Option<&'a T>)) {
         visitor(node, parent);
 
-        if let Some(neighbors) = self.edges.get(&node) {
+        if let Some(neighbors) = self.edges.get(node) {
             for neighbor in neighbors {
                 self.dfs_inner(neighbor, Some(node), visitor);
             }
@@ -130,7 +129,7 @@ impl<T: Clone + Eq + Hash> Graph<T> {
     ) -> Result<(), E> {
         colors.insert(node, Color::Grey);
 
-        if let Some(neighbors) = self.edges.get(&node) {
+        if let Some(neighbors) = self.edges.get(node) {
             for neighbor in neighbors {
                 match colors.get(neighbor) {
                     Some(Color::Grey) => return Err(E::from(Error::CycleGraph)),
@@ -177,5 +176,22 @@ mod tests {
         let result: Result<(), Error> = graph.check_cycle();
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn traversal_order_follows_insertion_order() {
+        let mut graph = Graph::new();
+        graph.add_edge("A", "B");
+        graph.add_edge("C", "D");
+
+        assert_eq!(graph.starting_nodes(), vec![&"A", &"C"]);
+
+        let mut visited = Vec::new();
+        graph.ts::<Error>(&mut |node| {
+            visited.push(*node);
+            Ok(())
+        }).unwrap();
+
+        assert_eq!(visited, vec!["B", "A", "D", "C"]);
     }
 }

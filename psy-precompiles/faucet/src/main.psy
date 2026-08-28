@@ -26,7 +26,7 @@ impl PsyFaucetContractRef {
         let window_expired = current_block >= (claim.window_start_block + window_size);
 
         if claim.window_start_block == 0 || window_expired {
-            c.claims[user_id] = new FaucetClaim {
+            c.claims[user_id] = FaucetClaim {
                 window_start_block: current_block,
                 amount_transferred: amount,
             };
@@ -36,7 +36,7 @@ impl PsyFaucetContractRef {
             let amount_transferred = claim.amount_transferred + amount;
             assert(amount_transferred <= max_amount, "faucet limit exceeded");
 
-            c.claims[user_id] = new FaucetClaim {
+            c.claims[user_id] = FaucetClaim {
                 window_start_block: claim.window_start_block,
                 amount_transferred,
             };

@@ -12,11 +12,11 @@ pub struct C {
 
 fn main() {
     let c = CRef::new(ContractMetadata::current());
-    c.people[0] = new Person {
+    c.people[0] = Person {
         age: 10,
         score: 80,
     };
-    c.people[1] = new Person {
+    c.people[1] = Person {
         age: 20,
         score: 90,
     };
@@ -27,11 +27,11 @@ fn main() {
     assert_eq(c.people[0].score, 80, "people[0].score");
     assert_eq(c.people[1].age, 21, "people[1].age after +=");
     assert_eq(c.people[1].score, 92, "people[1].score after +=");
-    assert(p1 == new Person {
+    assert(p1 == Person {
         age: 21,
         score: 92,
     }, "RefType from index should support ==");
-    assert_eq(p1, new Person {
+    assert_eq(p1, Person {
         age: 21,
         score: 92,
     }, "assert_eq should use Eq trait for indexed RefType");

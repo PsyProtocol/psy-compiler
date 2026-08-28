@@ -13,11 +13,11 @@ fn test_for_empty_range() {
 
 #[test]
 fn test_for_if_simple() {
-    let mut test_array: [TestSibling; 3] = [new TestSibling {
+    let mut test_array: [TestSibling; 3] = [TestSibling {
             value: [1, 2, 3, 4],
-        }, new TestSibling {
+        }, TestSibling {
             value: [0, 0, 0, 0],
-        }, new TestSibling {
+        }, TestSibling {
             value: [0, 0, 0, 0],
         }];
     for i in 0u32..3u32 {

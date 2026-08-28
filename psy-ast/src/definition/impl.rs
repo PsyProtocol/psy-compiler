@@ -1,6 +1,6 @@
 use indexmap::IndexMap;
 
-use crate::{Comment, DefId, GenericParameter, Identifier, Location, NodeInfo, NodeType, UncheckedType, Visibility};
+use crate::{AttrNode, Comment, DefId, GenericParameter, Identifier, Location, NodeInfo, NodeType, UncheckedType, Visibility};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImplNode {
@@ -8,6 +8,7 @@ pub struct ImplNode {
     pub associated_types: IndexMap<Identifier, AssociatedTypeValue>,
     pub ty: UncheckedType,
     pub body: Vec<DefId>,
+    pub attrs: Vec<AttrNode>,
     pub comments: Vec<Comment>,
     pub location: Location,
     pub is_generated: bool,
@@ -20,6 +21,7 @@ pub struct TraitImplNode {
     pub trait_ty: UncheckedType,
     pub ty: UncheckedType,
     pub body: Vec<DefId>,
+    pub attrs: Vec<AttrNode>,
     pub comments: Vec<Comment>,
     pub location: Location,
     pub is_generated: bool,

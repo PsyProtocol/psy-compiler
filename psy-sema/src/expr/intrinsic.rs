@@ -278,7 +278,7 @@ pub enum CheckedIntrinsicExprNode {
     },
     SplitBits {
         target: ExprId,
-        num_bits: u64,
+        num_bits: ExprId,
         type_id: TypeId,
         location: Location,
     },

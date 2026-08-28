@@ -26,24 +26,24 @@ fn main(a: Felt, b: Felt) -> Felt {
     let computed_repeat: [Felt; 4] = [from_var + 2; 4];
     assert_eq(computed_repeat[3], 11, "repeat expression element");
     let empty_repeat: [Felt; 0] = [123; 0];
-    let hw1: HW = new HW {
+    let hw1: HW = HW {
         height: 180,
         weight: 140,
     };
-    let hw2: HW = new HW {
+    let hw2: HW = HW {
         height: 175,
         weight: 110,
     };
-    let person1: Person = new Person {
+    let person1: Person = Person {
         age: 8,
         hw: [hw1, hw1],
     };
-    let person2: Person = new Person {
+    let person2: Person = Person {
         age: 18,
         hw: [hw2, hw2],
     };
     let mut arr: [Person; 2] = [person1, person2];
-    arr[a].hw[b] = new HW {
+    arr[a].hw[b] = HW {
         height: 160,
         weight: 110,
     };

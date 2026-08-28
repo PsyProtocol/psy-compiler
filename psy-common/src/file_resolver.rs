@@ -83,6 +83,12 @@ impl FileResolver {
         self.state.read().expect("file resolver lock poisoned").file_contents.get(file_id.0).cloned()
     }
 
+    /// Return an owned handle so parser callers can keep source text alive
+    /// while mutably borrowing the rest of the program.
+    pub fn resolve_content_arc(&self, file_id: &FileId) -> Option<Arc<str>> {
+        self.resolve_content(file_id)
+    }
+
     pub fn resolve_path_content(&self, file_path: &Path) -> Option<Arc<str>> {
         let file_id = self.resolve_id(file_path)?;
         self.resolve_content(&file_id)

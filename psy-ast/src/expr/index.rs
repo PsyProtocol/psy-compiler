@@ -1,4 +1,4 @@
-use crate::{ExprId, Identifier, Location, NodeInfo, NodeType};
+use crate::{ExprId, Identifier, Location, NodeInfo, NodeType, UncheckedType};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IndexAccessNode {
@@ -17,6 +17,9 @@ impl NodeInfo for IndexAccessNode {
 pub struct MemberAccessNode {
     pub target: ExprId,
     pub field: Identifier,
+    /// Generic args on a member used as a bare function reference
+    /// (`object.method::<T>` with no call parens). Empty for plain access.
+    pub generic_parameters: Vec<UncheckedType>,
     pub location: Location,
 }
 

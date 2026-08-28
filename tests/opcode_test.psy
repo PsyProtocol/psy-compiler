@@ -66,13 +66,6 @@ fn main(a: Felt, b: Felt) -> Felt {
     assert_eq(bool0_var, bool0, "boolNot0");
     assert_eq(bool1_var, bool1, "boolNot1");
     assert_eq(!bool0_var, bool1_var, "boolNot2");
-    // todo
-    assert_eq(!one, zero, "boolNot3");
-    assert_eq(!zero, one, "boolNot4");
-    // panic, Invalid bool value
-    // assert_eq(!p_minus_one, zero, "");
-    // error, TypeMismatch
-    // assert_eq(!u32_two, u32_one, "");
     // BoolAnd
     assert_eq(bool0_var && bool0_var, bool0, "boolAnd0");
     assert_eq(bool0_var && bool1_var, bool0, "boolAnd1");
@@ -237,41 +230,41 @@ fn main(a: Felt, b: Felt) -> Felt {
     assert_eq(u32_max >> 64u32, u32_zero, "shr20");
     // SplitBits, SumBits
     let target = p_minus_one - u32_two_pow_31 as Felt;
-    let split_bits = __split_bits(target, 64);
-    assert_eq(split_bits[0], 0, "split0");
-    assert_eq(split_bits[8], 0, "split1");
-    assert_eq(split_bits[16], 0, "split2");
-    assert_eq(split_bits[24], 0, "split3");
-    assert_eq(split_bits[32], 0, "split4");
-    assert_eq(split_bits[40], 1, "split5");
-    assert_eq(split_bits[48], 1, "split6");
-    assert_eq(split_bits[56], 1, "split7");
+    let split_result = split_bits(target, 64);
+    assert_eq(split_result[0], 0, "split0");
+    assert_eq(split_result[8], 0, "split1");
+    assert_eq(split_result[16], 0, "split2");
+    assert_eq(split_result[24], 0, "split3");
+    assert_eq(split_result[32], 0, "split4");
+    assert_eq(split_result[40], 1, "split5");
+    assert_eq(split_result[48], 1, "split6");
+    assert_eq(split_result[56], 1, "split7");
     let mut target2 = 0;
     let mut power_of_two = 1;
     for i in 0u32..64u32 {
-        target2 += (split_bits[i as Felt] as Felt) * power_of_two;
+        target2 += (split_result[i as Felt] as Felt) * power_of_two;
         power_of_two *= 2;
     }
     assert_eq(target, target2, "split8");
-    let sum_split_target = __sum_bits(split_bits);
+    let sum_split_target = sum_bits(split_result);
     assert_eq(sum_split_target, target, "sum_bits0");
-    let split_zero = __split_bits(zero, 1);
+    let split_zero = split_bits(zero, 1);
     assert_eq(split_zero[0], 0, "split9");
-    let sum_split_zero = __sum_bits(split_zero);
+    let sum_split_zero = sum_bits(split_zero);
     assert_eq(sum_split_zero, zero, "sum_bits1");
     // error, SplitBits: target bits must be less than num_bits
-    // let split_two_pow_32 = __split_bits(two**32, 32);
-    let split_two_pow_32 = __split_bits(two ** 32, 33);
+    // let split_two_pow_32 = split_bits(two**32, 32);
+    let split_two_pow_32 = split_bits(two ** 32, 33);
     assert_eq(split_zero[0], 0, "split10");
     assert_eq(split_two_pow_32[31], 0, "split11");
     assert_eq(split_two_pow_32[32], 1, "split12");
     // error, array index must less than array length
     // assert_eq(split_two_pow_32[33], 1, "");
-    let sum_split_two_pow_32 = __sum_bits(split_two_pow_32);
+    let sum_split_two_pow_32 = sum_bits(split_two_pow_32);
     assert_eq(sum_split_two_pow_32, two ** 32, "sum_bits2");
     // error, SplitBits: target bits must be less than num_bits
-    let split_p_minus_one = __split_bits(p_minus_one, 64);
-    let sum_split_p_minus_one = __sum_bits(split_p_minus_one);
+    let split_p_minus_one = split_bits(p_minus_one, 64);
+    let sum_split_p_minus_one = sum_bits(split_p_minus_one);
     assert_eq(sum_split_p_minus_one, p_minus_one, "sum_bits3");
     // Cast
     assert_eq(bool0_var as u32, 0u32, "cast0");

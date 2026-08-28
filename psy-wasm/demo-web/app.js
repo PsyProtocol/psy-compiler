@@ -34,24 +34,24 @@ struct Person {
 // input:0,1
 // output: 340
 fn main(a: Felt, b: Felt) -> Felt {
-    let hw1: HW = new HW {
+    let hw1: HW = HW {
         height: 180,
         weight: 140,
     };
-    let hw2: HW = new HW {
+    let hw2: HW = HW {
         height: 175,
         weight: 110,
     };
-    let person1: Person = new Person {
+    let person1: Person = Person {
         age: 8,
         hw: [hw1, hw1],
     };
-    let person2: Person = new Person {
+    let person2: Person = Person {
         age: 18,
         hw: [hw2, hw2],
     };
     let mut arr: [Person; 2] = [person1, person2];
-    arr[a].hw[b] = new HW {
+    arr[a].hw[b] = HW {
         height: 160,
         weight: 110,
     };
@@ -74,7 +74,7 @@ const compileSourceButton = document.querySelector("#compile-source-button");
 const compileProjectButton = document.querySelector("#compile-project-button");
 const compileDargoButton = document.querySelector("#compile-dargo-button");
 const exampleButtons = document.querySelectorAll(".example-button");
-const params = new URLSearchParams(window.location.search);
+const params = URLSearchParams(window.location.search);
 
 let wasmReady = false;
 let activeExample = "assert";

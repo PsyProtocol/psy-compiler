@@ -12,24 +12,24 @@ struct Family {
 // input:
 // output:
 fn main() {
-    let father: Person = new Person {
+    let father: Person = Person {
         age: 50,
         male: true,
     };
-    let mother: Person = new Person {
+    let mother: Person = Person {
         age: 50,
         male: false,
     };
-    let mut boy: Person = new Person {
+    let mut boy: Person = Person {
         age: 20,
         male: true,
     };
-    let girl: Person = new Person {
+    let girl: Person = Person {
         age: 20,
         male: false,
     };
     boy.age += 1;
-    let mut family: Family = new Family {
+    let mut family: Family = Family {
         father: father,
         mother: mother,
         children: [boy, girl],

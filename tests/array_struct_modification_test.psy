@@ -11,15 +11,15 @@ struct ComplexStruct {
 
 #[test]
 fn test_modify_array_struct_simple() {
-    let mut test_array: [TestItem; 3] = [new TestItem {
+    let mut test_array: [TestItem; 3] = [TestItem {
             id: 1,
             value: 10,
             data: [100, 200],
-        }, new TestItem {
+        }, TestItem {
             id: 2,
             value: 20,
             data: [300, 400],
-        }, new TestItem {
+        }, TestItem {
             id: 3,
             value: 30,
             data: [500, 600],
@@ -41,17 +41,17 @@ fn test_modify_array_struct_simple() {
 
 #[test]
 fn test_modify_nested_array_struct() {
-    let mut complex: ComplexStruct = new ComplexStruct {
+    let mut complex: ComplexStruct = ComplexStruct {
         name: 42,
-        items: [new TestItem {
+        items: [TestItem {
                 id: 1,
                 value: 10,
                 data: [1, 2],
-            }, new TestItem {
+            }, TestItem {
                 id: 2,
                 value: 20,
                 data: [3, 4],
-            }, new TestItem {
+            }, TestItem {
                 id: 3,
                 value: 30,
                 data: [5, 6],
@@ -74,15 +74,15 @@ fn test_modify_nested_array_struct() {
 
 #[test]
 fn test_modify_array_struct_in_loop() {
-    let mut test_array: [TestItem; 3] = [new TestItem {
+    let mut test_array: [TestItem; 3] = [TestItem {
             id: 1,
             value: 0,
             data: [0, 0],
-        }, new TestItem {
+        }, TestItem {
             id: 2,
             value: 0,
             data: [0, 0],
-        }, new TestItem {
+        }, TestItem {
             id: 3,
             value: 0,
             data: [0, 0],
@@ -108,17 +108,17 @@ fn test_modify_array_struct_in_loop() {
 
 #[test]
 fn test_assign_entire_struct_to_array() {
-    let mut test_array: [TestItem; 2] = [new TestItem {
+    let mut test_array: [TestItem; 2] = [TestItem {
             id: 1,
             value: 10,
             data: [100, 200],
-        }, new TestItem {
+        }, TestItem {
             id: 2,
             value: 20,
             data: [300, 400],
         }];
     // Create new struct and assign to array element
-    let new_item = new TestItem {
+    let new_item = TestItem {
         id: 99,
         value: 999,
         data: [9999, 8888],
@@ -137,23 +137,23 @@ fn test_assign_entire_struct_to_array() {
 #[test]
 fn test_array_struct_repeat_init() {
     // Test [struct; n] initialization syntax
-    let mut items: [TestItem; 5] = [new TestItem {
+    let mut items: [TestItem; 5] = [TestItem {
             id: 0,
             value: 100,
             data: [1, 2],
-        }, new TestItem {
+        }, TestItem {
             id: 0,
             value: 100,
             data: [1, 2],
-        }, new TestItem {
+        }, TestItem {
             id: 0,
             value: 100,
             data: [1, 2],
-        }, new TestItem {
+        }, TestItem {
             id: 0,
             value: 100,
             data: [1, 2],
-        }, new TestItem {
+        }, TestItem {
             id: 0,
             value: 100,
             data: [1, 2],
@@ -189,33 +189,33 @@ struct DeepNested {
 
 #[test]
 fn test_deeply_nested_array_struct() {
-    let mut deep: DeepNested = new DeepNested {
-        level1: [new ComplexStruct {
+    let mut deep: DeepNested = DeepNested {
+        level1: [ComplexStruct {
                 name: 100,
-                items: [new TestItem {
+                items: [TestItem {
                         id: 1,
                         value: 10,
                         data: [1, 2],
-                    }, new TestItem {
+                    }, TestItem {
                         id: 1,
                         value: 10,
                         data: [1, 2],
-                    }, new TestItem {
+                    }, TestItem {
                         id: 1,
                         value: 10,
                         data: [1, 2],
                     }],
-            }, new ComplexStruct {
+            }, ComplexStruct {
                 name: 200,
-                items: [new TestItem {
+                items: [TestItem {
                         id: 2,
                         value: 20,
                         data: [3, 4],
-                    }, new TestItem {
+                    }, TestItem {
                         id: 2,
                         value: 20,
                         data: [3, 4],
-                    }, new TestItem {
+                    }, TestItem {
                         id: 2,
                         value: 20,
                         data: [3, 4],
@@ -251,7 +251,7 @@ fn test_array_of_arrays_in_struct() {
         pub id: Felt,
     }
 
-    let mut container: ArrayContainer = new ArrayContainer {
+    let mut container: ArrayContainer = ArrayContainer {
         matrices: [[1, 2], [3, 4], [5, 6]],
         id: 99,
     };
@@ -275,19 +275,19 @@ fn test_array_of_arrays_in_struct() {
 #[test]
 fn test_mixed_initialization_and_modification() {
     // Mix different initialization styles
-    let default_item = new TestItem {
+    let default_item = TestItem {
         id: 0,
         value: 0,
         data: [0, 0],
     };
     let mut mixed_array: [TestItem; 4] = [default_item, default_item, default_item, default_item];
     // Initialize some elements explicitly
-    mixed_array[0] = new TestItem {
+    mixed_array[0] = TestItem {
         id: 10,
         value: 100,
         data: [1000, 2000],
     };
-    mixed_array[2] = new TestItem {
+    mixed_array[2] = TestItem {
         id: 30,
         value: 300,
         data: [3000, 4000],

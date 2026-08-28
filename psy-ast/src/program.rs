@@ -10,6 +10,7 @@ use crate::{
 pub struct Program<F: Clone + From<u32>> {
     pub modules: Tree<ModuleId, ModuleNode>,
     pub dependency_graph: Graph<CrateId>,
+    pub std_module_id: Option<ModuleId>,
     pub file_resolver: FileResolver,
     pub exprs: Arena<ExprId, ExprNode<F>>,
     pub stmts: Arena<StmtId, StmtNode>,
@@ -45,6 +46,7 @@ impl<F: Clone + From<u32>> Program<F> {
         Self {
             modules: Tree::new(),
             dependency_graph: Graph::new(),
+            std_module_id: None,
             file_resolver: FileResolver::new(),
             exprs: Arena::new(),
             stmts: Arena::new(),
@@ -80,15 +82,17 @@ impl<F: Clone + From<u32>> Program<F> {
     }
 
     pub fn is_module_std(&self, module_id: impl Into<ModuleId>) -> bool {
+        let Some(std_module_id) = self.std_module_id else {
+            return false;
+        };
         let mut module_id = Some(module_id.into());
         while let Some(id) = module_id {
-            let module = &self.modules[id];
-            if module.data().name.id == IdentId::STD {
+            if id == std_module_id {
                 return true;
             }
-            module_id = module.parent();
+            module_id = self.modules[id].parent();
         }
-        return false;
+        false
     }
 
     pub fn print_module_graph(&self) {

@@ -76,7 +76,6 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
             }
             (_, Type::TypeVariable(_)) => {
                 if self.satisfies_constraint(lhs_ty, rhs_ty, ctx) {
-                    self.infcx.equate(rhs_ty, lhs_ty);
                     return true;
                 }
                 false

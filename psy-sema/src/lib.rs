@@ -287,6 +287,19 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
     fn visit_intrinsic_expr(&mut self, node: ExprId, ctx: &mut Self::Context) -> StdResult<Self::ExprResult, Self::Error> {
         // TODO: remove clone
         let intrinsic_node = ctx.expression(node).as_intrinsic().cloned().unwrap();
+        let intrinsic_location = intrinsic_node.location();
+        let in_std = ctx
+            .program
+            .modules
+            .iter()
+            .filter(|module| module.data().file_id == intrinsic_location.file_id)
+            .any(|module| ctx.program.is_module_std(module.id()));
+        if let Some(name) = intrinsic_node.raw_name() && !in_std {
+            return Err(Error::RawIntrinsicOutsideStd {
+                location: intrinsic_location,
+                name,
+            });
+        }
         match intrinsic_node {
             IntrinsicExprNode::GetUserId { location } => {
                 return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::GetUserId {
@@ -997,10 +1010,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
             IntrinsicExprNode::Secp256k1Verify { pub_key, msg, sig, location } => {
                 let pub_key = self.visit_expr(pub_key, ctx)?;
-
                 let msg = self.visit_expr(msg, ctx)?;
                 let sig = self.visit_expr(sig, ctx)?;
-
                 Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::Secp256k1Verify {
                     pub_key: self.program.exprs.alloc_item(pub_key),
                     msg: self.program.exprs.alloc_item(msg),
@@ -1157,9 +1168,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
             IntrinsicExprNode::SplitBits { target, num_bits, location } => {
                 let target = self.visit_expr(target, ctx)?;
+                let num_bits = self.visit_expr(num_bits, ctx)?;
                 return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::SplitBits {
                     target: self.program.exprs.alloc_item(target),
-                    num_bits,
+                    num_bits: self.program.exprs.alloc_item(num_bits),
                     type_id: ARRAY_TYPE,
                     location,
                 }));
@@ -1494,10 +1506,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 }
             }
             UnaryOperator::Not => {
-                if !self.unify(type_id, BOOL_TYPE, ctx) && !self.unify(type_id, FELT_TYPE, ctx) {
+                if !self.unify(type_id, BOOL_TYPE, ctx) {
                     return Err(Error::TypeMismatch {
                         location: unary_node.location,
-                        expected: vec![FELT_TYPE, BOOL_TYPE],
+                        expected: vec![BOOL_TYPE],
                         found: type_id,
                     });
                 }
@@ -1534,6 +1546,31 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             if let Some(root) = &path_node.root {
                 if let Some(target) = path_node.target.as_basic() {
                     if let Ok(mut root_type_id) = self.typecheck(root, ctx) {
+                        let explicit_trait_ty = if let Some((_impl_ty, trait_ty, _)) = root.as_trait_cast() {
+                            let trait_ty = self.typecheck(trait_ty, ctx)?;
+                            let satisfies = if ctx.symbols[root_type_id].is_type_variable() {
+                                let constraints = ctx.symbols[root_type_id].as_type_variable().unwrap().constraints.clone();
+                                constraints.into_iter().any(|constraint| self.unify(constraint, trait_ty, ctx))
+                            } else {
+                                self.implements_trait(root_type_id, trait_ty, ctx)
+                            };
+                            if !satisfies {
+                                let expected = if ctx.symbols[root_type_id].is_type_variable() {
+                                    ctx.symbols[root_type_id].as_type_variable().unwrap().constraints.clone()
+                                } else {
+                                    self.implemented_traits(root_type_id, ctx).into_iter().map(|(trait_ty, _)| trait_ty).collect()
+                                };
+                                return Err(Error::TypeMismatch {
+                                    location: path_node.location,
+                                    expected,
+                                    found: trait_ty,
+                                });
+                            }
+                            Some(trait_ty)
+                        } else {
+                            None
+                        };
+
                         for segment in path_node.segments.iter() {
                             let segment = segment.basic_target().ok_or(Error::InvalidPathSegment {
                                 location: segment.location(),
@@ -1541,10 +1578,11 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                             })?;
                             root_type_id = self.find_member(root_type_id, None, Some(segment.location), segment, None, ctx)?;
                         }
-                        let trait_ty = self
-                            .visit_expr(call_node.callee, ctx)
-                            .ok()
-                            .and_then(|expr| expr.as_path().and_then(|path| path.trait_ty));
+                        let trait_ty = explicit_trait_ty.or_else(|| {
+                            self.visit_expr(call_node.callee, ctx)
+                                .ok()
+                                .and_then(|expr| expr.as_path().and_then(|path| path.trait_ty))
+                        });
                         let callee_ty = self.find_member(
                             root_type_id,
                             trait_ty,
@@ -1614,7 +1652,32 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             });
         }
         for (i, type_arg) in args.iter().enumerate() {
-            if !self.unify(signature.parameters[i], type_arg.ty(), ctx) {
+            // A literal argument in a const-generic parameter position
+            // (e.g. `split_bits(x, 64)` where the parameter is `N`) must
+            // bind N to a Const type carrying the value. Unifying against
+            // the literal's Felt/U32 type would equate N with FELT_TYPE,
+            // losing the value and breaking const resolution downstream.
+            let param_ty = signature.parameters[i];
+            let arg_ty = if ctx.symbols[param_ty].is_type_variable() {
+                match type_arg {
+                    CheckedExprNode::Value(CheckedValueNode::Felt(value, _)) => {
+                        self.populate_constant(ConstValue::Felt(ContextFelt::get_u64(value)), ctx)?
+                    }
+                    CheckedExprNode::Value(CheckedValueNode::U32(value, _)) => {
+                        match u32::try_from(ContextFelt::get_u64(value)) {
+                            Ok(n) => self.populate_constant(ConstValue::U32(n), ctx)?,
+                            // The lexer validates u32 literal ranges, so this
+                            // is unreachable in practice; fall back to the
+                            // plain type instead of panicking mid-typecheck.
+                            Err(_) => type_arg.ty(),
+                        }
+                    }
+                    _ => type_arg.ty(),
+                }
+            } else {
+                type_arg.ty()
+            };
+            if !self.unify(param_ty, arg_ty, ctx) {
                 return Err(Error::TypeMismatch {
                     location: call_node.location,
                     expected: vec![signature.parameters[i]],
@@ -1789,10 +1852,14 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 location: cast_node.location,
             }));
         } else {
-            return Err(Error::TypeMismatch {
+            return Err(Error::InvalidCast {
                 location: cast_node.location,
-                expected: vec![target_type],
-                found: src_type,
+                expected: "a cast between Felt, bool, and u32".to_string(),
+                found: format!(
+                    "{} as {}",
+                    ctx.ident(ctx.symbols[src_type].name()),
+                    ctx.ident(ctx.symbols[target_type].name())
+                ),
             });
         };
     }
@@ -1860,6 +1927,14 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
             Some(self.program.exprs.alloc_item(checked_block))
         } else {
+            // A no-else `if` is valid when used as a standalone statement,
+            // but not when its value is consumed by a variable, return, or
+            // call expression.
+            if if_type != VOID_TYPE && !matches!(ctx.ancestor_node_type(1), NodeType::ExpressionStmt) {
+                return Err(Error::IfWithoutElse {
+                    location: if_expr_node.location,
+                });
+            }
             None
         };
 
@@ -1900,6 +1975,19 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let assignment_node = ctx.statement(node).as_assignment().cloned().unwrap();
         let checked_rhs = self.visit_expr(assignment_node.value, ctx)?;
         let checked_lhs = self.visit_expr(assignment_node.target, ctx)?;
+
+        if let CheckedExprNode::Path(path) = &checked_lhs {
+            if let Some(var_id) = path.variable {
+                if !ctx.symbols[var_id].qualifier.is_mutable
+                    && matches!(&ctx.symbols[path.type_id], Type::Felt | Type::Bool | Type::U32)
+                {
+                    return Err(Error::ImmutableVariable {
+                        location: assignment_node.location,
+                        variable: ctx.symbols[var_id].name.id,
+                    });
+                }
+            }
+        }
 
         let lhs_ty = checked_lhs.ty();
         let rhs_ty = checked_rhs.ty();
@@ -2036,6 +2124,21 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
     #[instrument(level = "debug", skip_all)]
     fn visit_intrinsic_stmt(&mut self, node: StmtId, ctx: &mut Self::Context) -> StdResult<Self::StmtResult, Self::Error> {
         let node = ctx.statement(node).as_intrinsic().cloned().unwrap();
+        let in_std = if let IntrinsicStmtNode::ClearEntireTree { location, .. } = &node {
+            ctx.program
+                .modules
+                .iter()
+                .filter(|module| module.data().file_id == location.file_id)
+                .any(|module| ctx.program.is_module_std(module.id()))
+        } else {
+            false
+        };
+        if let IntrinsicStmtNode::ClearEntireTree { location, .. } = &node && !in_std {
+            return Err(Error::RawIntrinsicOutsideStd {
+                location: *location,
+                name: "__ctx_clear_entire_tree",
+            });
+        }
         match node {
             IntrinsicStmtNode::Assert {
                 left,
@@ -2421,14 +2524,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
         self.infcx.exit_context();
         ctx.symbols.end_scope();
-        for variant in &enum_node.variants {
-            match variant {
-                EnumVariant::Basic(_name) => todo!(),
-                EnumVariant::Tuple(_name, _members) => todo!(),
-                EnumVariant::Struct(_name, _fields) => todo!(),
-            }
-        }
-        todo!();
+        Err(Error::UnresolvedType {
+            location: enum_node.location,
+            resolved_type: enum_node.name.id,
+        })
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -2636,7 +2735,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let node = CheckedConstNode {
             name: None,
             ty: rhs_ty,
-            value: ctx.symbols.get_or_add_constant(value),
+            value: ctx.symbols.get_or_add_constant(value?),
             scope_id: ScopeId::primitive(),
             visibility: node.visibility,
         };
@@ -2924,7 +3023,16 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
         ctx.symbols.add_type_id(None, IdentId::TYPE_SELF, implementor_type_id)?;
 
-        let trait_node = ctx.symbols[trait_poly_type_id].clone().into_trait().unwrap();
+        let trait_node = match ctx.symbols[trait_poly_type_id].clone().into_trait() {
+            Ok(trait_node) => trait_node,
+            Err(_) => {
+                return Err(Error::TypeMismatch {
+                    location: trait_impl_node.location,
+                    expected: vec![trait_poly_type_id],
+                    found: trait_type_id,
+                });
+            }
+        };
         let mut associated_types = IndexMap::new();
         for (name, associated_ty) in &trait_node.associated_types {
             let impl_type = trait_impl_node.associated_types.get(name).ok_or(Error::MissingAssociatedType {

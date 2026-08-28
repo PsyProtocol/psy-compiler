@@ -1,4 +1,5 @@
 use indexmap::{IndexMap, IndexSet};
+use itertools::Itertools;
 use psy_ast::{DefId, IdentId, Location, VisitorContext};
 use psy_vm::dpn::ops::context_trait::ContextFelt;
 use tracing::instrument;
@@ -260,23 +261,53 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
             },
             ctx,
         ) {
-            for (constraint, result) in results {
-                for (trait_constraint, impl_id, function_idx) in result {
+            let mut exact_matches: Vec<(TypeId, TypeId, TypeId)> = Vec::new();
+            for (constraint, result) in &results {
+                for (_trait_constraint, impl_id, function_idx) in result {
+                    let (impl_trait_ty, function_id) = {
+                        let impl_node = self.program[*impl_id].as_trait_impl().unwrap();
+                        (impl_node.trait_ty, impl_node.body[*function_idx])
+                    };
                     if let Some(trait_ty) = trait_ty {
-                        if self.poly_of(trait_ty, ctx).unwrap() != self.poly_of(self.program[impl_id].as_trait_impl().unwrap().trait_ty, ctx).unwrap()
-                        {
+                        if self.poly_of(trait_ty, ctx).unwrap() != self.poly_of(impl_trait_ty, ctx).unwrap() {
                             continue;
                         }
                     }
 
                     if generic_parameters == constraint.constraints {
-                        let function_id = self.program[impl_id].as_trait_impl().unwrap().body[function_idx];
                         let candidate = self.program[function_id].as_function().unwrap().type_id;
-                        if candidate_matches!(candidate) {
-                            return Ok(candidate);
+                        let provider = self.poly_of(impl_trait_ty, ctx).unwrap();
+                        if candidate_matches!(candidate) && !exact_matches.iter().any(|(_, matched_provider, _)| *matched_provider == provider) {
+                            exact_matches.push((candidate, provider, impl_trait_ty));
                         }
                     }
+                }
+            }
 
+            if exact_matches.len() > 1 {
+                return Err(Error::AmbiguousTraitMethod {
+                    location: location.unwrap_or_default(),
+                    method: member,
+                    traits: exact_matches.iter().map(|(_, _, trait_ty)| *trait_ty).unique().collect(),
+                });
+            }
+            if let Some((candidate, _, _)) = exact_matches.first() {
+                return Ok(*candidate);
+            }
+
+            let mut generic_matches: Vec<(TypeId, TypeId, TypeId)> = Vec::new();
+            for (constraint, result) in results {
+                for (trait_constraint, impl_id, function_idx) in result {
+                    let impl_trait_ty = self.program[impl_id].as_trait_impl().unwrap().trait_ty;
+                    if let Some(trait_ty) = trait_ty {
+                        if self.poly_of(trait_ty, ctx).unwrap() != self.poly_of(impl_trait_ty, ctx).unwrap() {
+                            continue;
+                        }
+                    }
+                    let provider = self.poly_of(impl_trait_ty, ctx).unwrap();
+                    if generic_matches.iter().any(|(_, matched_provider, _)| *matched_provider == provider) {
+                        continue;
+                    }
                     if self.satisfies_constraints(generic_parameters.clone(), &constraint, ctx) {
                         let poly_function_id = self.program[impl_id].as_trait_impl().unwrap().body[function_idx];
                         let poly_candidate = self.program[poly_function_id].as_function().unwrap().type_id;
@@ -287,8 +318,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                         let function_id = self.program[instance].as_trait_impl().unwrap().body[function_idx];
                         let candidate = self.program[function_id].as_function().unwrap().type_id;
                         if candidate_matches!(candidate) {
-                            return Ok(candidate);
+                            generic_matches.push((candidate, provider, impl_trait_ty));
                         }
+                    }
+
+                    if generic_matches.iter().any(|(_, matched_provider, _)| *matched_provider == provider) {
+                        continue;
                     }
 
                     if ctx.symbols[ty].is_array() && constraint.constraints.iter().any(|c| ctx.symbols[*c].is_type_variable()) {
@@ -323,25 +358,55 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                             let function_id = self.program[instance].as_trait_impl().unwrap().body[function_idx];
                             let candidate = self.program[function_id].as_function().unwrap().type_id;
                             if candidate_matches!(candidate) {
-                                return Ok(candidate);
+                                generic_matches.push((candidate, provider, impl_trait_ty));
                             }
                         }
                     }
                 }
             }
+
+            if generic_matches.len() > 1 {
+                return Err(Error::AmbiguousTraitMethod {
+                    location: location.unwrap_or_default(),
+                    method: member,
+                    traits: generic_matches.iter().map(|(_, _, trait_ty)| *trait_ty).unique().collect(),
+                });
+            }
+            if let Some((candidate, _, _)) = generic_matches.first() {
+                return Ok(*candidate);
+            }
         }
 
         if let Some(constraints) = ctx.symbols[ty].as_type_variable().map(|x| x.constraints.clone()) {
+            let mut constrained_matches = Vec::new();
             for trait_type_id in constraints.into_iter() {
                 if let Some(method_type_id) = get_trait_member(trait_type_id, ctx) {
                     if candidate_matches!(method_type_id) {
-                        return Ok(method_type_id);
+                        if !constrained_matches.iter().any(|(matched, _)| *matched == method_type_id) {
+                            constrained_matches.push((method_type_id, trait_type_id));
+                        }
                     }
                 }
             }
-        } else if let Ok(associated_type) = self.find_associated_type(ty, trait_ty, location, member, ctx) {
-            if candidate_matches!(associated_type) {
-                return Ok(associated_type);
+            if constrained_matches.len() > 1 {
+                return Err(Error::AmbiguousTraitMethod {
+                    location: location.unwrap_or_default(),
+                    method: member,
+                    traits: constrained_matches.iter().map(|(_, trait_ty)| *trait_ty).unique().collect(),
+                });
+            }
+            if let Some((method_type_id, _)) = constrained_matches.first() {
+                return Ok(*method_type_id);
+            }
+        } else {
+            match self.find_associated_type(ty, trait_ty, location, member, ctx) {
+                Ok(associated_type) => {
+                    if candidate_matches!(associated_type) {
+                        return Ok(associated_type);
+                    }
+                }
+                Err(Error::UnresolvedMember { .. }) => {}
+                Err(error) => return Err(error),
             }
         }
 
@@ -366,8 +431,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
             return self.find_member(ty, trait_ty, location, method, expected_parameters, ctx);
         }
 
-        if let Ok(associated_type) = self.find_associated_type(ty, trait_ty, location, method, ctx) {
-            return Ok(associated_type);
+        match self.find_associated_type(ty, trait_ty, location, method, ctx) {
+            Ok(associated_type) => return Ok(associated_type),
+            Err(Error::UnresolvedMember { .. }) => {}
+            Err(error) => return Err(error),
         }
 
         self.find_member(ty, trait_ty, location, method, expected_parameters, ctx)
@@ -413,7 +480,9 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                     .unwrap()
                     .type_id);
             }
-        } else if let Some(results) = self.get_trait_impl_ids(
+        }
+
+        if let Some(results) = self.get_trait_impl_ids(
             ty,
             |impl_node: &CheckedTraitImplNode| {
                 impl_node
@@ -424,32 +493,71 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
             },
             ctx,
         ) {
-            for (constraint, result) in results {
-                for (trait_constraint, impl_id, name) in result {
+            let mut exact_matches = Vec::new();
+            for (constraint, result) in &results {
+                for (_trait_constraint, impl_id, name) in result {
+                    let impl_node = self.program[*impl_id].as_trait_impl().unwrap();
                     if let Some(trait_ty) = trait_ty {
-                        if self.poly_of(trait_ty, ctx).unwrap() != self.poly_of(self.program[impl_id].as_trait_impl().unwrap().trait_ty, ctx).unwrap()
-                        {
+                        if self.poly_of(trait_ty, ctx).unwrap() != self.poly_of(impl_node.trait_ty, ctx).unwrap() {
                             continue;
                         }
                     }
 
                     if generic_parameters == constraint.constraints {
-                        return Ok(self.program[impl_id]
-                            .as_trait_impl()
-                            .and_then(|x| x.associated_types.get(&name))
-                            .unwrap()
-                            .type_id);
-                    }
-
-                    if self.satisfies_constraints(generic_parameters.clone(), &constraint, ctx) {
-                        let instance = self.instantiate_trait_impl(impl_id, trait_constraint.constraints, generic_parameters.clone(), ctx)?;
-                        return Ok(self.program[instance]
-                            .as_trait_impl()
-                            .and_then(|x| x.associated_types.get(&name))
-                            .unwrap()
-                            .type_id);
+                        let associated_ty = impl_node.associated_types.get(name).unwrap().type_id;
+                        let provider = self.poly_of(impl_node.trait_ty, ctx).unwrap();
+                        if !exact_matches.iter().any(|(_, matched_provider, _)| *matched_provider == provider) {
+                            exact_matches.push((associated_ty, provider, impl_node.trait_ty));
+                        }
                     }
                 }
+            }
+
+            if exact_matches.len() > 1 {
+                return Err(Error::AmbiguousAssociatedType {
+                    location: location.unwrap_or_default(),
+                    member,
+                    traits: exact_matches.iter().map(|(_, _, trait_ty)| *trait_ty).unique().collect(),
+                });
+            }
+            if let Some((associated_ty, _, _)) = exact_matches.first() {
+                return Ok(*associated_ty);
+            }
+
+            let mut generic_matches = Vec::new();
+            for (constraint, result) in results {
+                for (trait_constraint, impl_id, name) in result {
+                    let impl_trait_ty = self.program[impl_id].as_trait_impl().unwrap().trait_ty;
+                    if let Some(trait_ty) = trait_ty {
+                        if self.poly_of(trait_ty, ctx).unwrap() != self.poly_of(impl_trait_ty, ctx).unwrap() {
+                            continue;
+                        }
+                    }
+                    let provider = self.poly_of(impl_trait_ty, ctx).unwrap();
+                    if generic_matches.iter().any(|(_, matched_provider, _)| *matched_provider == provider) {
+                        continue;
+                    }
+                    if self.satisfies_constraints(generic_parameters.clone(), &constraint, ctx) {
+                        let instance = self.instantiate_trait_impl(impl_id, trait_constraint.constraints, generic_parameters.clone(), ctx)?;
+                        let associated_ty = self.program[instance]
+                            .as_trait_impl()
+                            .and_then(|x| x.associated_types.get(&name))
+                            .unwrap()
+                            .type_id;
+                        generic_matches.push((associated_ty, provider, impl_trait_ty));
+                    }
+                }
+            }
+
+            if generic_matches.len() > 1 {
+                return Err(Error::AmbiguousAssociatedType {
+                    location: location.unwrap_or_default(),
+                    member,
+                    traits: generic_matches.iter().map(|(_, _, trait_ty)| *trait_ty).unique().collect(),
+                });
+            }
+            if let Some((associated_ty, _, _)) = generic_matches.first() {
+                return Ok(*associated_ty);
             }
         }
 

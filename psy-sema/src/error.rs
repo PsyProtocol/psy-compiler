@@ -27,6 +27,8 @@ pub enum Error {
     ImmutableVariable { location: Location, variable: IdentId },
     #[error("unresolved member")]
     UnresolvedMember { location: Location, member_name: IdentId },
+    #[error("type is not callable")]
+    NotCallable { location: Location, ty: TypeId },
     #[error("unresolved trait method")]
     UnresolvedTraitMethod {
         method_location: Location,
@@ -48,6 +50,8 @@ pub enum Error {
     InvalidGenericConstraint { location: Location },
     #[error("unreachable expression")]
     UnreachableExpression { location: Location },
+    #[error("if expression without else branch cannot be used as a value")]
+    IfWithoutElse { location: Location },
     #[error("type already defined")]
     TypeAlreadyDefined { location: Location, type_name: IdentId },
     #[error("member not public")]
@@ -78,9 +82,15 @@ pub enum Error {
     IncompleteMatch { location: Location, message: String },
     #[error("Specialization not allowed")]
     SpecializationNotAllowed { location: Location },
+    #[error("raw intrinsic `{name}` is only available inside the std module tree")]
+    RawIntrinsicOutsideStd { location: Location, name: &'static str },
+    #[error("ambiguous trait method: multiple trait impls provide the same method, disambiguate with `<T as Trait>::method()`")]
+    AmbiguousTraitMethod { location: Location, method: IdentId, traits: Vec<TypeId> },
+    #[error("ambiguous associated type: multiple trait impls provide the same associated type, disambiguate with `<T as Trait>::Type`")]
+    AmbiguousAssociatedType { location: Location, member: IdentId, traits: Vec<TypeId> },
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug)]
 pub struct TypeCheckerErrorDescriptor {

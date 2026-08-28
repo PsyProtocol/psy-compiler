@@ -138,7 +138,7 @@ impl PsyPOWMiningRewardsClaimContractRef {
 
         assert(claim_checkpoint_id > persistent_state.last_sealed_checkpoint_id, "checkpoint is sealed");
 
-        c.persistent_state = new PersistentState {
+        c.persistent_state = PersistentState {
             last_claimed_checkpoint_id: claim_checkpoint_id,
             claimed_rewards: persistent_state.claimed_rewards,
             last_sealed_checkpoint_id: persistent_state.last_sealed_checkpoint_id,
@@ -157,7 +157,7 @@ impl PsyPOWMiningRewardsClaimContractRef {
 
         clear_entire_tree();
 
-        c.persistent_state = new PersistentState {
+        c.persistent_state = PersistentState {
             last_claimed_checkpoint_id: persistent_state.last_claimed_checkpoint_id,
             claimed_rewards: persistent_state.claimed_rewards,
             last_sealed_checkpoint_id: claim_checkpoint_id,
@@ -185,7 +185,7 @@ impl PsyPOWMiningRewardsClaimContractRef {
         Self::claim_single_guta_reward(checkpoint_id, proof, proposed_reward);
 
         let new_persistent_state = c.persistent_state.get();
-        c.persistent_state = new PersistentState {
+        c.persistent_state = PersistentState {
             last_claimed_checkpoint_id: checkpoint_id,
             claimed_rewards: new_persistent_state.claimed_rewards + proposed_reward,
             last_sealed_checkpoint_id: new_persistent_state.last_sealed_checkpoint_id,
@@ -225,7 +225,7 @@ impl PsyPOWMiningRewardsClaimContractRef {
         }
 
         let final_persistent_state = c.persistent_state.get();
-        c.persistent_state = new PersistentState {
+        c.persistent_state = PersistentState {
             last_claimed_checkpoint_id: last_checkpoint,
             claimed_rewards: final_persistent_state.claimed_rewards + total_rewards_claimed,
             last_sealed_checkpoint_id: final_persistent_state.last_sealed_checkpoint_id,
@@ -265,7 +265,7 @@ impl PsyPOWMiningRewardsClaimContractRef {
         }
 
         let final_persistent_state = c.persistent_state.get();
-        c.persistent_state = new PersistentState {
+        c.persistent_state = PersistentState {
             last_claimed_checkpoint_id: last_checkpoint,
             claimed_rewards: final_persistent_state.claimed_rewards + total_rewards_claimed,
             last_sealed_checkpoint_id: final_persistent_state.last_sealed_checkpoint_id,

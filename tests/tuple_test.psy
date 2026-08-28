@@ -24,7 +24,7 @@ fn main() {
         pub nested: ((Felt, Felt), Felt),
     }
 
-    let mut struct_with_tuple: TupleHolder = new TupleHolder {
+    let mut struct_with_tuple: TupleHolder = TupleHolder {
         pair: (22, 23),
         nested: ((24, 25), 26),
     };

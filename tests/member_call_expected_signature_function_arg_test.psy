@@ -34,7 +34,7 @@ impl ApplyBoolFn for Worker {
 }
 
 fn main() -> Felt {
-    let w: Worker = new Worker {
+    let w: Worker = Worker {
         x: 1,
         y: 2,
     };

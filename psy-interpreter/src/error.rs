@@ -22,13 +22,21 @@ pub enum Error {
     UncertainLoopCondition { loop_location: Location },
     #[error("assertion failure: {message}")]
     AssertionFailure { message: String, location: Option<Location> },
-    // #[error("index out of bounds")]
-    // IndexOutOfBounds,
+    #[error("DivisionByZero: division or remainder by zero")]
+    DivisionByZero { location: Option<Location> },
+    #[error("ArithmeticOverflow: constant arithmetic overflow")]
+    ArithmeticOverflow { location: Option<Location> },
+    #[error("IndexOutOfBounds: index {index} >= length {length}")]
+    IndexOutOfBounds { index: usize, length: usize, location: Option<Location> },
+    #[error("ArrayTooLarge: cannot materialize an array with {length} elements (limit: {limit})")]
+    ArrayTooLarge { length: u64, limit: u64, location: Option<Location> },
+    #[error("ArrayAllocationFailed: cannot reserve storage for {length} array elements")]
+    ArrayAllocationFailed { length: usize, location: Option<Location> },
     // #[error("type mismatch")]
     // TypeMismatch,
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 fn build_report<F: Clone + From<u32> + ContextFelt>(
     location: Location,
@@ -60,43 +68,40 @@ fn build_report<F: Clone + From<u32> + ContextFelt>(
 
 pub fn lowering_parse_error<F: Clone + From<u32> + ContextFelt>(error: &psy_parser::Error, program: &Program<F>) -> String {
     match error {
-        ParseError::LexicalError(error) => format!("{}", error),
         ParseError::CommonError(error) => format!("{}", error),
         ParseError::IoError(error) => format!("{}", error),
         ParseError::FileUnresolved => format!("{}", error),
-        ParseError::FileParsedMultipleTimes(path) => format!("{}", error),
-        ParseError::NoEntryModule(path) => format!("{}", error),
-        ParseError::InvalidModuleName => format!("{}", error),
-        ParseError::ExternFnNotInStd => format!("{}", error),
-        ParseError::FunctionBodyMissing => format!("{}", error),
-        ParseError::InvalidSelfParameter => format!("{}", error),
-        ParseError::ArrayLengthOverflow { length, location } => build_report(
-            *location,
-            "ArrayLengthOverflow",
-            format!("Array length {length} exceeds the maximum supported length of {}.", u32::MAX),
-            program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        ParseError::InvalidToken { location } => {
-            build_report(location.clone(), "InvalidToken", "Invalid Token.", program).unwrap_or_else(|e| format!("Failed to build report: {}", e))
-        }
-        ParseError::UnrecognizedEof { expected, location } => {
-            build_report(location.clone(), "UnrecognizedEof", format!("Expected {:?}.", expected), program)
+        ParseError::FileParsedMultipleTimes(path) => format!("{}", path.display()),
+        ParseError::NoEntryModule(path) => format!("{}", path.display()),
+        ParseError::InvalidModuleName
+        | ParseError::ExternFnNotInStd
+        | ParseError::FunctionBodyMissing
+        | ParseError::InvalidSelfParameter => format!("{}", error),
+        ParseError::UnexpectedEof { expected, location } => {
+            build_report(*location, "UnexpectedEof", format!("Expected {:?}.", expected), program)
                 .unwrap_or_else(|e| format!("Failed to build report: {}", e))
         }
-        ParseError::UnrecognizedToken { token, expected, location } => build_report(
-            location.clone(),
-            "UnrecognizedToken",
-            format!("Found unrecognized token {}, expected {:?}.", token, expected,),
+        ParseError::UnexpectedToken { found, expected, location } => build_report(
+            *location,
+            "UnexpectedToken",
+            format!("Found unexpected token {}, expected {:?}.", found, expected),
             program,
         )
         .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        ParseError::ExtraToken { token, location } => build_report(location.clone(), "ExtraToken", format!("Extra token {} found.", token), program)
+        ParseError::UnsupportedSyntax { feature, location } => build_report(
+            *location,
+            "UnsupportedSyntax",
+            format!("Unsupported syntax: {}.", feature),
+            program,
+        )
+        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
+        ParseError::LexicalError { location } => build_report(*location, "LexError", "Lexical error.", program)
             .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
     }
 }
 
-fn span_to_range(location: &Location, source: &str) -> TextRange {
+fn span_to_range(location: &Location, source: impl AsRef<str>) -> TextRange {
+    let source = source.as_ref();
     fn offset_to_text_position(offset: usize, text: &str) -> TextPosition {
         let mut line = 0;
         let mut current_offset = 0;
@@ -127,56 +132,46 @@ fn span_to_range(location: &Location, source: &str) -> TextRange {
 pub fn parse_error_to_diagnostic<F: Clone + From<u32> + ContextFelt>(error: &ParseError, program: &Program<F>) -> TypeCheckerErrorDescriptor {
     use ParseError::*;
 
-    let (range, file, message) = match error {
-        InvalidToken { location } | UnrecognizedEof { location, .. } | UnrecognizedToken { location, .. } | ExtraToken { location, .. } => {
-            let message = match error {
-                InvalidToken { .. } => "Invalid token".to_string(),
-                UnrecognizedEof { expected, .. } => {
-                    format!("Unexpected EOF. Expected one of: {}", format_expected_pretty(expected))
-                }
-                UnrecognizedToken { token, expected, .. } => {
-                    format!("Unrecognized token '{}', expected one of: {}", token, format_expected_pretty(expected),)
-                }
-                ExtraToken { token, .. } => format!("Extra token '{}'", token),
-                _ => unreachable!(),
-            };
-
-            // Convert location to LSP range
-            let file_content = program.file_resolver.resolve_content(&location.file_id).unwrap_or_default();
-
-            let range = span_to_range(location, &file_content);
-            let file_path = program.file_resolver.resolve_path(&location.file_id);
-            (Some(range), file_path, message)
-        }
-
-        // Other errors without location info
-        other => (None, None, format!("{other}")),
+    let located = match error {
+        UnexpectedEof { expected, location } => Some((
+            location,
+            format!("Unexpected EOF. Expected one of: {}", format_expected_pretty(expected)),
+        )),
+        UnexpectedToken { found, expected, location } => Some((
+            location,
+            format!("Unexpected token '{}', expected one of: {}", found, format_expected_pretty(expected)),
+        )),
+        UnsupportedSyntax { feature, location } => Some((location, format!("Unsupported syntax: {}", feature))),
+        LexicalError { location } => Some((location, "Lexical error".to_string())),
+        _ => None,
     };
+
+    let (range, file, message) = if let Some((location, message)) = located {
+        let file_content = program.file_resolver.resolve_content(&location.file_id).unwrap_or_default();
+        let range = span_to_range(location, file_content);
+        let file_path = program.file_resolver.resolve_path(&location.file_id);
+        (Some(range), file_path, message)
+    } else {
+        (None, None, format!("{error}"))
+    };
+
     TypeCheckerErrorDescriptor {
         file,
         text_range: range,
         message,
     }
 }
-fn format_expected_pretty(expected: &[String]) -> String {
+
+fn format_expected_pretty(expected: &[psy_parser::error::ExpectedToken]) -> String {
     if expected.is_empty() {
         return "(no expected tokens)".to_string();
     }
 
-    let items: Vec<String> = expected
-        .iter()
-        .map(|s| s.trim_matches('"').replace("\\\"", "\""))
-        .map(|s| s.to_string())
-        .collect();
-
+    let items = expected.iter().map(ToString::to_string).collect::<Vec<_>>();
     match items.len() {
         1 => items[0].clone(),
         2 => format!("{} or {}", items[0], items[1]),
-        _ => {
-            let all_but_last = &items[..items.len() - 1];
-            let last = &items[items.len() - 1];
-            format!("{} or {}", all_but_last.join(", "), last)
-        }
+        _ => format!("{} or {}", items[..items.len() - 1].join(", "), items.last().unwrap()),
     }
 }
 pub fn lowering_sema_error<F: Clone + From<u32> + ContextFelt, C>(error: &psy_sema::Error, ctx: &TypeCheckerVisitorContext<F, C>) -> String {
@@ -237,6 +232,13 @@ pub fn lowering_sema_error<F: Clone + From<u32> + ContextFelt, C>(error: &psy_se
             location.clone(),
             "UnresolvedMember",
             format!("Unresolved member {}.", ctx.ident(member_name.clone())),
+            &ctx.program,
+        )
+        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
+        SemaError::NotCallable { location, ty } => build_report(
+            location.clone(),
+            "NotCallable",
+            format!("Type {} is not callable.", ctx.debug_type(ty.clone())),
             &ctx.program,
         )
         .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
@@ -363,6 +365,42 @@ pub fn lowering_sema_error<F: Clone + From<u32> + ContextFelt, C>(error: &psy_se
             &ctx.program,
         )
         .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
+        SemaError::RawIntrinsicOutsideStd { location, name } => build_report(
+            *location,
+            "RawIntrinsicOutsideStd",
+            format!("Raw intrinsic `{name}` is only available inside the std module tree; use a public std API instead."),
+            &ctx.program,
+        )
+        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
+        SemaError::IfWithoutElse { location } => build_report(
+            *location,
+            "IfWithoutElse",
+            "if expression without else branch cannot be used as a value: the result is undefined when the condition is false.",
+            &ctx.program,
+        )
+        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
+        SemaError::AmbiguousTraitMethod { location, method, traits } => build_report(
+            *location,
+            "AmbiguousTraitMethod",
+            format!(
+                "Ambiguous trait method `{}`: multiple trait impls provide it ({}). Disambiguate with `<T as Trait>::method()`.",
+                ctx.ident(*method),
+                traits.iter().map(|ty| ctx.debug_type(ty.clone())).collect::<Vec<_>>().join(", ")
+            ),
+            &ctx.program,
+        )
+        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
+        SemaError::AmbiguousAssociatedType { location, member, traits } => build_report(
+            *location,
+            "AmbiguousAssociatedType",
+            format!(
+                "Ambiguous associated type `{}`: multiple trait impls provide it ({}). Disambiguate with `<T as Trait>::Type`.",
+                ctx.ident(*member),
+                traits.iter().map(|ty| ctx.debug_type(*ty)).collect::<Vec<_>>().join(", ")
+            ),
+            &ctx.program,
+        )
+        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
     }
 }
 pub fn typecheck_error_to_diagnostic<F: Clone + From<u32> + ContextFelt, C>(
@@ -382,7 +420,7 @@ pub fn typecheck_error_to_diagnostic<F: Clone + From<u32> + ContextFelt, C>(
             (
                 Some(span_to_range(
                     location,
-                    ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
+                    ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
                 )),
                 file,
                 msg,
@@ -392,7 +430,7 @@ pub fn typecheck_error_to_diagnostic<F: Clone + From<u32> + ContextFelt, C>(
         SemaError::InvalidPathSegment { location, segment } => (
             Some(span_to_range(
                 location,
-                ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
+                ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
             )),
             ctx.program.file_resolver.resolve_path(&location.file_id),
             format!("Invalid path segment: {}", segment),
@@ -401,7 +439,7 @@ pub fn typecheck_error_to_diagnostic<F: Clone + From<u32> + ContextFelt, C>(
         SemaError::UnresolvedType { location, resolved_type } => (
             Some(span_to_range(
                 location,
-                ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
+                ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
             )),
             ctx.program.file_resolver.resolve_path(&location.file_id),
             format!("Unresolved type: {}", ctx.ident(*resolved_type)),
@@ -410,7 +448,7 @@ pub fn typecheck_error_to_diagnostic<F: Clone + From<u32> + ContextFelt, C>(
         SemaError::VariableAlreadyDefined { location, variable } => (
             Some(span_to_range(
                 location,
-                ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
+                ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
             )),
             ctx.program.file_resolver.resolve_path(&location.file_id),
             format!("Variable already defined: {}", ctx.ident(*variable)),
@@ -419,7 +457,7 @@ pub fn typecheck_error_to_diagnostic<F: Clone + From<u32> + ContextFelt, C>(
         SemaError::ImmutableVariable { location, variable } => (
             Some(span_to_range(
                 location,
-                ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
+                ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
             )),
             ctx.program.file_resolver.resolve_path(&location.file_id),
             format!("Variable {} is immutable", ctx.ident(*variable)),
@@ -428,10 +466,19 @@ pub fn typecheck_error_to_diagnostic<F: Clone + From<u32> + ContextFelt, C>(
         SemaError::InvalidReturn { location, message } => (
             Some(span_to_range(
                 location,
-                ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
+                ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
             )),
             ctx.program.file_resolver.resolve_path(&location.file_id),
             format!("Invalid return: {}", message),
+        ),
+
+        SemaError::RawIntrinsicOutsideStd { location, name } => (
+            Some(span_to_range(
+                location,
+                ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
+            )),
+            ctx.program.file_resolver.resolve_path(&location.file_id),
+            format!("Raw intrinsic `{name}` is only available inside the std module tree; use a public std API instead."),
         ),
 
         SemaError::NoParentModule { location }
@@ -443,13 +490,21 @@ pub fn typecheck_error_to_diagnostic<F: Clone + From<u32> + ContextFelt, C>(
             (
                 Some(span_to_range(
                     location,
-                    ctx.program.file_resolver.resolve_content(&location.file_id).as_deref().unwrap_or_default(),
+                    ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
                 )),
                 ctx.program.file_resolver.resolve_path(&location.file_id),
                 label,
             )
         }
 
+        SemaError::InvalidCast { location, expected, found } => (
+            Some(span_to_range(
+                location,
+                ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default(),
+            )),
+            ctx.program.file_resolver.resolve_path(&location.file_id),
+            format!("Invalid cast. Expected {expected}, found {found}."),
+        ),
         _ => (None, None, format!("{error}")),
     };
 
@@ -475,6 +530,47 @@ pub fn lowering_interpreter_error<F: Clone + From<u32> + ContextFelt, C>(error: 
                 build_report(location.clone(), "AssertionFailure", message, &ctx.program).unwrap_or_else(|e| format!("Failed to build report: {}", e))
             } else {
                 format!("Assertion failure: {}", message)
+            }
+        }
+        Error::DivisionByZero { location } => {
+            if let Some(location) = location {
+                build_report(location.clone(), "DivisionByZero", "Division or remainder by zero.", &ctx.program)
+                    .unwrap_or_else(|e| format!("Failed to build report: {}", e))
+            } else {
+                format!("{}", error)
+            }
+        }
+        Error::ArithmeticOverflow { location } => {
+            if let Some(location) = location {
+                build_report(location.clone(), "ArithmeticOverflow", "Arithmetic overflow.", &ctx.program)
+                    .unwrap_or_else(|e| format!("Failed to build report: {}", e))
+            } else {
+                format!("{}", error)
+            }
+        }
+        Error::IndexOutOfBounds { index, length, location } => {
+            let msg = format!("Index out of bounds: index {} >= length {}.", index, length);
+            if let Some(location) = location {
+                build_report(location.clone(), "IndexOutOfBounds", msg, &ctx.program)
+                    .unwrap_or_else(|e| format!("Failed to build report: {}", e))
+            } else {
+                msg
+            }
+        }
+        Error::ArrayTooLarge { length, limit, location } => {
+            let msg = format!("Cannot materialize an array with {} elements; the interpreter limit is {}.", length, limit);
+            if let Some(location) = location {
+                build_report(*location, "ArrayTooLarge", msg, &ctx.program).unwrap_or_else(|e| format!("Failed to build report: {}", e))
+            } else {
+                msg
+            }
+        }
+        Error::ArrayAllocationFailed { length, location } => {
+            let msg = format!("Cannot reserve storage for {} array elements.", length);
+            if let Some(location) = location {
+                build_report(*location, "ArrayAllocationFailed", msg, &ctx.program).unwrap_or_else(|e| format!("Failed to build report: {}", e))
+            } else {
+                msg
             }
         }
     };

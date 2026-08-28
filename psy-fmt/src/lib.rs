@@ -43,17 +43,6 @@ impl<'a, F: Clone + From<u32> + Debug, C> Formatter<'a, F, C> {
         result
     }
 
-    #[allow(dead_code)]
-    fn append_line(&mut self, s: &str) {
-        self.output.push_str(s);
-        self.output.push('\n');
-    }
-
-    #[allow(dead_code)]
-    fn write(&mut self, s: &str) {
-        self.write_indent();
-        self.output.push_str(s);
-    }
 
     fn write_line(&mut self, s: &str) {
         self.write_indent();
@@ -164,19 +153,23 @@ impl<'a, F: Clone + From<u32> + Debug, C> Formatter<'a, F, C> {
     }
 
     fn visit_path_node(&self, node: &PathNode, ctx: &impl VisitorContext<F, C>) -> String {
-        let mut path = node
-            .root
-            .as_ref()
-            .map(|r| vec![self.visit_unchecked_type(r, !node.is_ty, ctx)])
-            .unwrap_or_default();
-        path.extend_from_slice(
-            &node
-                .segments
-                .iter()
-                .map(|s| self.visit_unchecked_type(&s, !node.is_ty, ctx))
-                .collect::<Vec<String>>(),
-        );
-        path.extend_from_slice(&vec![self.visit_unchecked_type(&node.target, !node.is_ty, ctx)]);
+        // Non-terminal path components (root, segments) that carry generic
+        // args must emit turbofish `name::<T>` in type paths so the
+        // formatter round-trips through parse_path_ty. In expression paths
+        // (!is_ty) they render as `<name<T>>` trait-cast segments via
+        // visit_unchecked_type(is_generic=true).
+        let render_segment = |ty: &UncheckedType| -> String {
+            match ty {
+                UncheckedType::Generic(name, params, _) if node.is_ty => {
+                    format!("{}::{}", ctx.ident(name), self.visit_unchecked_generic_parameters(params, ctx))
+                }
+                _ => self.visit_unchecked_type(ty, !node.is_ty, ctx),
+            }
+        };
+
+        let mut path = node.root.as_ref().map(|r| vec![render_segment(r)]).unwrap_or_default();
+        path.extend(node.segments.iter().map(|s| render_segment(s)));
+        path.extend_from_slice(&[self.visit_unchecked_type(&node.target, !node.is_ty, ctx)]);
 
         format!("{}", path.join("::"))
     }
@@ -298,22 +291,7 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
 
     fn visit_path(&mut self, expr_id: ExprId, ctx: &mut Self::Context) -> Result<Self::ExprResult, Self::Error> {
         let node = ctx.expression(expr_id).as_path().unwrap();
-
-        let mut path = node
-            .root
-            .as_ref()
-            .map(|r| vec![self.visit_unchecked_type(r, !node.is_ty, ctx)])
-            .unwrap_or_default();
-        path.extend_from_slice(
-            &node
-                .segments
-                .iter()
-                .map(|s| self.visit_unchecked_type(&s, !node.is_ty, ctx))
-                .collect::<Vec<String>>(),
-        );
-        path.extend_from_slice(&vec![self.visit_unchecked_type(&node.target, !node.is_ty, ctx)]);
-
-        Ok(format!("{}", path.join("::")))
+        Ok(self.visit_path_node(node, ctx))
     }
 
     fn visit_index_access(&mut self, expr_id: ExprId, ctx: &mut Self::Context) -> Result<Self::ExprResult, Self::Error> {
@@ -329,9 +307,15 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
         let &MemberAccessNode {
             target: value,
             field,
+            ref generic_parameters,
             location: ref _location,
         } = ctx.expression(expr_id).as_member_access().unwrap();
-        Ok(format!("{}.{}", self.visit_expr(value, ctx)?, ctx.ident(field)))
+        let generics = if generic_parameters.is_empty() {
+            String::new()
+        } else {
+            format!("::{}", self.visit_unchecked_generic_parameters(generic_parameters, ctx))
+        };
+        Ok(format!("{}.{}{}", self.visit_expr(value, ctx)?, ctx.ident(field), generics))
     }
 
     fn visit_value(&mut self, expr_id: ExprId, ctx: &mut Self::Context) -> Result<Self::ExprResult, Self::Error> {
@@ -377,7 +361,7 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
                 self.dedent();
                 let generic_parameters = self.visit_unchecked_generic_parameters(&generic_parameters, ctx);
 
-                format!("new {}{} {{\n{}{}}}", name, generic_parameters, fiels_content, self.read_indent(0),)
+                format!("{}{} {{\n{}{}}}", name, generic_parameters, fiels_content, self.read_indent(0),)
             }
         })
     }
@@ -423,7 +407,7 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
             if generic_parameters_content.is_empty() {
                 "".to_string()
             } else {
-                format!("#{}", generic_parameters_content)
+                format!("::{}", generic_parameters_content)
             },
             args
         ))
@@ -437,6 +421,11 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
             ..
         } = ctx.expression(expr_id).as_member_call().unwrap();
         let generic_parameters_content = self.visit_unchecked_generic_parameters(generic_parameters, ctx);
+        let generic_parameters_content = if generic_parameters_content.is_empty() {
+            String::new()
+        } else {
+            format!("::{generic_parameters_content}")
+        };
         let args = args
             // TOOD: remove clone
             .clone()
@@ -450,7 +439,7 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
             if generic_parameters_content.is_empty() {
                 "".to_string()
             } else {
-                format!("#{}", generic_parameters_content)
+                generic_parameters_content
             },
             args
         ))
@@ -548,6 +537,7 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
             generic_parameters,
             ty,
             body,
+            attrs: _attrs,
             comments,
             location: _location,
             is_generated,
@@ -968,11 +958,11 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
                 self.visit_expr(capacity.clone(), ctx)?
             )),
             IntrinsicExprNode::MemTransmute { data, target_type, .. } => Ok(format!(
-                "__mem_transmute#<{}>({})",
+                "__mem_transmute::<{}>({})",
                 self.visit_unchecked_type(&target_type, false, ctx),
                 self.visit_expr(data, ctx)?,
             )),
-            IntrinsicExprNode::MemSizeOf { query_type: ty, .. } => Ok(format!("__mem_size_of#<{}>", self.visit_unchecked_type(&ty, false, ctx))),
+            IntrinsicExprNode::MemSizeOf { query_type: ty, .. } => Ok(format!("__mem_size_of::<{}>", self.visit_unchecked_type(&ty, false, ctx))),
             IntrinsicExprNode::StorageRead {
                 contract_state_tree_height,
                 user_id,
@@ -1025,7 +1015,7 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
                 return_type,
                 ..
             } => Ok(format!(
-                "__invoke_sync#<{}>({}, {}, {})",
+                "__invoke_sync::<{}>({}, {}, {})",
                 self.visit_unchecked_type(&return_type, false, ctx),
                 self.visit_expr(contract_id, ctx)?,
                 self.visit_expr(method_id, ctx)?,
@@ -1102,7 +1092,11 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
                 Ok(format!("__ctx_get_deploy_contracts_completed({})", self.visit_expr(checkpoint_id, ctx)?))
             }
             IntrinsicExprNode::SumBits { bits, .. } => Ok(format!("__sum_bits({})", self.visit_expr(bits, ctx)?,)),
-            IntrinsicExprNode::SplitBits { target, num_bits, .. } => Ok(format!("__split_bits({}, {})", self.visit_expr(target, ctx)?, num_bits,)),
+            IntrinsicExprNode::SplitBits { target, num_bits, .. } => Ok(format!(
+                "__split_bits({}, {})",
+                self.visit_expr(target, ctx)?,
+                self.visit_expr(num_bits, ctx)?,
+            )),
             IntrinsicExprNode::Emit { event_data, .. } => Ok(format!("__emit({})", self.visit_expr(event_data, ctx)?,)),
         }
     }
@@ -1146,6 +1140,10 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
 
         if module.is_std() {
             return Ok(());
+        }
+
+        for comment in &module.comments {
+            self.write_line(comment.content());
         }
 
         self.write_line(&format!(
@@ -1297,6 +1295,7 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
             trait_ty,
             ty,
             body,
+            attrs: _attrs,
             comments,
             location: _location,
             is_generated,
@@ -1464,6 +1463,10 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> Formatt
 
         if module.is_std() {
             return Ok(());
+        }
+
+        for comment in &module.comments {
+            self.write_line(comment.content());
         }
 
         if !is_first && !Self::is_inline_module(ctx, module_id) {

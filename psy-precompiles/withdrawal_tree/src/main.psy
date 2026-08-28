@@ -70,7 +70,7 @@ impl PsyWithdrawalTreeContractRef {
             && x[7] == 0u32
     }
     fn felt_u64_to_u32x2(x: Felt) -> [u32; 2] {
-        let bits = __split_bits(x, 64);
+        let bits = split_bits(x, 64);
 
         let mut lo: Felt = 0;
         let mut lo_pow: Felt = 1;
@@ -335,7 +335,7 @@ impl PsyWithdrawalTreeContractRef {
             Self::u32x8_to_hash(new_chain_root),
         );
         let new_global_root = Self::hash_to_u32x8(new_global_root_hash);
-        let event_data = new WithdrawalLeafAppended {
+        let event_data = WithdrawalLeafAppended {
             chain_index,
             index: idx,
             leaf,
@@ -368,7 +368,7 @@ impl PsyWithdrawalTreeContractRef {
         let leaf_hash = append_result.1;
         let new_chain_root = append_result.2;
         let new_global_root = append_result.3;
-        let event_data = new WithdrawalLeafAppended {
+        let event_data = WithdrawalLeafAppended {
             chain_index: destination_chain_index,
             index: idx,
             leaf: leaf_hash,
@@ -432,7 +432,7 @@ impl PsyWithdrawalTreeContractRef {
                     recipient,
                     nonce,
                 );
-                let event_data = new WithdrawalLeafAppended {
+                let event_data = WithdrawalLeafAppended {
                     chain_index: destination_chain_indices[item_index],
                     index: append_result.0,
                     leaf: append_result.1,
@@ -505,7 +505,7 @@ impl PsyWithdrawalTreeContractRef {
                     recipient,
                     nonce,
                 );
-                let event_data = new WithdrawalLeafAppended {
+                let event_data = WithdrawalLeafAppended {
                     chain_index: destination_chain_indices[item_index],
                     index: append_result.0,
                     leaf: append_result.1,

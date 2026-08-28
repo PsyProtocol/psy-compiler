@@ -25,14 +25,31 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                         let trait_type_id = self.typecheck(trait_ty, ctx)?;
                         let impl_ty_id = self.typecheck(impl_ty, ctx)?;
 
-                        if !ctx.symbols[trait_type_id].is_trait() || !self.implements_trait(impl_ty_id, trait_type_id, ctx) {
+                        let type_variable_constraints = ctx.symbols[impl_ty_id]
+                            .as_type_variable()
+                            .map(|type_variable| type_variable.constraints.clone());
+                        let satisfies = match type_variable_constraints.as_deref() {
+                            Some(constraints) => {
+                                let trait_poly = self.poly_of(trait_type_id, ctx);
+                                constraints.iter().copied().any(|constraint| {
+                                    self.poly_of(constraint, ctx) == trait_poly
+                                        && self.satisfies_constraint(constraint, trait_type_id, ctx)
+                                })
+                            }
+                            None => self.implements_trait(impl_ty_id, trait_type_id, ctx),
+                        };
+
+                        if !ctx.symbols[trait_type_id].is_trait() || !satisfies {
                             return Err(Error::TypeMismatch {
                                 location: path.location,
-                                expected: self
-                                    .implemented_traits(impl_ty_id, ctx)
-                                    .into_iter()
-                                    .map(|(trait_poly_ty, _)| trait_poly_ty)
-                                    .collect(),
+                                expected: match type_variable_constraints {
+                                    Some(constraints) => constraints,
+                                    None => self
+                                        .implemented_traits(impl_ty_id, ctx)
+                                        .into_iter()
+                                        .map(|(trait_poly_ty, _)| trait_poly_ty)
+                                        .collect(),
+                                },
                                 found: trait_type_id,
                             });
                         }

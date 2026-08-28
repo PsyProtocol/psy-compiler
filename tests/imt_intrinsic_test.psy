@@ -5,8 +5,8 @@ pub fn main() {
     let v1: Hash = [101, 202, 303, 404];
     let offset: Felt = 0;
     let capacity: Felt = 128;
-    __imt_set(key0, v0, offset, capacity);
-    assert_eq(__imt_get(key0, offset, capacity), v0, "__imt_get/__imt_set should round-trip");
+    imt_set(key0, v0, offset, capacity);
+    assert_eq(imt_get(key0, offset, capacity), v0, "imt_get/imt_set should round-trip");
     imt_set(key1, v1, offset, capacity);
     assert_eq(imt_get(key1, offset, capacity), v1, "imt_get/imt_set wrapper should round-trip");
     assert_eq(imt_contains(key0, offset, capacity), true, "imt_contains should be true for existing key");

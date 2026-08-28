@@ -844,6 +844,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                     location,
                 } => {
                     *target = self.rewrite_expr(*target, ctx)?;
+                    *num_bits = self.rewrite_expr(*num_bits, ctx)?;
                     *type_id = self.substitute_all(*type_id, ctx)?;
                 }
                 CheckedIntrinsicExprNode::Emit {

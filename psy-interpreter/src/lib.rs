@@ -31,6 +31,8 @@ use crate::{
     error::{lowering_parse_error, lowering_sema_error, parse_error_to_diagnostic, typecheck_error_to_diagnostic},
 };
 
+const MAX_MATERIALIZED_ARRAY_ELEMENTS: usize = 1 << 20;
+
 pub struct InterpretResult {
     pub compile_results: Vec<DPNFunctionCircuitDefinition>,
     pub typechecker: TypeChecker<SymFeltRef, QExecContext>,
@@ -133,8 +135,8 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Evaluator<F, C> for
         program: &CheckedProgram<F>,
         expr: &CheckedExprNode<F>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
-    ) -> CheckedValueRef<F> {
-        self.__interpret_expr__(program, expr, ctx).unwrap()
+    ) -> anyhow::Result<CheckedValueRef<F>> {
+        self.__interpret_expr__(program, expr, ctx).map_err(anyhow::Error::from)
     }
 
     fn to_constant(&mut self, value: F) -> u64 {
@@ -549,6 +551,14 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     where
         F: 'static,
     {
+        // Each standalone source check owns a fresh symbol table. Clear the
+        // process-global primitive scope handle so names such as `Array` are
+        // resolved against this check's std primitive module, not a previous
+        // test or compilation.
+        #[allow(static_mut_refs)]
+        unsafe {
+            let _ = STD_PRIMITIVE_SCOPE_ID.take();
+        }
         let mut crate_path_graph = Graph::new();
         crate_path_graph.add_node(file);
         self.typecheck(crate_path_graph)
@@ -707,15 +717,15 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             let var_id = ctx.symbols.get_variable(Some(node.scope_id), &node.variable).unwrap();
             let var_value = ctx.symbols.get_value(var_id).unwrap();
             let value_f = var_value.to_value();
-            // `a..b` follows Rust Range semantics: start >= end executes zero iterations.
-            // Comparing constants (not F handles) and using `<` also guarantees the
-            // increment below never overflows u32.
             if self.context.get_constant_value(value_f) < self.context.get_constant_value(end_f) {
                 self.interpret_expr(program, node.body, ctx)?;
                 let next = self.context.get_constant_value(value_f) + 1;
                 let value = match &*var_value.borrow() {
-                    CheckedValue::U32(_) => CheckedValueRef::from_u32(self.context.op_const_u32(u32::try_from(next).expect("u32 loop variable overflowed"))),
-                    _ => CheckedValueRef::from_felt(self.context.op_const(next)),
+                    CheckedValue::U32(_) => {
+                        CheckedValueRef::from_u32(self.context.op_const_u32(u32::try_from(next).expect("u32 loop variable overflowed")))
+                    }
+                    CheckedValue::Felt(_) => CheckedValueRef::from_felt(self.context.op_const(next)),
+                    _ => unreachable!("for-loop variable must be Felt or u32"),
                 };
                 ctx.symbols.set_variable(node.scope_id, node.variable, value)?;
             } else {
@@ -813,10 +823,25 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 }
                 CheckedValue::Array(*type_id, values)
             }
-            CheckedValueNode::ArrayRepeat(type_id, element, size, _location) => {
-                let count = usize::try_from(size.as_u64().expect("array repeat length must be an integer"))
-                    .expect("array repeat length does not fit usize");
-                let mut values = Vec::with_capacity(count);
+            CheckedValueNode::ArrayRepeat(type_id, element, size, location) => {
+                let raw_count = size.as_u64().expect("array repeat length must be an integer");
+                if raw_count > MAX_MATERIALIZED_ARRAY_ELEMENTS as u64 {
+                    return Err(Error::ArrayTooLarge {
+                        length: raw_count,
+                        limit: MAX_MATERIALIZED_ARRAY_ELEMENTS as u64,
+                        location: Some(*location),
+                    });
+                }
+                let count = usize::try_from(raw_count).map_err(|_| Error::ArrayTooLarge {
+                    length: raw_count,
+                    limit: MAX_MATERIALIZED_ARRAY_ELEMENTS as u64,
+                    location: Some(*location),
+                })?;
+                let mut values = Vec::new();
+                values.try_reserve_exact(count).map_err(|_| Error::ArrayAllocationFailed {
+                    length: count,
+                    location: Some(*location),
+                })?;
                 for _ in 0..count {
                     values.push(self.interpret_expr(program, *element, ctx)?);
                 }
@@ -858,7 +883,6 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         Ok(match (&*rhs_borrow, unary_node.operator) {
             (CheckedValue::Felt(b), UnaryOperator::Neg) => CheckedValue::Felt(self.context.op_neg(*b)),
             (CheckedValue::Bool(b), UnaryOperator::Neg) => CheckedValue::Bool(self.context.op_bool_not(*b)),
-            (CheckedValue::Felt(v), UnaryOperator::Not) => CheckedValue::Felt(self.context.op_bool_not(*v)),
             (CheckedValue::Bool(v), UnaryOperator::Not) => CheckedValue::Bool(self.context.op_bool_not(*v)),
             _ => unreachable!("type checker admitted an unsupported unary operand"),
         })
@@ -875,6 +899,34 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         let lhs_value = self.interpret_expr(program, binary_node.lhs, ctx)?;
         let rhs_value = self.interpret_expr(program, binary_node.rhs, ctx)?;
 
+        // Pre-check div/mod by zero and u32 arithmetic overflow on constant
+        // operands. The VM's constant-folding path panics (assert!/integer div)
+        // on these; surface them as clean compile/runtime errors instead.
+        match (&*lhs_value.borrow(), &*rhs_value.borrow(), binary_node.operator) {
+            (CheckedValue::Felt(l), CheckedValue::Felt(r), Div | Mod)
+            | (CheckedValue::U32(l), CheckedValue::U32(r), Div | Mod) => {
+                if self.is_constant(*l) && self.is_constant(*r) && self.context.get_constant_value(*r) == 0 {
+                    return Err(Error::DivisionByZero { location: Some(binary_node.location) });
+                }
+            }
+            (CheckedValue::U32(l), CheckedValue::U32(r), Add | Sub | Mul) => {
+                if self.is_constant(*l) && self.is_constant(*r) {
+                    let a = self.context.get_constant_value(*l);
+                    let b = self.context.get_constant_value(*r);
+                    let overflow = match binary_node.operator {
+                        Add => a + b > 0xffffffff,
+                        Sub => a < b,
+                        Mul => a * b > 0xffffffff,
+                        _ => false,
+                    };
+                    if overflow {
+                        return Err(Error::ArithmeticOverflow { location: Some(binary_node.location) });
+                    }
+                }
+            }
+            _ => {}
+        }
+
         let value = match (&*lhs_value.borrow(), &*rhs_value.borrow(), binary_node.operator) {
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Add) => self.context.op_add(*l, *r),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Sub) => self.context.op_sub(*l, *r),
@@ -882,6 +934,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Div) => self.context.op_div(*l, *r),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Pow) => self.context.op_exp(*l, *r),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Mod) => self.context.op_mod(*l, *r),
+            // TODO: don't use u32 opcodes
             (CheckedValue::Felt(l), CheckedValue::Felt(r), BitShr) => self.context.op_u32_shr(*l, *r),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), BitShl) => self.context.op_u32_shl(*l, *r),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), BitAnd) => self.context.op_u32_and(*l, *r),
@@ -943,6 +996,17 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     ) -> Result<CheckedValueRef<F>> {
         use AssignmentOperator::*;
 
+        // Guard div/mod-by-zero on constant operands (the VM constant-fold panics).
+        match (&*old_value.borrow(), &*value.borrow(), operator) {
+            (CheckedValue::Felt(l), CheckedValue::Felt(r), DivAssign | ModAssign)
+            | (CheckedValue::U32(l), CheckedValue::U32(r), DivAssign | ModAssign) => {
+                if self.is_constant(*l) && self.is_constant(*r) && self.context.get_constant_value(*r) == 0 {
+                    return Err(Error::DivisionByZero { location: None });
+                }
+            }
+            _ => {}
+        }
+
         let new_value = match (&*old_value.borrow(), &*value.borrow(), operator) {
             (_, _, Eq) => value.clone(),
 
@@ -951,6 +1015,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             (CheckedValue::Felt(l), CheckedValue::Felt(r), MulAssign) => CheckedValueRef::from_felt(self.context.op_mul(*l, *r)),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), DivAssign) => CheckedValueRef::from_felt(self.context.op_div(*l, *r)),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), ModAssign) => CheckedValueRef::from_felt(self.context.op_mod(*l, *r)),
+            // TODO: don't use u32 opcodes
             (CheckedValue::Felt(l), CheckedValue::Felt(r), BitAndAssign) => CheckedValueRef::from_felt(self.context.op_u32_and(*l, *r)),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), BitOrAssign) => CheckedValueRef::from_felt(self.context.op_u32_or(*l, *r)),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), BitXorAssign) => CheckedValueRef::from_felt(self.context.op_u32_xor(*l, *r)),
@@ -961,7 +1026,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             (CheckedValue::U32(l), CheckedValue::U32(r), SubAssign) => CheckedValueRef::from_u32(self.context.op_u32_sub(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), MulAssign) => CheckedValueRef::from_u32(self.context.op_u32_mul(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), DivAssign) => CheckedValueRef::from_u32(self.context.op_u32_div(*l, *r)),
-            (CheckedValue::U32(l), CheckedValue::U32(r), ModAssign) => CheckedValueRef::from_u32(self.context.op_u32_mod(*l, *r)),
+            (CheckedValue::U32(l), CheckedValue::U32(r), ModAssign) => CheckedValueRef::from_u32(self.context.op_mod(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), BitAndAssign) => CheckedValueRef::from_u32(self.context.op_u32_and(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), BitOrAssign) => CheckedValueRef::from_u32(self.context.op_u32_or(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), BitXorAssign) => CheckedValueRef::from_u32(self.context.op_u32_xor(*l, *r)),
@@ -997,7 +1062,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         CheckedValueRef::from_vec(type_id.clone(), self.context.get_contract_deployer(contract_id))
                     }
                     CheckedIntrinsicExprNode::GetContractStateTreeHeight { contract_id, .. } => {
-                        let contract_id = self.interpret_expr(program, contract_id.clone(), ctx)?.to_felt();
+                        let contract_id = self.interpret_expr(program, *contract_id, ctx)?.to_felt();
                         CheckedValueRef::from_felt(self.context.get_contract_state_tree_height(contract_id))
                     }
                     CheckedIntrinsicExprNode::GetCallerContractId { .. } => CheckedValueRef::from_felt(self.context.get_caller_contract_id()),
@@ -1148,12 +1213,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let user_id = self.interpret_expr(program, user_id.clone(), ctx)?.to_felt();
                         let contract_id = self.interpret_expr(program, contract_id.clone(), ctx)?.to_felt();
                         let offset = self.interpret_expr(program, offset.clone(), ctx)?.to_felt();
-                        let value = self.context.op_get_state_felt(
-                            contract_state_tree_height,
-                            contract_id,
-                            user_id,
-                            offset,
-                        );
+                        let value = self.context.op_get_state_felt(contract_state_tree_height, contract_id, user_id, offset);
                         return Ok(CheckedValueRef::from_felt(value));
                     }
                     CheckedIntrinsicExprNode::StorageWrite { offset, value, .. } => {
@@ -1281,8 +1341,10 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         location,
                     } => {
                         let target = self.interpret_expr(program, target.clone(), ctx)?.to_felt();
+                        let num_bits = self.interpret_expr(program, *num_bits, ctx)?.to_felt();
+                        let num_bits = self.to_constant(num_bits);
 
-                        return Ok(CheckedValueRef::from_vec(type_id.clone(), self.context.split_bits(target, *num_bits)));
+                        return Ok(CheckedValueRef::from_vec(type_id.clone(), self.context.split_bits(target, num_bits)));
                     }
                     CheckedIntrinsicExprNode::Emit {
                         event_data,
@@ -1504,13 +1566,20 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         member_access_node: &CheckedMemberAccessNode,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<CheckedValueRef<F>> {
-        let s = self.interpret_expr(program, member_access_node.target, ctx)?;
+        // A MemberAccess whose type_id is a function is a method reference
+        // (e.g. the `callee` of a MemberCall). Its target is the receiver,
+        // which is evaluated separately by `interpret_member_call` when
+        // building the argument list. Evaluating it here too would run every
+        // receiver-side effect twice — for chained `mut self` methods this
+        // corrupts the threaded state (e.g. `s.inc().inc().get()` returned 7
+        // instead of 3). The receiver value is not needed to resolve the
+        // method type, so skip target evaluation entirely in this case.
         if ctx.symbols[member_access_node.type_id].is_function() {
             return Ok(CheckedValueRef::new_rc(CheckedValue::Type(member_access_node.type_id)));
-        } else {
-            Ok(s.get_path(&mut self.context, &[IndexPath::Normal(member_access_node.field.id.into())])
-                .unwrap())
         }
+        let s = self.interpret_expr(program, member_access_node.target, ctx)?;
+        Ok(s.get_path(&mut self.context, &[IndexPath::Normal(member_access_node.field.id.into())])
+            .unwrap())
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -1522,8 +1591,25 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     ) -> Result<CheckedValueRef<F>> {
         let a = self.interpret_expr(program, index_access_node.target, ctx)?;
         let index = self.interpret_expr(program, index_access_node.index, ctx)?;
+        let index_felt = index.to_felt();
 
-        return Ok(a.get_path(&mut self.context, &[IndexPath::Felt(index.to_felt())]).unwrap());
+        // Bounds-check constant indices: the VM's `get_path` panics via
+        // `assert!(index < arr.len())` on out-of-bounds constant access.
+        if let CheckedValue::Array(_, arr) = &*a.borrow() {
+            let length = arr.len();
+            if self.is_constant(index_felt) {
+                let idx = self.context.get_constant_value(index_felt) as usize;
+                if idx >= length {
+                    return Err(Error::IndexOutOfBounds {
+                        index: idx,
+                        length,
+                        location: Some(index_access_node.location),
+                    });
+                }
+            }
+        }
+
+        return Ok(a.get_path(&mut self.context, &[IndexPath::Felt(index_felt)]).unwrap());
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -1674,61 +1760,11 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     ) -> Result<(CheckedValueRef<F>, VarId)> {
         let (inner_value, inner_var_id) = self.interpret_assignment_target(program, node, &program[index_access_node.target], path, ctx)?;
 
-        let checked_index = self.interpret_expr(program, index_access_node.index, ctx)?;
-        let index_value = match &*checked_index.borrow() {
-            CheckedValue::Felt(value) | CheckedValue::U32(value) => value.clone(),
-            _ => {
-                return Err(Error::SemaError(SemaError::TypeMismatch {
-                    location: index_access_node.location,
-                    expected: vec![FELT_TYPE, U32_TYPE],
-                    found: checked_index.type_id(),
-                }));
-            }
-        };
-        let mut constant_index = None;
-        if is_constant_op(self.context.get_op_type(index_value)) {
-            let index = self.context.get_constant_value(index_value) as usize;
-            constant_index = Some(index);
-            let length = match &*inner_value.borrow() {
-                CheckedValue::Array(_, elements) => Some(elements.len()),
-                _ => None,
-            };
-            if let Some(length) = length {
-                if index >= length {
-                    return Err(Error::SemaError(SemaError::IndexOutOfBounds {
-                        location: index_access_node.location,
-                        index,
-                        length,
-                    }));
-                }
-            }
-        }
-
-        let index = IndexPath::Felt(index_value);
+        let index = IndexPath::Felt(self.interpret_expr(program, index_access_node.index, ctx)?.to_felt());
 
         path.push(index.clone());
 
-        let old_value = inner_value.get_path(&mut self.context, &[index]).ok_or_else(|| {
-            let length = match &*inner_value.borrow() {
-                CheckedValue::Array(_, elements) => elements.len(),
-                _ => 0,
-            };
-            if let Some(index) = constant_index {
-                Error::SemaError(SemaError::IndexOutOfBounds {
-                    location: index_access_node.location,
-                    index,
-                    length,
-                })
-            } else {
-                Error::SemaError(SemaError::TypeMismatch {
-                    location: index_access_node.location,
-                    expected: vec![ARRAY_TYPE],
-                    found: inner_value.type_id(),
-                })
-            }
-        })?;
-
-        Ok((old_value, inner_var_id))
+        Ok((inner_value.get_path(&mut self.context, &[index]).unwrap(), inner_var_id))
     }
 
     fn interpret_tuple_assignment(
@@ -1865,8 +1901,6 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 //note: use the first arm return value to initialize the return value
                 return_value = self.interpret_expr(program, first_arm.body, ctx)?;
             } else {
-                // A wildcard-only match has no preceding `if` block. Execute it
-                // directly instead of trying to emit an unmatched `else`.
                 if match_node.cases.len() == 1 {
                     return self.interpret_expr(program, first_arm.body, ctx);
                 }
@@ -1988,7 +2022,9 @@ mod tests {
         crate_path_graph.add_node(entry.clone());
         crate_path_graph.add_edge(entry.clone(), dependency_entry);
 
-        let result = super::interpret(Option::<String>::None, vec!["main".into()], crate_path_graph).unwrap();
+        let result = super::interpret(Option::<String>::None, Vec::new(), crate_path_graph).unwrap();
+        assert_eq!(result.compile_results.len(), 1);
+        assert_eq!(result.compile_results[0].name, "main");
         println!("compile_result: {:?}", result.compile_results);
         #[allow(static_mut_refs)]
         unsafe {
@@ -2002,6 +2038,10 @@ mod tests {
         psy_common::setup_logging().ok();
 
         insta::glob!("../../tests", "{struct*.psy,fn_test.psy,fn_chain_call_test.psy}", |path| {
+            #[allow(static_mut_refs)]
+            unsafe {
+                let _ = STD_PRIMITIVE_SCOPE_ID.take();
+            }
             let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
             let (mut typechecker, mut ctx) = interpreter.typecheck_single(path.into()).unwrap();
 
@@ -2086,6 +2126,10 @@ mod tests {
         psy_common::setup_logging().ok();
 
         insta::glob!("../../tests", "*_test.psy", |path| {
+            #[allow(static_mut_refs)]
+            unsafe {
+                let _ = STD_PRIMITIVE_SCOPE_ID.take();
+            }
             let entry: PathBuf = path.into();
             let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
             let (_typechecker, mut ctx) = interpreter.typecheck_single(entry.clone()).unwrap();
@@ -2154,113 +2198,302 @@ fn main() {}
             let _ = STD_PRIMITIVE_SCOPE_ID.take();
         };
     }
-
     #[test]
     #[serial]
-    fn test_u32_mod_assign_lowers_to_u32_mod() {
+    fn test_rejects_raw_intrinsic_outside_std() {
         let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let path = std::env::temp_dir().join(format!("psy_u32_mod_assign_{unique}.psy"));
+        let path = std::env::temp_dir().join(format!("psy_raw_intrinsic_{unique}.psy"));
         let source = r#"
-fn main(a: u32, b: u32) -> u32 {
-    let mut value = a;
-    value %= b;
-    return value;
-}
-"#;
-        fs::write(&path, source).unwrap();
-
-        let mut crate_path_graph = Graph::new();
-        crate_path_graph.add_node(path.clone());
-        let result = super::interpret(None, vec!["main".to_string()], crate_path_graph)
-            .expect("u32 %= program should compile");
-        let definitions = &result.compile_results[0].definitions;
-
-        assert!(
-            definitions.iter().any(|definition| definition.op_type == DPNOpType::U32Mod),
-            "u32 %= must emit U32Mod; emitted ops: {:?}",
-            definitions.iter().map(|definition| definition.op_type).collect::<Vec<_>>()
-        );
-        assert!(
-            definitions.iter().all(|definition| definition.op_type != DPNOpType::Mod),
-            "u32 %= must not emit the felt Mod op"
-        );
-
-        fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    #[serial]
-    fn non_struct_member_access_returns_error_instead_of_panicking() {
-        let cases = [
-            ("felt", "fn main() { let value: Felt = 1; value.missing; }"),
-            ("u32", "fn main() { let value: u32 = 1u32; value.missing; }"),
-            ("bool", "fn main() { let value: bool = true; value.missing; }"),
-            ("array", "fn main() { let value: [Felt; 2] = [1, 2]; value.missing; }"),
-            ("tuple", "fn main() { let value = (1, 2); value.missing; }"),
-            (
-                "function",
-                "fn identity(value: Felt) -> Felt { value } fn main() { let value = identity; value.missing; }",
-            ),
-            ("void", "fn noop() {} fn main() { noop().missing; }"),
-            (
-                "generic_result",
-                "fn identity<T>(value: T) -> T { value } fn main() { identity#<Felt>(1).missing; }",
-            ),
-            (
-                "missing_struct_field",
-                "struct Item { pub value: Felt } fn main() { let item = new Item { value: 1 }; item.missing; }",
-            ),
-            ("missing_member_call", "fn main() { let value: Felt = 1; value.missing(); }"),
-        ];
-
-        for (index, (name, source)) in cases.into_iter().enumerate() {
-            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-            let path = std::env::temp_dir().join(format!("psy_non_struct_member_{name}_{unique}_{index}.psy"));
-            fs::write(&path, source).unwrap();
-
-            let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
-            let error = match interpreter.typecheck_single(path.clone()) {
-                Ok(_) => panic!("invalid member access must be rejected for {name}"),
-                Err(error) => error,
-            };
-            let message = format!("{error:#}");
-            assert!(message.contains("unresolved member"), "unexpected error for {name}: {message}");
-
-            fs::remove_file(path).unwrap();
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            }
-        }
-    }
-
-    #[test]
-    #[serial]
-    fn test_empty_storage_struct_size() {
-        psy_common::setup_logging().ok();
-
-        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let path = std::env::temp_dir().join(format!("psy_empty_storage_struct_{unique}.psy"));
-        let source = r#"
-#[derive(Storage)]
-pub struct EmptyStorage {}
-
-fn main() {
-    assert_eq(EmptyStorage::size(), 0, "Error: EmptyStorage::size() should be 0");
+fn main() -> bool {
+    __secp256k1_verify([0u32; 16], [0, 0, 0, 0], [0u32; 16])
 }
 "#;
         fs::write(&path, source).unwrap();
 
         let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
-        interpreter
-            .typecheck_single(path.clone())
-            .expect("empty storage struct should typecheck without panicking");
+        let err = match interpreter.typecheck_single(path.clone()) {
+            Ok(_) => panic!("expected raw intrinsic to be rejected"),
+            Err(err) => err,
+        };
+        let err_msg = format!("{err:#}");
+        assert!(
+            err_msg.contains("RawIntrinsicOutsideStd")
+                && err_msg.contains("__secp256k1_verify")
+                && err_msg.contains("only available inside the std module tree"),
+            "unexpected error: {err_msg}"
+        );
 
         let _ = fs::remove_file(path);
-
         #[allow(static_mut_refs)]
         unsafe {
             let _ = STD_PRIMITIVE_SCOPE_ID.take();
         };
     }
+    #[test]
+    #[serial]
+    fn test_fake_inline_std_does_not_authorize_raw_intrinsics() {
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("psy_fake_std_intrinsic_{unique}.psy"));
+        let source = r#"
+mod std {
+    pub mod prelude {}
+    fn raw_inside_fake_std() -> bool {
+        __secp256k1_verify([0u32; 16], [0, 0, 0, 0], [0u32; 16])
+    }
+}
+
+
+fn main() {}
+"#;
+        fs::write(&path, source).unwrap();
+
+        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+        let err = match interpreter.typecheck_single(path.clone()) {
+            Ok(_) => panic!("expected fake inline std raw intrinsic to be rejected"),
+            Err(err) => err,
+        };
+        let err_msg = format!("{err:#}");
+        assert!(
+            err_msg.contains("RawIntrinsicOutsideStd")
+                && err_msg.contains("__secp256k1_verify")
+                && err_msg.contains("only available inside the std module tree"),
+            "unexpected error: {err_msg}"
+        );
+
+        let _ = fs::remove_file(path);
+        #[allow(static_mut_refs)]
+        unsafe {
+            let _ = STD_PRIMITIVE_SCOPE_ID.take();
+        };
+    }
+
+
+    #[test]
+    #[serial]
+    fn test_fake_inline_std_does_not_authorize_same_file_sibling() {
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("psy_fake_std_sibling_intrinsic_{unique}.psy"));
+        let source = r#"
+mod std {
+    pub mod prelude {}
+}
+
+fn raw_in_same_file_sibling() -> bool {
+    __secp256k1_verify([0u32; 16], [0, 0, 0, 0], [0u32; 16])
+}
+
+fn main() {}
+"#;
+        fs::write(&path, source).unwrap();
+
+        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+        let err = match interpreter.typecheck_single(path.clone()) {
+            Ok(_) => panic!("expected same-file sibling raw intrinsic to be rejected"),
+            Err(err) => err,
+        };
+        let err_msg = format!("{err:#}");
+        assert!(
+            err_msg.contains("RawIntrinsicOutsideStd")
+                && err_msg.contains("__secp256k1_verify")
+                && err_msg.contains("only available inside the std module tree"),
+            "unexpected error: {err_msg}"
+        );
+
+        let _ = fs::remove_file(path);
+        #[allow(static_mut_refs)]
+        unsafe {
+            let _ = STD_PRIMITIVE_SCOPE_ID.take();
+        };
+    }
+
+    #[test]
+    #[serial]
+    fn test_std_intrinsic_wrapper_typechecks() {
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("psy_intrinsic_wrapper_{unique}.psy"));
+        let source = r#"
+fn main() -> bool {
+    secp256k1_verify([0u32; 16], [0, 0, 0, 0], [0u32; 16])
+}
+"#;
+        fs::write(&path, source).unwrap();
+
+        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+        interpreter.typecheck_single(path.clone()).unwrap();
+
+        let _ = fs::remove_file(path);
+        #[allow(static_mut_refs)]
+        unsafe {
+            let _ = STD_PRIMITIVE_SCOPE_ID.take();
+        };
+    }
+
+    /// Every raw `__`-prefixed intrinsic family must be gated to the canonical
+    /// std module tree, not just `__secp256k1_verify`. One representative call
+    /// per family: ctx getters, IMT, storage, cross-contract invoke, emit, mem,
+    /// bits, and the statement-level tree clear.
+    #[test]
+    #[serial]
+    fn test_rejects_each_raw_intrinsic_family_outside_std() {
+        // (name, call statement). Types are chosen so that if the gate were
+        // missing, the program would fail for the intrinsic semantics rather
+        // than the call being rejected outright.
+        let cases = [
+            ("__ctx_get_user_id", "let user: Felt = __ctx_get_user_id();"),
+            ("__imt_get", "let v: Felt = __imt_get(0, 0, 0);"),
+            ("__storage_read", "let v: Felt = __storage_read(0, 0, 0, 0);"),
+            ("__storage_write", "__storage_write(0, 0);"),
+            ("__invoke_sync", "let v: Felt = __invoke_sync::<Felt>(0, 0, 0);"),
+            ("__invoke_deferred", "__invoke_deferred(0, 0, 0);"),
+            ("__emit", "__emit([0, 0, 0, 0]);"),
+            ("__mem_size_of", "let v: Felt = __mem_size_of::<Felt>();"),
+            ("__mem_transmute", "let v: Felt = __mem_transmute::<Felt>(0);"),
+            ("__sum_bits", "let v: Felt = __sum_bits([0, 0]);"),
+            ("__split_bits", "let v: [Felt; 2] = __split_bits(0, 2);"),
+            ("__ctx_clear_entire_tree", "__ctx_clear_entire_tree();"),
+        ];
+
+        for (index, (name, statement)) in cases.into_iter().enumerate() {
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!("psy_raw_family_{index}_{unique}.psy"));
+            let source = format!("fn main() {{\n    {statement}\n}}\n");
+            fs::write(&path, source).unwrap();
+
+            let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+            let err = match interpreter.typecheck_single(path.clone()) {
+                Ok(_) => panic!("expected `{name}` to be rejected outside std"),
+                Err(err) => err,
+            };
+            let err_msg = format!("{err:#}");
+            assert!(
+                err_msg.contains("RawIntrinsicOutsideStd") && err_msg.contains(name),
+                "unexpected error for `{name}`: {err_msg}"
+            );
+
+            let _ = fs::remove_file(path);
+            #[allow(static_mut_refs)]
+            unsafe {
+                let _ = STD_PRIMITIVE_SCOPE_ID.take();
+            };
+        }
+    }
+
+    /// The public builtins stay callable from user code: the hash family has
+    /// no gate by design, and sum_bits/split_bits are std-wrapped public API.
+    #[test]
+    #[serial]
+    fn test_public_builtin_intrinsics_remain_callable() {
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("psy_public_builtin_{unique}.psy"));
+        let source = r#"
+fn main() {
+    let h = hash([1, 2, 3, 4]);
+    let k = keccak256([1u32, 2u32]);
+    let t = hash_two_to_one(h, h);
+    let bits: [Felt; 4] = split_bits(15, 4);
+    let total = sum_bits(bits);
+    assert(bits[0] == 1, "bit0");
+    assert(total == 15, "sum");
+}
+"#;
+        fs::write(&path, source).unwrap();
+
+        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+        let (mut typechecker, mut ctx) = interpreter
+            .typecheck_single(path.clone())
+            .unwrap_or_else(|err| panic!("public builtins must stay callable: {err:#}"));
+        let compile_results = interpreter
+            .interpret(
+                &mut typechecker,
+                &mut ctx,
+                None,
+                vec!["main"],
+                |context, (method_name, method_id, outputs)| {
+                    PsyCompileResult::compile_exec(method_name, method_id, &context.store, context, &outputs)
+                },
+            )
+            .unwrap_or_else(|err| panic!("public builtins must compile without panic: {err:#}"));
+        assert_eq!(compile_results.len(), 1);
+
+        let _ = fs::remove_file(path);
+        #[allow(static_mut_refs)]
+        unsafe {
+            let _ = STD_PRIMITIVE_SCOPE_ID.take();
+        };
+    }
+    #[test]
+    #[serial]
+    fn test_derived_event_uses_std_default_method() {
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("psy_derived_event_{unique}.psy"));
+        let source = r#"
+#[derive(Event)]
+struct Ping {
+    value: Felt,
+}
+
+fn main() {
+    let event = Ping { value: 7 };
+    event.emit();
+}
+"#;
+        fs::write(&path, source).unwrap();
+
+        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+        let (mut typechecker, mut ctx) = interpreter.typecheck_single(path.clone()).unwrap();
+        let compile_results = interpreter
+            .interpret(
+                &mut typechecker,
+                &mut ctx,
+                None,
+                vec!["main"],
+                |context, (method_name, method_id, outputs)| {
+                    PsyCompileResult::compile_exec(method_name, method_id, &context.store, context, &outputs)
+                },
+            )
+            .unwrap();
+        assert_eq!(compile_results.len(), 1);
+        assert_eq!(compile_results[0].events.len(), 1, "derived Event::emit must compile one event record");
+
+        let _ = fs::remove_file(path);
+        #[allow(static_mut_refs)]
+        unsafe {
+            let _ = STD_PRIMITIVE_SCOPE_ID.take();
+        };
+    }
+}
+
+#[cfg(test)]
+mod visibility_tests {
+    include!("visibility_tests.rs");
+}
+
+#[cfg(test)]
+mod generics_sema_tests {
+    include!("generics_sema_tests.rs");
+}
+
+#[cfg(test)]
+mod associated_types_sema_tests {
+    include!("associated_types_sema_tests.rs");
+}
+
+#[cfg(test)]
+mod const_eval_tests {
+    include!("const_eval_tests.rs");
+}
+
+#[cfg(test)]
+mod constraint_sema_tests {
+    include!("constraint_sema_tests.rs");
+}
+
+#[cfg(test)]
+mod qa_fix_tests {
+    include!("qa_fix_tests.rs");
+}
+
+#[cfg(test)]
+mod panic_fix_tests {
+    include!("panic_fix_tests.rs");
 }

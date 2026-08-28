@@ -4,7 +4,7 @@ struct Person {
 
 impl Person {
     pub fn new(age: Felt) -> Self {
-        new Person {
+        Person {
             age: age,
         }
     }

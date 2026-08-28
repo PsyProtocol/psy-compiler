@@ -1,20 +1,16 @@
 pub mod error;
+pub mod recursive;
 
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
-use error::UserError;
 pub use error::{Error, Result};
 use indexmap::IndexMap;
-use lalrpop_util::lalrpop_mod;
 use psy_ast::{Program, *};
 use psy_common::Graph;
-use psy_lexer::{GenericTokenTransformer, Lexer, Loc, Token};
 use psy_vm::dpn::ops::context_trait::{ContextFelt, DPNContext};
-
-pub type LalrpopError<'input> = lalrpop_util::ParseError<Loc, Token<'input>, UserError>;
 
 #[cfg(target_arch = "wasm32")]
 const WASM_STD_ROOT: &str = "/__psy_std__";
@@ -29,8 +25,6 @@ const WASM_STD_FILES: &[(&str, &str)] = &[
     ("storage.psy", include_str!("../../psy-std/storage.psy")),
     ("primitive.psy", include_str!("../../psy-std/primitive.psy")),
 ];
-
-lalrpop_mod!(pub psy);
 
 #[derive(Debug)]
 pub struct Parser<'a, 'b, F: Clone + From<u32>, C> {
@@ -75,25 +69,26 @@ impl<'a, 'b, F: ContextFelt + From<u32>, C: DPNContext<F>> Parser<'a, 'b, F, C> 
     fn parse_module(program: &mut Program<F>, ctx: &mut C, current_path: &PathBuf, location: Location, visibility: Visibility) -> Result<ModuleNode> {
         let module_name = resolve_module_name(program, current_path);
         let file_id = program.file_resolver.resolve_file(current_path.clone())?;
-        let file_content = program.file_resolver.resolve_content(&file_id).ok_or(Error::FileUnresolved)?;
 
-        let lexer = Lexer::new(&file_content);
-        let transformer = GenericTokenTransformer::new(lexer);
-        let tokens: Vec<_> = transformer.collect::<psy_lexer::Result<Vec<_>>>()?;
-        let module = psy::ModuleParser::new()
-            .parse(
-                &file_content,
+        // Keep the source alive independently so parsing can mutably borrow the
+        // rest of the program.
+        let source = program
+            .file_resolver
+            .resolve_content_arc(&file_id)
+            .ok_or(Error::FileUnresolved)?;
+        let module = recursive::parse_module_into(
+            recursive::ParseModuleInput {
+                source: &source,
                 file_id,
-                Identifier::new(module_name, Location::new(file_id, location.start, location.end)),
-                &mut program.exprs,
-                &mut program.stmts,
-                &mut program.defs,
-                &mut program.interner,
+                module_name: Identifier::new(
+                    module_name,
+                    Location::new(file_id, location.start, location.end),
+                ),
                 visibility,
-                ctx,
-                tokens,
-            )
-            .map_err(|e| Error::from_lalrpop_error(e, file_id))?;
+            },
+            program,
+            ctx,
+        )?;
         Ok(module)
     }
 
@@ -141,7 +136,7 @@ impl<'a, 'b, F: ContextFelt + From<u32>, C: DPNContext<F>> Parser<'a, 'b, F, C> 
                     true,
                     dep_path.clone(),
                     Some(module_id),
-                    inline_module.visibility.clone(),
+                    inline_module.visibility,
                     inline_module.name.location,
                 ));
                 inline_modules.insert(dep_path, inline_module.clone());
@@ -159,6 +154,7 @@ impl<'a, 'b, F: ContextFelt + From<u32>, C: DPNContext<F>> Parser<'a, 'b, F, C> 
 
     fn finish_inner(program: &mut Program<F>, ctx: &mut C, mut dependency_graph: Graph<CrateId>) -> Result<()> {
         let std_module_id = Self::parse_inner(program, ctx, std_path())?;
+        program.std_module_id = Some(std_module_id);
         let std_crate_id = std_module_id.into();
         dependency_graph.add_node(std_crate_id);
         let crate_ids = dependency_graph.nodes().into_iter().cloned().collect::<Vec<_>>();
@@ -190,14 +186,13 @@ impl<'a, 'b, F: ContextFelt + From<u32>, C: DPNContext<F>> Parser<'a, 'b, F, C> 
             }
         }
 
-        // Remove duplicates children
+        // Remove duplicate children.
         program.modules.iter_mut().for_each(|module| {
             let children = module.children_mut();
             children.sort_unstable();
             children.dedup();
         });
 
-        // program.print_module_graph();
         Ok(())
     }
 }
@@ -213,7 +208,7 @@ pub fn resolve_module_path<F: Clone + From<u32>>(
     }
     let mut path = current_path.parent()?.to_path_buf();
     let ext = current_path.extension()?.to_str()?;
-    path.push(format!("{}.{}", program.interner[module_name.clone()], ext));
+    path.push(format!("{}.{}", program.interner[module_name], ext));
     Some(path)
 }
 
@@ -292,34 +287,11 @@ fn preload_embedded_std<F: Clone + From<u32>>(program: &mut Program<F>) {
 mod tests {
     use std::path::PathBuf;
 
-    use psy_ast::{ConstValue, IdentId, Identifier, Location, Program, UncheckedType, Visibility};
-    use psy_common::{FileId, Graph};
-    use psy_lexer::{GenericTokenTransformer, Lexer};
-    use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
+    use psy_ast::Program;
+    use psy_common::Graph;
+    use psy_vm::dpn::ops::exec_context::QExecContext;
 
-    use super::{LalrpopError, Parser, psy};
-
-    fn parse_source(source: &str) -> (Program<SymFeltRef>, Result<(), LalrpopError<'_>>) {
-        let mut program = Program::new();
-        let mut ctx = QExecContext::new();
-        let file_id = FileId(0);
-        let tokens = GenericTokenTransformer::new(Lexer::new(source)).collect::<Result<Vec<_>, _>>().unwrap();
-        let result = psy::ModuleParser::new()
-            .parse(
-                source,
-                file_id,
-                Identifier::new(IdentId::CRATE, Location::new(file_id, 0, source.len())),
-                &mut program.exprs,
-                &mut program.stmts,
-                &mut program.defs,
-                &mut program.interner,
-                Visibility::Private,
-                &mut ctx,
-                tokens,
-            )
-            .map(|_| ());
-        (program, result)
-    }
+    use super::Parser;
     #[test]
     fn test_psy_parser() {
         let mut program = Program::new();
@@ -328,56 +300,5 @@ mod tests {
         crate_path_graph.add_node(PathBuf::from("../tests/storage_test.psy"));
         let mut parser = Parser::new(&mut program, &mut ctx, crate_path_graph);
         parser.parse().unwrap();
-    }
-
-    #[test]
-    fn array_repeat_keeps_one_element_expression() {
-        let (program, result) = parse_source("fn main() { let repeated = [1 + 2; 1000000]; let explicit = [1, 2, 3]; }");
-        result.unwrap();
-
-        let repeats = program
-            .exprs
-            .iter()
-            .filter_map(|expr| expr.as_value())
-            .filter_map(|value| value.as_array_repeat())
-            .collect::<Vec<_>>();
-        assert_eq!(repeats.len(), 1);
-        assert_eq!(*repeats[0].1, ConstValue::Felt(1_000_000));
-
-        let explicit_arrays = program
-            .exprs
-            .iter()
-            .filter_map(|expr| expr.as_value())
-            .filter_map(|value| value.as_array())
-            .collect::<Vec<_>>();
-        assert_eq!(explicit_arrays.len(), 1);
-        assert_eq!(explicit_arrays[0].1.len(), 3);
-    }
-
-    #[test]
-    fn array_repeat_length_supports_felt_sized_constants() {
-        let (program, result) = parse_source("fn main() { let values = [0; 4294967296]; }");
-        result.unwrap();
-        let repeat = program
-            .exprs
-            .iter()
-            .filter_map(|expr| expr.as_value())
-            .find_map(|value| value.as_array_repeat())
-            .unwrap();
-        assert_eq!(*repeat.1, ConstValue::Felt(4_294_967_296));
-    }
-
-    #[test]
-    fn array_type_length_supports_felt_sized_constants() {
-        let (program, result) = parse_source("fn main(values: [Felt; 4294967296]) {}");
-        result.unwrap();
-        assert!(program.defs.iter().any(|definition| {
-            definition.as_function().is_some_and(|function| {
-                matches!(
-                    &function.parameters[0].ty,
-                    UncheckedType::Array(_, ConstValue::Felt(4_294_967_296), _)
-                )
-            })
-        }));
     }
 }

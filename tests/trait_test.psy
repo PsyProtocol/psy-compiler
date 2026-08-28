@@ -39,7 +39,7 @@ pub fn test_fn(p: Person) -> Felt {
 // input:2,3
 // output:4
 fn main(a: Felt, b: Felt) -> Felt {
-    let person: Person = new Person {
+    let person: Person = Person {
         year_of_birth: 1990,
         age_height: [[1, 1], [1, 1]],
     };

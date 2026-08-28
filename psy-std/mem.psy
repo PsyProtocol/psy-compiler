@@ -1,7 +1,7 @@
 pub fn transmute<U, T>(x: T) -> U {
-    __mem_transmute#<U>(x)
+    __mem_transmute::<U>(x)
 }
 
 pub fn size_of<T>() -> Felt {
-    __mem_size_of#<T>()
+    __mem_size_of::<T>()
 }

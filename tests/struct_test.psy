@@ -79,13 +79,13 @@ fn main() {
 
     let min_a_b: Felt = min(a, b);
     let max2_a_b: Felt = max_2(a, b);
-    let person: Person = new Person {
+    let person: Person = Person {
         year_of_birth: 1990,
         age_height: ([1, 1], [1, 1]),
     };
     let mut persons: [Person; 1] = [person];
     persons[0] = person;
-    let family: Family = new Family {
+    let family: Family = Family {
         father: person,
         mother: person,
         children: [person, person],

@@ -24,7 +24,7 @@ fn main() {
     c.b.age = 11;
     c.b.height = 21;
     c.b.year_of_birth = 2001;
-    c.b = new Person {
+    c.b = Person {
         age: 10,
         height: 20,
         year_of_birth: 2000,

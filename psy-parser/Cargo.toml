@@ -7,13 +7,10 @@ version = "0.1.0"
 psy-ast = { workspace = true }
 psy-lexer = { workspace = true }
 psy_common = { workspace = true }
-lalrpop-util = { workspace = true }
 thiserror = { workspace = true }
 psy_vm = { workspace = true }
 indexmap = { workspace = true }
 
-[build-dependencies]
-lalrpop = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

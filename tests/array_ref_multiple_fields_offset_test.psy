@@ -70,7 +70,7 @@ fn main() {
     assert_eq(zero.empty.offset, 9, "zero-length array base offset");
     assert_eq(zero.tail.offset, 9, "zero-length array must not advance offset");
     assert_eq(ZeroLengthArrayLayout::size(), 1, "zero-length array contributes zero to size");
-    zero.set(new ZeroLengthArrayLayout {
+    zero.set(ZeroLengthArrayLayout {
         empty: [],
         tail: 5,
     });
@@ -93,7 +93,7 @@ fn main() {
     let mixed = ArrayThenRefRef::new(0, ContractMetadata::current());
     mixed.arr[0] = 6;
     mixed.arr[1] = 7;
-    mixed.profile = new Profile {
+    mixed.profile = Profile {
         age: 8,
         level: 9,
     };
@@ -123,7 +123,7 @@ fn main() {
     assert_eq(snapshot.left[1], 12, "bulk get left[1]");
     assert_eq(snapshot.right[0], 21, "bulk get right[0]");
     assert_eq(snapshot.right[1], 22, "bulk get right[1]");
-    c.set(new C {
+    c.set(C {
         left: [31, 32],
         right: [41, 42],
     });

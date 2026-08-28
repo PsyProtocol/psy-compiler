@@ -23,7 +23,7 @@ impl FoldTwo for Acc {
 }
 
 fn main() -> Felt {
-    let a: Acc = new Acc {
+    let a: Acc = Acc {
         seed: 2,
     };
     let one: Felt = a.fold(3);

@@ -13,7 +13,7 @@ pub struct C {
 
 fn main() {
     let c = CRef::new(ContractMetadata::current());
-    c.person = new Person {
+    c.person = Person {
         age: 18,
         score: 90,
     };
