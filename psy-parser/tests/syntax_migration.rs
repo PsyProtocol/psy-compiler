@@ -315,3 +315,42 @@ fn main() {
 "#;
     parse_module(src).expect("sum_bits and split_bits must not be reserved lexer tokens");
 }
+
+/// A module may end with trailing comments after the last item; the old
+/// grammar's `back_comments` slot accepted them, and feeding them to
+/// parse_module_item made an empty cursor report UnexpectedEof.
+#[test]
+fn trailing_line_comment_after_last_item_parses() {
+    parse_module("fn f() {}\n// trailing\n").expect("trailing line comment after last item must parse");
+}
+
+#[test]
+fn trailing_block_comment_after_last_item_parses() {
+    parse_module("fn f() {} /* trailing */").expect("trailing block comment after last item must parse");
+}
+
+#[test]
+fn trailing_comment_after_realistic_main_parses() {
+    let src = "fn main() {\n    let x = 1;\n}\n// TODO: implement\n";
+    parse_module(src).expect("TODO comment after main must parse");
+}
+
+/// Deeply nested expressions must fail with a diagnostic, not abort the
+/// process with a stack overflow (M7). 128 is the chosen limit; well
+/// above legitimate expressions, below every measured overflow point
+/// (2 MB thread ~150 parens, 8 MB main ~3160, wasm32 ~400).
+#[test]
+fn deep_paren_nesting_returns_error_not_abort() {
+    let depth = 200;
+    let src = format!("fn f() {{ let x = {}1{}; }}", "(".repeat(depth), ")".repeat(depth));
+    let err = parse_module(&src).expect_err("deep nesting must be an error, not an abort");
+    let msg = format!("{err:#}");
+    assert!(msg.contains("nesting too deep"), "unexpected error: {msg}");
+}
+
+#[test]
+fn moderate_paren_nesting_still_parses() {
+    let depth = 50;
+    let src = format!("fn f() {{ let x = {}1{}; }}", "(".repeat(depth), ")".repeat(depth));
+    parse_module(&src).expect("50-deep parens must still parse");
+}

@@ -40,6 +40,10 @@ pub struct ModuleParser<'src, 'p, F: Clone + From<u32>, C> {
     pub cursor: cursor::TokenCursor<'src>,
     pub program: &'p mut psy_ast::Program<F>,
     pub ctx: &'p mut C,
+    /// Nesting depth of expression parsing (incremented in parse_precedence).
+    /// Deeply nested input previously overflowed the stack (abort, not an
+    /// error) — ~150 parens on a 2 MB thread stack, ~400 on wasm32 (M7).
+    pub expression_depth: u32,
     /// Whether `Type { ... }` struct literals may be recognized at the current
     /// expression position. Disabled inside control-flow predicates/ranges
     /// (where `{` introduces the construct's body) and re-enabled inside
@@ -58,14 +62,14 @@ where
             location: psy_ast::Location::new(input.file_id, error.start, error.end),
         })?;
 
-        Ok(Self { cursor, program, ctx, struct_literals_allowed: true })
+        Ok(Self { cursor, program, ctx, struct_literals_allowed: true, expression_depth: 0 })
     }
 
     /// Parse a complete module and return its `ModuleNode`.
     pub fn parse(mut self, module_name: Identifier, visibility: Visibility) -> Result<ModuleNode> {
         let start = self.cursor.peek_start();
 
-        let module_comments = self.cursor.take_leading_comments();
+        let mut module_comments = self.cursor.take_leading_comments();
 
         let mut definitions = Vec::new();
         let mut modules = Vec::new();
@@ -73,6 +77,17 @@ where
 
         while !self.cursor.at_end() {
             let comments = self.cursor.take_leading_comments();
+
+            // A module may end with trailing comments after the last item;
+            // once only comments remain, collect them and stop (the old
+            // grammar's `back_comments` slot — feeding them to
+            // parse_module_item made an empty cursor report UnexpectedEof).
+            if self.cursor.at_end() {
+                let mut back = module_comments;
+                back.extend(comments);
+                module_comments = back;
+                break;
+            }
 
             match crate::recursive::item::parse_module_item(&mut self, comments)? {
                 ParsedModuleItem::ExternalModule(name, vis, loc) => {

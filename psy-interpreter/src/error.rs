@@ -32,6 +32,8 @@ pub enum Error {
     ArrayTooLarge { length: u64, limit: u64, location: Option<Location> },
     #[error("ArrayAllocationFailed: cannot reserve storage for {length} array elements")]
     ArrayAllocationFailed { length: usize, location: Option<Location> },
+    #[error("UnsupportedRecursion: recursive function calls cannot be interpreted")]
+    UnsupportedRecursion { location: Option<Location> },
     // #[error("type mismatch")]
     // TypeMismatch,
 }
@@ -178,6 +180,13 @@ pub fn lowering_sema_error<F: Clone + From<u32> + ContextFelt, C>(error: &psy_se
     match error {
         SemaError::AnyhowError(error) => format!("{}", error),
         SemaError::CommonError(error) => format!("{}", error),
+        SemaError::UnsupportedRecursion { location, what } => build_report(
+            location.clone(),
+            "UnsupportedRecursion",
+            format!("Unsupported recursion: {what}."),
+            &ctx.program,
+        )
+        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
         SemaError::TypeMismatch { location, expected, found } => build_report(
             location.clone(),
             "TypeMismatch",
@@ -571,6 +580,15 @@ pub fn lowering_interpreter_error<F: Clone + From<u32> + ContextFelt, C>(error: 
                 build_report(*location, "ArrayAllocationFailed", msg, &ctx.program).unwrap_or_else(|e| format!("Failed to build report: {}", e))
             } else {
                 msg
+            }
+        }
+        Error::UnsupportedRecursion { location } => {
+            let msg = "Recursive calls are unsupported by the symbolic interpreter.";
+            if let Some(location) = location {
+                build_report(*location, "UnsupportedRecursion", msg, &ctx.program)
+                    .unwrap_or_else(|e| format!("Failed to build report: {}", e))
+            } else {
+                msg.to_string()
             }
         }
     };

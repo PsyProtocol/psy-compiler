@@ -135,6 +135,44 @@ fn b01_if_without_else_in_let_rejected() {
 
 #[test]
 #[serial]
+fn b01b_bool_match_single_literal_is_incomplete() {
+    expect_reject(
+        "b01b_bool_match_single_literal",
+        "fn main() -> Felt { match true { true => 1 } }",
+        "IncompleteMatch",
+    );
+}
+
+#[test]
+#[serial]
+fn b01c_bool_match_two_equal_literals_is_incomplete() {
+    expect_reject(
+        "b01c_bool_match_duplicate_literal",
+        "fn main() -> Felt { match true { true => 1, true => 2 } }",
+        "IncompleteMatch",
+    );
+}
+
+#[test]
+#[serial]
+fn b01d_bool_match_false_and_wildcard_is_complete() {
+    expect_accept(
+        "b01d_bool_match_false_wildcard",
+        "fn main() -> Felt { match true { false => 1, _ => 2 } }",
+    );
+}
+
+#[test]
+#[serial]
+fn b01e_bool_match_wildcard_only_is_complete() {
+    expect_accept(
+        "b01e_bool_match_wildcard_only",
+        "fn main() -> Felt { match true { _ => 2 } }",
+    );
+}
+
+#[test]
+#[serial]
 fn b02_if_without_else_as_return_rejected() {
     // The if is the trailing expression of the function body block (value
     // position), so it must have an else branch.
@@ -340,6 +378,116 @@ impl<T> B for Box<T> { fn value(self: Self) -> Felt { 2 } }
 fn main() { let value = Box::<Felt> { value: 1 }.value(); }
 "#,
         "AmbiguousTraitMethod",
+    );
+}
+
+/// Two impls of the same *generic* trait for one type are distinct
+/// providers: `<W as Conv<..>>::conv` must select the requested impl,
+/// not silently collapse to whichever was declared first.
+#[test]
+#[serial]
+fn b10d_same_generic_trait_two_impls_dispatch_by_trait_args() {
+    // Both disambiguated calls select their own impl and run.
+    let outputs = run_main_outputs(
+        r#"
+trait Conv<R> { fn conv(self: Self) -> R; }
+pub struct W { pub v: Felt }
+impl Conv<u32> for W { fn conv(self: Self) -> u32 { 3u32 } }
+impl Conv<Felt> for W { fn conv(self: Self) -> Felt { self.v } }
+fn main() -> (Felt, u32) {
+    let w = W { v: 7 };
+    return (<W as Conv<Felt>>::conv(w), <W as Conv<u32>>::conv(w));
+}
+"#,
+        "b10d_both_impls_dispatch",
+    );
+    assert_eq!(outputs, vec![7, 3], "felt impl then u32 impl");
+
+    // Asking for the Felt impl must not run the u32 impl's body: the
+    // old collapse picked the first-declared impl regardless of trait
+    // args, so the u32 body fed a Felt slot and failed to typecheck.
+    expect_accept(
+        "b10d_conv_felt_only",
+        r#"
+trait Conv<R> { fn conv(self: Self) -> R; }
+pub struct W { pub v: Felt }
+impl Conv<u32> for W { fn conv(self: Self) -> u32 { 3u32 } }
+impl Conv<Felt> for W { fn conv(self: Self) -> Felt { self.v } }
+fn main() {
+    let w = W { v: 7 };
+    let a: Felt = <W as Conv<Felt>>::conv(w);
+    assert_eq(a, 7, "felt impl body");
+}
+"#,
+    );
+}
+
+/// The associated-type half of the same bug: two impls of one generic
+/// trait for one type must expose *their own* associated types, not
+/// whichever impl registered first (implementer.rs provider dedup
+/// used to collapse these too).
+#[test]
+#[serial]
+fn b10e_same_generic_trait_assoc_types_dispatch() {
+    let outputs = run_main_outputs(
+        r#"
+trait Out<R> { type T; fn get(self: Self) -> Self::T; }
+pub struct W { pub v: Felt }
+impl Out<u32> for W { type T = u32; fn get(self: Self) -> u32 { 3u32 } }
+impl Out<Felt> for W { type T = Felt; fn get(self: Self) -> Felt { self.v } }
+fn main() -> (Felt, u32) {
+    let w = W { v: 7 };
+    return (<W as Out<Felt>>::get(w), <W as Out<u32>>::get(w));
+}
+"#,
+        "b10e_assoc_types_dispatch",
+    );
+    assert_eq!(outputs, vec![7, 3], "each impl's assoc type and body");
+}
+
+/// Three impls of the same generic trait: every instantiation must pick
+/// its own (no first-wins collapse at any arity).
+#[test]
+#[serial]
+fn b10f_three_impls_of_same_generic_trait() {
+    let outputs = run_main_outputs(
+        r#"
+trait Pick<R> { fn pick(self: Self) -> R; }
+pub struct W { pub v: Felt }
+impl Pick<u32> for W { fn pick(self: Self) -> u32 { 1u32 } }
+impl Pick<Felt> for W { fn pick(self: Self) -> Felt { 2 } }
+impl Pick<bool> for W { fn pick(self: Self) -> bool { true } }
+fn main() -> (u32, Felt) {
+    let w = W { v: 0 };
+    let a: u32 = <W as Pick<u32>>::pick(w);
+    let b: Felt = <W as Pick<Felt>>::pick(w);
+    let c: Felt = if <W as Pick<bool>>::pick(w) { 100 } else { 200 };
+    return (a, b + c);
+}
+"#,
+        "b10f_three_impls",
+    );
+    assert_eq!(outputs, vec![1, 102], "u32=1, felt=2, bool branch adds 100");
+}
+
+/// The undecorated method call with two same-trait impls in scope is
+/// genuinely ambiguous and must be reported, not silently resolved.
+#[test]
+#[serial]
+fn b10g_undecorated_call_with_same_trait_impls_is_ambiguous() {
+    expect_reject(
+        "b10g_undecorated_ambiguous",
+        r#"
+trait Conv<R> { fn conv(self: Self) -> R; }
+pub struct W { pub v: Felt }
+impl Conv<u32> for W { fn conv(self: Self) -> u32 { 3u32 } }
+impl Conv<Felt> for W { fn conv(self: Self) -> Felt { self.v } }
+fn main() {
+    let w = W { v: 7 };
+    let a = w.conv();
+}
+"#,
+        "Ambiguous",
     );
 }
 

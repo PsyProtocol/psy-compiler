@@ -632,6 +632,91 @@ fn c57_literal_for_range() {
     expect_accept("c57_for_range_literal", "fn main() {\n    for i in 0u32..5u32 {\n        let x = i;\n    }\n}");
 }
 
+/// Size positions can be nested: `fn f<N>(x: [[Felt; N]; 2])` — the
+/// literal must still promote N to a Const through the nesting.
+#[test]
+#[serial]
+fn c90_nested_array_size_position_promotes() {
+    expect_accept(
+        "c90_nested_size_position",
+        "fn take<N: Felt>(grid: [[Felt; N]; 2]) -> Felt { return grid[0][0]; }\nfn main() { let g: [[Felt; 3]; 2] = [[1, 2, 3], [4, 5, 6]]; let v = take(g); }",
+    );
+}
+
+/// Const-literal promotion is limited to size-position parameters. Plain
+/// type parameters keep normal inference: `two<T>(a: T, b: T)` with two
+/// *different* literals must infer `T = Felt`, not bind T to `Const(1)`
+/// and then reject the second literal (H3 regression).
+#[test]
+#[serial]
+fn c86_plain_generic_literals_do_not_promote() {
+    expect_accept(
+        "c86_plain_generic_literals",
+        "fn two<T>(a: T, b: T) -> T { return a; }\nfn main() { let z = two(1, 2); }",
+    );
+    expect_accept(
+        "c86_plain_generic_same_literal",
+        "fn two<T>(a: T, b: T) -> T { return a; }\nfn main() { let z = two(1, 1); }",
+    );
+    expect_accept(
+        "c86_plain_generic_mixed",
+        "fn two<T>(a: T, b: T) -> T { return a; }\nfn main(q: Felt) { let z = two(q, 2); }",
+    );
+}
+
+/// The size-position promotion still works where it matters: the std
+/// `split_bits(x, 64)` wrapper binds N to `Const(64)` and evaluates.
+#[test]
+#[serial]
+fn c87_split_bits_const_length_still_works() {
+    expect_accept(
+        "c87_split_bits_const",
+        "fn main(x: Felt) {\n    let bits = split_bits(x, 64);\n    let b0 = bits[0];\n}",
+    );
+    expect_accept(
+        "c87_split_bits_const_expr",
+        "fn main(x: Felt) {\n    let bits = split_bits(x, 30 + 34);\n    let b0 = bits[0];\n}",
+    );
+}
+
+/// A user-defined generic wrapper can forward its unresolved const generic
+/// to the std `split_bits` wrapper. `M` becomes `Const(4)` only when `wrap`
+/// is instantiated; rejecting `m: M` while checking the generic body is a
+/// regression from the pre-gate behavior.
+#[test]
+#[serial]
+fn c91_split_bits_const_generic_can_be_forwarded_through_user_wrapper() {
+    expect_accept(
+        "c91_split_bits_generic_wrapper",
+        "fn wrap<M: Felt>(x: Felt, m: M) -> [Felt; M] { return split_bits(x, m); }\n\
+         fn main() { let bits: [Felt; 4] = wrap::<4>(15, 4); assert_eq(sum_bits(bits), 15, \"wrapped split\"); }",
+    );
+}
+
+/// A runtime length must be rejected during typechecking, before circuit
+/// interpretation can mistake a symbolic input index for a bit count (H4).
+#[test]
+#[serial]
+fn c88_split_bits_runtime_length_rejected_at_typecheck() {
+    expect_reject(
+        "c88_split_bits_runtime_rejected",
+        "fn main(x: Felt, n: Felt) {\n    let bits = split_bits(x, n);\n    let b0 = bits[0];\n}",
+        "TypeMismatch",
+    );
+}
+
+/// A negated literal length is rejected during typechecking rather than
+/// wrapping in the field and reaching an attempted huge allocation (H9).
+#[test]
+#[serial]
+fn c89_split_bits_negative_length_rejected_at_typecheck() {
+    expect_reject(
+        "c89_split_bits_negative_rejected",
+        "fn main(x: Felt) {\n    let bits = split_bits(x, -64);\n    let b0 = bits[0];\n}",
+        "TypeMismatch",
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // (11) Nested const in runtime expressions (const ↔ variable interaction)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -935,4 +1020,64 @@ fn c81_array_size_mismatch_rejected() {
         "const N: Felt = 5;\nfn main() {\n    let arr: [Felt; N] = [0, 0, 0, 0];\n}",
         "TypeMismatch",
     );
+}
+
+#[test]
+#[serial]
+fn c82_const_array_size_checked_at_function_call() {
+    expect_reject(
+        "c82_const_size_function_arg",
+        "const N: Felt = 3;\nfn consume(value: [Felt; N]) {}\nfn main() { consume([1, 2]); }",
+        "TypeMismatch",
+    );
+}
+
+#[test]
+#[serial]
+fn c83_equal_const_array_sizes_pass_through_function_call() {
+    expect_accept(
+        "c83_equal_const_size_function_arg",
+        "const N: Felt = 3;\nfn consume(value: [Felt; N]) {}\nfn main() { consume([1, 2, 3]); }",
+    );
+}
+
+#[test]
+#[serial]
+fn c84_nested_const_array_inner_size_mismatch_rejected() {
+    expect_reject(
+        "c84_nested_const_inner_size",
+        "const INNER: Felt = 2;\nconst OUTER: Felt = 2;\nfn main() { let value: [[Felt; INNER]; OUTER] = [[1, 2], [3, 4, 5]]; }",
+        "TypeMismatch",
+    );
+}
+
+#[test]
+#[serial]
+fn c85_distinct_named_consts_with_equal_values_unify() {
+    expect_accept(
+        "c85_equal_named_const_values",
+        "const A: Felt = 2;\nconst B: Felt = 2;\nfn consume(value: [Felt; A]) {}\nfn main() { let value: [Felt; B] = [1, 2]; consume(value); }",
+    );
+}
+
+/// A const parameter can occur below arbitrarily many type constructors.
+/// This specifically guards against the former 16-level traversal cutoff:
+/// the first argument must be promoted to `Const(3)` before the deeply
+/// nested array argument is unified with the signature.
+#[test]
+#[serial]
+fn c90_const_size_position_beyond_sixteen_type_levels() {
+    const WRAPPERS: usize = 17;
+
+    let mut nested_ty = "[Felt; N]".to_string();
+    let mut nested_value = "[1, 2, 3]".to_string();
+    for _ in 0..WRAPPERS {
+        nested_ty = format!("[{nested_ty}; 1]");
+        nested_value = format!("[{nested_value}]");
+    }
+
+    let source = format!(
+        "fn consume<N: Felt>(n: N, value: {nested_ty}) {{}}\nfn main() {{ consume(3, {nested_value}); }}"
+    );
+    expect_accept("c90_deep_const_size_position", &source);
 }

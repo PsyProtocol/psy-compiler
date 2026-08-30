@@ -195,4 +195,44 @@ mod tests {
             assert_eq!(resolver.resolve_content(&file_id).as_deref(), Some(content.as_ref()));
         }
     }
+
+    #[test]
+    fn cloned_resolvers_are_independent_consistent_snapshots() {
+        let resolver = FileResolver::new();
+        let clone = resolver.clone();
+        let path = PathBuf::from("clone_update_test.psy");
+
+        let file_id = resolver.add_file(path.clone(), "first");
+        let updated_id = clone.add_file(path.clone(), "second");
+
+        assert_eq!(updated_id, file_id);
+        assert_eq!(resolver.resolve_id(&path), Some(file_id));
+        assert_eq!(clone.resolve_path(&file_id).as_deref(), Some(path.as_path()));
+        assert_eq!(resolver.resolve_content(&file_id).as_deref(), Some("first"));
+        assert_eq!(clone.resolve_content(&file_id).as_deref(), Some("second"));
+    }
+
+    #[test]
+    fn concurrent_updates_to_same_path_keep_one_file_id() {
+        let resolver = Arc::new(FileResolver::new());
+        let path = PathBuf::from("shared_concurrent_file.psy");
+        let initial_id = resolver.add_file(path.clone(), "initial");
+        let mut threads = Vec::new();
+
+        for thread_id in 0..16 {
+            let resolver = Arc::clone(&resolver);
+            let path = path.clone();
+            threads.push(std::thread::spawn(move || {
+                resolver.add_file(path, format!("content-{thread_id}"))
+            }));
+        }
+
+        for thread in threads {
+            assert_eq!(thread.join().unwrap(), initial_id);
+        }
+
+        assert_eq!(resolver.files().len(), 1);
+        assert_eq!(resolver.resolve_id(&path), Some(initial_id));
+        assert!(resolver.resolve_content(&initial_id).unwrap().starts_with("content-"));
+    }
 }

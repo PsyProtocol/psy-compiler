@@ -1,5 +1,11 @@
 // input:1,2
 // output: 1
 fn main(a: Felt, b: Felt) -> Felt {
+    assert_eq(2 * 3 ** 2, 18, "pow binds tighter than multiplication");
+    assert_eq(2 ** 3 ** 2, 512, "pow is right associative");
+    assert_eq((2 ** 3) ** 2, 64, "parentheses override pow associativity");
+    assert_eq(2 ** 3 * 4, 32, "pow on the left binds tighter than multiplication");
+    assert_eq(2u32 * 3u32 ** 2u32, 18u32, "u32 pow binds tighter than multiplication");
+    assert_eq(2u32 ** 3u32 ** 2u32, 512u32, "u32 pow is right associative");
     a ** b ** b
 }

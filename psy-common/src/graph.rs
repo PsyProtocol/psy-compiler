@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     hash::Hash,
 };
 
@@ -61,18 +61,23 @@ impl<T: Clone + Eq + Hash> Graph<T> {
     }
 
     pub fn dfs<'a>(&'a self, visitor: &mut impl FnMut(&'a T, Option<&'a T>)) {
-        let starting_nodes = self.starting_nodes();
-        for node in starting_nodes {
-            self.dfs_inner(node, None, visitor);
+        let mut visited = HashSet::new();
+        // Iterate every node, rather than only roots: a cyclic component has
+        // no starting node and was previously skipped entirely.
+        for node in self.edges.keys() {
+            self.dfs_inner(node, None, &mut visited, visitor);
         }
     }
 
-    fn dfs_inner<'a>(&'a self, node: &'a T, parent: Option<&'a T>, visitor: &mut impl FnMut(&'a T, Option<&'a T>)) {
+    fn dfs_inner<'a>(&'a self, node: &'a T, parent: Option<&'a T>, visited: &mut HashSet<&'a T>, visitor: &mut impl FnMut(&'a T, Option<&'a T>)) {
+        if !visited.insert(node) {
+            return;
+        }
         visitor(node, parent);
 
         if let Some(neighbors) = self.edges.get(node) {
             for neighbor in neighbors {
-                self.dfs_inner(neighbor, Some(node), visitor);
+                self.dfs_inner(neighbor, Some(node), visited, visitor);
             }
         }
     }
@@ -193,5 +198,59 @@ mod tests {
         }).unwrap();
 
         assert_eq!(visited, vec!["B", "A", "D", "C"]);
+    }
+
+    #[test]
+    fn detects_cycle_in_disconnected_component() {
+        let mut graph = Graph::new();
+        graph.add_edge("root", "leaf");
+        graph.add_edge("cycle-a", "cycle-b");
+        graph.add_edge("cycle-b", "cycle-a");
+
+        let result: Result<(), Error> = graph.check_cycle();
+
+        assert!(matches!(result, Err(Error::CycleGraph)));
+    }
+
+    #[test]
+    fn visits_isolated_nodes_and_dependency_nodes_once() {
+        let mut graph = Graph::new();
+        graph.add_node("isolated");
+        graph.add_edge("root-a", "shared");
+        graph.add_edge("root-b", "shared");
+
+        let mut visited = Vec::new();
+        graph.ts::<Error>(&mut |node| {
+            visited.push(*node);
+            Ok(())
+        }).unwrap();
+
+        assert_eq!(visited, vec!["isolated", "shared", "root-a", "root-b"]);
+    }
+
+    #[test]
+    fn dfs_visits_cycles_once_instead_of_recursing_forever() {
+        let mut graph = Graph::new();
+        graph.add_edge("A", "B");
+        graph.add_edge("B", "A");
+
+        let mut visited = Vec::new();
+        graph.dfs(&mut |node, parent| visited.push((*node, parent.copied())));
+
+        assert_eq!(visited, vec![("A", None), ("B", Some("A"))]);
+    }
+
+    #[test]
+    fn dfs_visits_shared_dag_node_once() {
+        let mut graph = Graph::new();
+        graph.add_edge("root", "left");
+        graph.add_edge("root", "right");
+        graph.add_edge("left", "shared");
+        graph.add_edge("right", "shared");
+
+        let mut visited = Vec::new();
+        graph.dfs(&mut |node, _| visited.push(*node));
+
+        assert_eq!(visited, vec!["root", "left", "shared", "right"]);
     }
 }

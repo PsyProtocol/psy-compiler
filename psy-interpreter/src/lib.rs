@@ -4,7 +4,7 @@ mod control;
 pub mod error;
 mod preprocess;
 
-use std::{collections::HashMap, iter::once, path::PathBuf, sync::Arc};
+use std::{collections::{HashMap, HashSet}, iter::once, path::PathBuf, sync::Arc};
 
 use error::{Error, Result};
 use indexmap::IndexMap;
@@ -32,6 +32,7 @@ use crate::{
 };
 
 const MAX_MATERIALIZED_ARRAY_ELEMENTS: usize = 1 << 20;
+const MAX_TOTAL_MATERIALIZED_ELEMENTS: u64 = 1 << 22;
 
 pub struct InterpretResult {
     pub compile_results: Vec<DPNFunctionCircuitDefinition>,
@@ -126,6 +127,15 @@ fn compile_interpret_result(
 #[derive(Clone, Debug)]
 pub struct Interpreter<F: Clone + From<u32>, C> {
     pub context: C,
+    /// Total array elements materialized during this compilation. A global
+    /// budget (not just per-node caps) bounds nested repeats and input
+    /// materialization: `[[0; 1024]; 2048]` passes every per-node check but
+    /// allocates 2^21 elements (M4/L2).
+    pub materialized_elements: u64,
+    /// Functions currently being interpreted. The symbolic interpreter
+    /// evaluates every branch, so recursive calls cannot use a runtime base
+    /// case and must be rejected before the Rust stack overflows (M3).
+    active_functions: HashSet<TypeId>,
     _marker: std::marker::PhantomData<F>,
 }
 
@@ -162,8 +172,81 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     pub fn new(context: C) -> Self {
         Self {
             context,
+            materialized_elements: 0,
+            active_functions: HashSet::new(),
             _marker: std::marker::PhantomData,
         }
+    }
+
+    /// Number of leaf input values a parameter type materializes.
+    fn input_footprint(ty: TypeId, symbols: &SymbolTable<F>) -> u64 {
+        fn visit<F: ContextFelt + From<u32>>(
+            ty: TypeId,
+            symbols: &SymbolTable<F>,
+            active: &mut HashSet<TypeId>,
+        ) -> u64 {
+            // Type graphs can be recursive. Treat a cycle conservatively as
+            // over-budget instead of imposing a nesting cutoff that lets a
+            // deeply nested input count as zero.
+            if !active.insert(ty) {
+                return u64::MAX;
+            }
+            let footprint = match &symbols[ty] {
+            Type::Array(arr) => {
+                let size = match &symbols[arr.size_ty] {
+                    Type::Const(const_node) => {
+                        let const_value_ref = &symbols[const_node.value];
+                        match &*const_value_ref.borrow() {
+                            // Felt and U32 constants carry their payload in
+                            // the felt; ContextFelt::get_u64 reads it without
+                            // needing the interpreter's context handle.
+                            CheckedValue::Felt(f) | CheckedValue::U32(f) => ContextFelt::get_u64(f),
+                            _ => 0,
+                        }
+                    }
+                    _ => u64::MAX,
+                };
+                size.saturating_mul(visit(arr.inner_ty, symbols, active))
+            }
+            Type::Tuple(elements) => elements.iter().map(|&e| visit(e, symbols, active)).fold(0, u64::saturating_add),
+            Type::Struct(s) => s
+                .fields
+                .values()
+                .map(|field| visit(field.ty, symbols, active))
+                .fold(0, u64::saturating_add),
+            _ => 1,
+            };
+            active.remove(&ty);
+            footprint
+        }
+
+        visit(ty, symbols, &mut HashSet::new())
+    }
+
+    /// Charge `count` elements against the materialization budget.
+    fn charge_materialized(&mut self, count: u64, location: Option<Location>) -> Result<()> {
+        self.materialized_elements = self.materialized_elements.saturating_add(count);
+        if self.materialized_elements > MAX_TOTAL_MATERIALIZED_ELEMENTS {
+            return Err(Error::ArrayTooLarge {
+                length: self.materialized_elements,
+                limit: MAX_TOTAL_MATERIALIZED_ELEMENTS,
+                location,
+            });
+        }
+        Ok(())
+    }
+
+    /// Create a fresh entry-point input after charging its complete type
+    /// footprint. Internal function calls pass existing CheckedValueRefs and
+    /// must not use this path.
+    fn materialize_input(
+        &mut self,
+        ty: TypeId,
+        symbols: &SymbolTable<F>,
+        location: Option<Location>,
+    ) -> Result<CheckedValueRef<F>> {
+        self.charge_materialized(Self::input_footprint(ty, symbols), location)?;
+        Ok(CheckedValueRef::new_rc(self.to_input(ty, symbols)))
     }
 
     pub fn calculate_type_size(&mut self, type_id: TypeId, ctx: &TypeCheckerVisitorContext<F, C>) -> usize {
@@ -273,7 +356,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             let contract_ref_name = ctx.intern(format!("{}Ref", ctx.ident(contract_name)));
             let contract_ref_type_id = ctx.symbols[scope_id].types.get::<TypeKey>(&contract_ref_name.into()).cloned();
             let method_names = if method_names.is_empty() {
-                self.collect_contract_method_names(ctx, contract_name, Some(contract_ref_name))
+                self.collect_contract_method_names(ctx, contract_name, Some(contract_ref_name))?
             } else {
                 method_names.into_iter().map(|method_name| ctx.intern(method_name.into())).collect()
             };
@@ -322,18 +405,32 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 })
                 .collect::<Result<Vec<TypeId>>>()?
         };
+        for &type_id in &type_ids {
+            if ctx.symbols[type_id].as_function().is_none() {
+                anyhow::bail!("method name resolved to a non-function type (TypeId {type_id:?}); contract methods must be functions");
+            }
+        }
 
         let mut outputs = Vec::new();
         // backup context
         let context = self.context.clone();
 
         for type_id in type_ids {
-            let node: &CheckedFunctionNode = ctx.symbols[type_id].as_function().unwrap();
+            // A method name may resolve to a non-function (struct, const,
+            // trait) — e.g. `dargo compile -m Foo` where Foo is a struct.
+            // Report instead of unwrapping.
+            let Some(node) = ctx.symbols[type_id].as_function() else {
+                anyhow::bail!("`-m` target does not name a function (TypeId {type_id:?})");
+            };
+            let node: &CheckedFunctionNode = node;
             let method_name = ctx.ident(node.name).to_string();
             let is_declared_view = node.attrs.iter().any(|attr| attr.is_contract_view_method());
             let mut parameters = vec![];
             for parameter in node.parameters.iter() {
-                parameters.push(CheckedValueRef::new_rc(self.to_input(parameter.ty, &ctx.symbols)));
+                // Bound input materialization by the type's element
+                // footprint BEFORE building it: `main(a: [Felt; 4_000_000])`
+                // previously allocated millions of inputs unchallenged (M4).
+                parameters.push(self.materialize_input(parameter.ty, &ctx.symbols, Some(node.location))?);
             }
             let res = self.__interpret__(&typechecker.program, type_id, parameters, ctx)?;
             let compiled = compile_fn(&self.context, res);
@@ -370,7 +467,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         ctx: &mut TypeCheckerVisitorContext<F, C>,
         contract_name: IdentId,
         contract_ref_name: Option<IdentId>,
-    ) -> Vec<IdentId> {
+    ) -> anyhow::Result<Vec<IdentId>> {
         let mut names: Vec<IdentId> = Vec::new();
 
         for i in 0..ctx.program.defs.len() {
@@ -412,8 +509,13 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         }
 
         names.sort();
-        names.dedup();
-        names
+        if let Some(duplicate) = names.windows(2).find_map(|pair| (pair[0] == pair[1]).then_some(pair[0])) {
+            anyhow::bail!(
+                "overloaded contract method `{}` is unsupported; contract entry points must have unique names",
+                ctx.ident(duplicate)
+            );
+        }
+        Ok(names)
     }
 
     fn extract_impl_target_ident(ty: &UncheckedType) -> Option<IdentId> {
@@ -644,10 +746,15 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         parameters: Vec<CheckedValueRef<F>>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<ControlState<CheckedValueRef<F>>> {
+        let location = ctx.symbols[type_id].as_function().map(|function| function.location);
+        if !self.active_functions.insert(type_id) {
+            return Err(Error::UnsupportedRecursion { location });
+        }
         let scope_id = ctx.symbols[type_id].scope_id();
         ctx.symbols.enter_function(scope_id);
         let res = self.__interpret_function__(program, type_id, parameters, ctx);
         ctx.symbols.exit_function(scope_id);
+        self.active_functions.remove(&type_id);
         res
     }
 
@@ -817,6 +924,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             CheckedValueNode::Bool(value, _location) => CheckedValue::Bool(*value),
             CheckedValueNode::U32(value, _location) => CheckedValue::U32(*value),
             CheckedValueNode::Array(type_id, elements, _location) => {
+                self.charge_materialized(elements.len() as u64, None)?;
                 let mut values = Vec::new();
                 for element in elements {
                     values.push(self.interpret_expr(program, *element, ctx)?);
@@ -842,6 +950,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     length: count,
                     location: Some(*location),
                 })?;
+                self.charge_materialized(count as u64, Some(*location))?;
                 for _ in 0..count {
                     values.push(self.interpret_expr(program, *element, ctx)?);
                 }
@@ -909,7 +1018,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     return Err(Error::DivisionByZero { location: Some(binary_node.location) });
                 }
             }
-            (CheckedValue::U32(l), CheckedValue::U32(r), Add | Sub | Mul) => {
+            (CheckedValue::U32(l), CheckedValue::U32(r), Add | Sub | Mul | Pow) => {
                 if self.is_constant(*l) && self.is_constant(*r) {
                     let a = self.context.get_constant_value(*l);
                     let b = self.context.get_constant_value(*r);
@@ -917,6 +1026,11 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         Add => a + b > 0xffffffff,
                         Sub => a < b,
                         Mul => a * b > 0xffffffff,
+                        // Both operands originate from u32 values, so the
+                        // exponent cast is safe. The guard itself must use
+                        // checked arithmetic: a large base can overflow u64
+                        // even when the exponent is at most 32.
+                        Pow => a.checked_pow(b as u32).map_or(true, |value| value > 0xffffffff),
                         _ => false,
                     };
                     if overflow {
@@ -1032,6 +1146,8 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             (CheckedValue::U32(l), CheckedValue::U32(r), BitXorAssign) => CheckedValueRef::from_u32(self.context.op_u32_xor(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), BitShlAssign) => CheckedValueRef::from_u32(self.context.op_u32_shl(*l, *r)),
             (CheckedValue::U32(l), CheckedValue::U32(r), BitShrAssign) => CheckedValueRef::from_u32(self.context.op_u32_shr(*l, *r)),
+
+            (CheckedValue::Bool(l), CheckedValue::Bool(r), BitXorAssign) => CheckedValueRef::from_bool(self.context.op_bool_xor(*l, *r)),
 
             _ => unreachable!(),
         };
@@ -1269,13 +1385,29 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         contract_id,
                         offset,
                         length,
-                        ..
+                        type_id: _,
+                        location,
                     } => {
                         let contract_state_tree_height = self.interpret_expr(program, contract_state_tree_height.clone(), ctx)?.to_felt();
                         let user_id = self.interpret_expr(program, user_id.clone(), ctx)?.to_felt();
                         let contract_id = self.interpret_expr(program, contract_id.clone(), ctx)?.to_felt();
                         let offset = self.interpret_expr(program, offset.clone(), ctx)?.to_felt();
                         let length = self.interpret_expr(program, length.clone(), ctx)?.to_felt();
+                        // The range is materialized as a fresh vector: charge
+                        // it against the global budget. A whole-struct
+                        // Storage::read (Self::size() over several huge array
+                        // fields) previously allocated gigabytes with no cap
+                        // and no bookkeeping (self-audit finding after P1/P2).
+                        let length_value = if self.is_constant(length) {
+                            self.to_constant(length)
+                        } else {
+                            // Non-constant length: charge the per-array cap
+                            // as a floor; the actual allocation is bounded by
+                            // what the VM returns, and callers reaching here
+                            // with a symbolic length are already degenerate.
+                            MAX_MATERIALIZED_ARRAY_ELEMENTS as u64
+                        };
+                        self.charge_materialized(length_value, Some(*location))?;
                         let values =
                             self.context
                                 .get_other_user_contract_state_range_at(contract_state_tree_height, user_id, contract_id, offset, length);
@@ -1341,8 +1473,31 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         location,
                     } => {
                         let target = self.interpret_expr(program, target.clone(), ctx)?.to_felt();
-                        let num_bits = self.interpret_expr(program, *num_bits, ctx)?.to_felt();
-                        let num_bits = self.to_constant(num_bits);
+                        let num_bits_felt = self.interpret_expr(program, *num_bits, ctx)?.to_felt();
+                        // The length must be a compile-time constant. A
+                        // non-constant handle previously leaked its input
+                        // *index* through `to_constant`, silently emitting a
+                        // circuit with the wrong bit count.
+                        if !self.is_constant(num_bits_felt) {
+                            return Err(Error::SemaError(SemaError::TypeMismatch {
+                                location: *location,
+                                expected: vec![],
+                                found: program.exprs[*num_bits].ty(),
+                            }));
+                        }
+                        let num_bits = self.to_constant(num_bits_felt);
+                        // Guard the materialized bit count: a huge (or
+                        // negative-wrapped) length like -64 => p-64 previously
+                        // aborted with `capacity overflow` in the VM's
+                        // (0..length).collect() instead of diagnosing.
+                        if num_bits > MAX_MATERIALIZED_ARRAY_ELEMENTS as u64 {
+                            return Err(Error::ArrayTooLarge {
+                                length: num_bits,
+                                limit: MAX_MATERIALIZED_ARRAY_ELEMENTS as u64,
+                                location: Some(*location),
+                            });
+                        }
+                        self.charge_materialized(num_bits, Some(*location))?;
 
                         return Ok(CheckedValueRef::from_vec(type_id.clone(), self.context.split_bits(target, num_bits)));
                     }
@@ -1760,8 +1915,25 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     ) -> Result<(CheckedValueRef<F>, VarId)> {
         let (inner_value, inner_var_id) = self.interpret_assignment_target(program, node, &program[index_access_node.target], path, ctx)?;
 
-        let index = IndexPath::Felt(self.interpret_expr(program, index_access_node.index, ctx)?.to_felt());
+        let index_felt = self.interpret_expr(program, index_access_node.index, ctx)?.to_felt();
 
+        // Keep assignment-target lookup consistent with ordinary index reads:
+        // `get_path` asserts on a constant out-of-bounds index, so turn that
+        // user error into a diagnostic before descending into the target.
+        if let CheckedValue::Array(_, values) = &*inner_value.borrow() {
+            if self.is_constant(index_felt.clone()) {
+                let index_value = self.context.get_constant_value(index_felt.clone()) as usize;
+                if index_value >= values.len() {
+                    return Err(Error::IndexOutOfBounds {
+                        index: index_value,
+                        length: values.len(),
+                        location: Some(index_access_node.location),
+                    });
+                }
+            }
+        }
+
+        let index = IndexPath::Felt(index_felt);
         path.push(index.clone());
 
         Ok((inner_value.get_path(&mut self.context, &[index]).unwrap(), inner_var_id))

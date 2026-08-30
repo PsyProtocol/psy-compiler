@@ -579,6 +579,25 @@ where
     }
 
     fn parse_precedence(&mut self, min_precedence: u8) -> Result<ExprNode<F>> {
+        // Every parenthesized/nested operand recurses through here, so this
+        // is the depth chokepoint: unbounded recursion previously aborted
+        // with a stack overflow (~150 parens on a 2 MB stack, ~400 on
+        // wasm32) instead of returning an error (M7). The limit is well
+        // above any legitimate expression.
+        const MAX_EXPRESSION_DEPTH: u32 = 128;
+        if self.expression_depth >= MAX_EXPRESSION_DEPTH {
+            return Err(Error::UnsupportedSyntax {
+                feature: "expression nesting too deep".into(),
+                location: self.cursor.current_location(),
+            });
+        }
+        self.expression_depth += 1;
+        let result = self.parse_precedence_inner(min_precedence);
+        self.expression_depth -= 1;
+        result
+    }
+
+    fn parse_precedence_inner(&mut self, min_precedence: u8) -> Result<ExprNode<F>> {
         if min_precedence == 0 && matches!(self.cursor.peek(), Some(Token::OperatorOr) | Some(Token::OperatorBitOr)) {
             return self.parse_lambda_expression();
         }
@@ -794,10 +813,10 @@ where
             Token::OperatorShr => (BinaryOperator::BitShr, 8, false),
             Token::OperatorAdd => (BinaryOperator::Add, 9, false),
             Token::OperatorSub => (BinaryOperator::Sub, 9, false),
-            Token::OperatorPow => (BinaryOperator::Pow, 10, false),
             Token::OperatorMul => (BinaryOperator::Mul, 10, false),
             Token::OperatorDiv => (BinaryOperator::Div, 10, false),
             Token::OperatorMod => (BinaryOperator::Mod, 10, false),
+            Token::OperatorPow => (BinaryOperator::Pow, 11, true),
             _ => return None,
         };
         Some(result)

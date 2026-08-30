@@ -220,6 +220,10 @@ where
     pub(super) fn parse_generic_args(&mut self) -> Result<Vec<UncheckedType>> {
         let mut args = Vec::new();
 
+        // Generic arguments do not carry trivia in the AST, but comments are
+        // valid separators around arguments, commas, and closing `>` tokens.
+        self.cursor.take_leading_comments();
+
         // Reject empty generic argument lists (`<>`, `::<>`). A split `>>`
         // closer for an inner empty generic is also rejected; non-empty
         // nested generics (`A<B<C>>`) still parse via the loop below.
@@ -232,10 +236,13 @@ where
         }
 
         loop {
+            self.cursor.take_leading_comments();
             args.push(self.parse_monomorphization_ty()?);
+            self.cursor.take_leading_comments();
             if self.cursor.eat(&Token::Comma).is_none() {
                 break;
             }
+            self.cursor.take_leading_comments();
             // Trailing comma followed by the closer: `A<T,>`.
             if self.cursor.eat_type_gt() {
                 return Ok(args);

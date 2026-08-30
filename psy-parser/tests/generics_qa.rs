@@ -774,3 +774,43 @@ fn t139_empty_generic_in_nested_turbofish_rejected() {
 fn t140_empty_generic_in_qualified_path_rejected() {
     reject("t140", "fn f() -> mod::<>::Ty { }");
 }
+
+#[test]
+fn t144_comments_between_nested_generic_closers() {
+    accept(
+        "t144",
+        "fn f(value: Outer<Middle<Inner> /* inner */ >) -> Outer<Middle<Inner> /* return */ > { value }",
+    );
+}
+
+#[test]
+fn t145_deep_qualified_nested_generics_with_const_and_array() {
+    accept(
+        "t145",
+        "fn f(value: root::Outer<left::Middle<[Felt; 2]>, right::Leaf<3u32>>) { }",
+    );
+}
+
+#[test]
+fn t146_nested_member_turbofish_with_tuple_and_array_types() {
+    accept(
+        "t146",
+        "fn f() { let value = object.method::<Outer<(Inner<Felt>, [u32; 2])>>([1u32, 2u32]); }",
+    );
+}
+
+#[test]
+fn t147_deep_turbofish_gte_then_shift_expression() {
+    accept(
+        "t147",
+        "fn f() { let value = foo::<A<B<C<D>>>>>=limit >> shift; }",
+    );
+}
+
+#[test]
+fn t148_two_adjacent_deep_generic_calls_in_comparison() {
+    accept(
+        "t148",
+        "fn f() { let value = foo::<A<B<C>>>(x) >= bar::<D<E<F>>>(y); }",
+    );
+}

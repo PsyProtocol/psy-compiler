@@ -55,6 +55,10 @@ fn main() -> Felt {
     let mut b: Box<u32, Felt> = <Box<u32, Felt>>::new(42);
     let echoed: Felt = b.echo::<Felt>(5);
     assert_eq(echoed, 5, "generic member call");
+    let echoed_u32: u32 = b.echo::<u32>(7u32);
+    assert_eq(echoed_u32, 7u32, "second generic member-call instantiation");
+    let echoed_array: [Felt; 2] = b.echo::<[Felt; 2]>([8, 9]);
+    assert_eq(echoed_array[1], 9, "nested generic member-call type survives formatting");
     b.data += 1;
     b.data + <[Felt; 3]>::len() + b.extra + <Felt as Two<u32>>::two()
 }

@@ -15,6 +15,10 @@ pub struct ImplementerCtxt {
     impl_ids: IndexMap<TypeId, IndexMap<Constraint, IndexSet<DefId>>>,
     // trait poly -> poly
     trait_impls: IndexMap<TypeId, IndexMap<Constraint, IndexSet<TypeId>>>,
+    // trait impl def -> the trait generic args it was declared with
+    // (`impl Conv<u32> for W` -> [u32]), so lookups can match a trait
+    // instantiation to the exact impls that provide it.
+    trait_impl_constraints: IndexMap<DefId, Constraint>,
     // poly -> instance
     instances: IndexMap<TypeId, IndexMap<Constraint, TypeId>>,
     // instance -> poly
@@ -26,6 +30,7 @@ impl ImplementerCtxt {
         Self {
             impl_ids: IndexMap::new(),
             trait_impls: IndexMap::new(),
+            trait_impl_constraints: IndexMap::new(),
             instances: IndexMap::new(),
             polys: IndexMap::new(),
         }
@@ -94,6 +99,64 @@ pub trait Implementer<F: Clone + From<u32> + ContextFelt, C> {
     fn does_function_match_expected_signature(&mut self, function: &CheckedFunctionNode, ctx: &mut TypeCheckerVisitorContext<F, C>) -> bool;
 }
 
+impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
+    /// Filter trait-impl candidates against the caller's requested trait.
+    ///
+    /// When no trait is specified, every impl of a trait providing `member`
+    /// stays a candidate (ambiguity detection decides later). When the caller
+    /// names a trait — including a *generic* instantiation like
+    /// `<W as Conv<Felt>>::conv` — the impl's trait must be the same trait
+    /// AND its generic arguments must unify with the requested ones, so
+    /// `Conv<u32> for W` no longer answers a `Conv<Felt>` request.
+    fn trait_impl_matches_requested(
+        &mut self,
+        requested_trait: Option<TypeId>,
+        impl_trait_ty: TypeId,
+        impl_trait_constraint: &Constraint,
+        ctx: &mut TypeCheckerVisitorContext<F, C>,
+    ) -> bool {
+        let Some(requested) = requested_trait else {
+            return true;
+        };
+        if self.poly_of(requested, ctx) != self.poly_of(impl_trait_ty, ctx) {
+            return false;
+        }
+        // Same trait poly: compare generic arguments. The requested trait is
+        // already instantiated (`Conv<Felt>`); the impl's args arrive as its
+        // registered trait constraint (free type variables at registration).
+        // Unify each requested arg against the impl's arg under a scratch
+        // scope so no bindings leak.
+        let requested_generics = ctx.symbols[requested].generic_parameters();
+        if requested_generics.len() != impl_trait_constraint.constraints.len() {
+            return false;
+        }
+        self.infcx.enter_scope();
+        let ok = requested_generics
+            .iter()
+            .zip(impl_trait_constraint.constraints.iter())
+            .all(|(&req, &imp)| self.unify(req, imp, ctx));
+        self.infcx.exit_scope();
+        ok
+}
+
+/// Whether two impl trait types carry equal generic arguments (both are
+/// the impls' registered traits; compare poly + pairwise unify).
+fn trait_generics_equal(&mut self, lhs_trait_ty: TypeId, rhs_trait_ty: TypeId, ctx: &mut TypeCheckerVisitorContext<F, C>) -> bool {
+    if self.poly_of(lhs_trait_ty, ctx) != self.poly_of(rhs_trait_ty, ctx) {
+        return false;
+    }
+    let lhs_generics = ctx.symbols[lhs_trait_ty].generic_parameters();
+    let rhs_generics = ctx.symbols[rhs_trait_ty].generic_parameters();
+    if lhs_generics.len() != rhs_generics.len() {
+        return false;
+    }
+    self.infcx.enter_scope();
+    let ok = lhs_generics.iter().zip(rhs_generics.iter()).all(|(&l, &r)| self.unify(l, r, ctx));
+    self.infcx.exit_scope();
+    ok
+}
+}
+
 impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F, C> {
     #[instrument(level = "debug", skip_all)]
     fn register_impl(&mut self, impl_id: DefId, ctx: &mut TypeCheckerVisitorContext<F, C>) -> Result<()> {
@@ -125,9 +188,11 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
             .trait_impls
             .entry(trait_poly_ty)
             .or_insert_with(IndexMap::new)
-            .entry(trait_constraint)
+            .entry(trait_constraint.clone())
             .or_insert_with(IndexSet::new)
             .insert(poly_ty);
+
+        self.implementer.trait_impl_constraints.insert(impl_id, trait_constraint);
 
         self.implementer
             .impl_ids
@@ -263,21 +328,26 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
         ) {
             let mut exact_matches: Vec<(TypeId, TypeId, TypeId)> = Vec::new();
             for (constraint, result) in &results {
-                for (_trait_constraint, impl_id, function_idx) in result {
+                for (trait_constraint, impl_id, function_idx) in result {
                     let (impl_trait_ty, function_id) = {
                         let impl_node = self.program[*impl_id].as_trait_impl().unwrap();
                         (impl_node.trait_ty, impl_node.body[*function_idx])
                     };
-                    if let Some(trait_ty) = trait_ty {
-                        if self.poly_of(trait_ty, ctx).unwrap() != self.poly_of(impl_trait_ty, ctx).unwrap() {
-                            continue;
-                        }
+                    if !self.trait_impl_matches_requested(trait_ty, impl_trait_ty, trait_constraint, ctx) {
+                        continue;
                     }
 
                     if generic_parameters == constraint.constraints {
                         let candidate = self.program[function_id].as_function().unwrap().type_id;
                         let provider = self.poly_of(impl_trait_ty, ctx).unwrap();
-                        if candidate_matches!(candidate) && !exact_matches.iter().any(|(_, matched_provider, _)| *matched_provider == provider) {
+                        // Dedup by (trait poly, trait generic args): two impls
+                        // of the same *generic* trait for one type (e.g.
+                        // `Conv<u32> for W` and `Conv<Felt> for W`) are
+                        // distinct providers, not duplicates.
+                        let dup = exact_matches
+                            .iter()
+                            .any(|(_, matched_provider, matched_trait_ty)| *matched_provider == provider && self.trait_generics_equal(*matched_trait_ty, impl_trait_ty, ctx));
+                        if candidate_matches!(candidate) && !dup {
                             exact_matches.push((candidate, provider, impl_trait_ty));
                         }
                     }
@@ -299,13 +369,14 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
             for (constraint, result) in results {
                 for (trait_constraint, impl_id, function_idx) in result {
                     let impl_trait_ty = self.program[impl_id].as_trait_impl().unwrap().trait_ty;
-                    if let Some(trait_ty) = trait_ty {
-                        if self.poly_of(trait_ty, ctx).unwrap() != self.poly_of(impl_trait_ty, ctx).unwrap() {
-                            continue;
-                        }
+                    if !self.trait_impl_matches_requested(trait_ty, impl_trait_ty, &trait_constraint, ctx) {
+                        continue;
                     }
                     let provider = self.poly_of(impl_trait_ty, ctx).unwrap();
-                    if generic_matches.iter().any(|(_, matched_provider, _)| *matched_provider == provider) {
+                    let provider_already_matched = generic_matches
+                        .iter()
+                        .any(|(_, matched_provider, matched_trait_ty)| *matched_provider == provider && self.trait_generics_equal(*matched_trait_ty, impl_trait_ty, ctx));
+                    if provider_already_matched {
                         continue;
                     }
                     if self.satisfies_constraints(generic_parameters.clone(), &constraint, ctx) {
@@ -322,7 +393,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                         }
                     }
 
-                    if generic_matches.iter().any(|(_, matched_provider, _)| *matched_provider == provider) {
+                    if generic_matches
+                        .iter()
+                        .any(|(_, matched_provider, matched_trait_ty)| *matched_provider == provider && self.trait_generics_equal(*matched_trait_ty, impl_trait_ty, ctx))
+                    {
                         continue;
                     }
 
@@ -780,8 +854,14 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                             continue;
                         }
                         if let Some(trait_map) = self.implementer.trait_impls.get(&trait_poly_ty) {
+                            // Only the constraint(s) this specific impl was
+                            // declared with answer for it: pushing every
+                            // constraint whose implementor set contains the
+                            // type made `Conv<u32> for W` also answer
+                            // `<W as Conv<Felt>>` requests.
+                            let declared = self.implementer.trait_impl_constraints.get(&impl_id);
                             for (trait_constraint, trait_impl_set) in trait_map.iter() {
-                                if trait_impl_set.contains(&poly_ty) {
+                                if Some(trait_constraint) == declared && trait_impl_set.contains(&poly_ty) {
                                     result.push((trait_constraint.clone(), impl_id, function_idx));
                                 }
                             }

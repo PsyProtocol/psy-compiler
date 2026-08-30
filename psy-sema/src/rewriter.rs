@@ -6,6 +6,7 @@ use tracing::instrument;
 use crate::{
     CheckedDefinitionNode, CheckedExprNode, CheckedIntrinsicExprNode, CheckedIntrinsicStmtNode, CheckedStmtNode, CheckedValueNode, Error,
     ExpectedFunctionSignature, ExpectedReturnType, Implementer, Result, ScopeKind, Type, TypeChecker, TypeCheckerVisitorContext, TypeId,
+    FELT_TYPE, U32_TYPE,
 };
 
 pub trait Rewriter<F: Clone + From<u32> + ContextFelt, C> {
@@ -416,6 +417,27 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                 checked_for_node.start = self.rewrite_expr(checked_for_node.start, ctx)?;
                 checked_for_node.end = self.rewrite_expr(checked_for_node.end, ctx)?;
                 checked_for_node.body = self.rewrite_expr(checked_for_node.body, ctx)?;
+                // After instantiation a still-free generic endpoint is now
+                // concrete: a non-Felt/u32 endpoint (e.g. a struct via
+                // loopgen::<P>) must be rejected here — it previously
+                // slipped through and panicked at interpretation (M2).
+                let start_ty = self.substitute_all(self.program[checked_for_node.start].ty(), ctx)?;
+                let end_ty = self.substitute_all(self.program[checked_for_node.end].ty(), ctx)?;
+                let endpoint_ok = |ty: TypeId| {
+                    ty == FELT_TYPE
+                        || ty == U32_TYPE
+                        || ctx.symbols[ty].is_type_variable()
+                        // A named const endpoint (`for i in 0..N` after N
+                        // resolved to a Const) carries ty Felt/u32.
+                        || matches!(&ctx.symbols[ty], Type::Const(const_node) if const_node.ty == FELT_TYPE || const_node.ty == U32_TYPE)
+                };
+                if !endpoint_ok(start_ty) || !endpoint_ok(end_ty) {
+                    return Err(Error::TypeMismatch {
+                        location: checked_for_node.location,
+                        expected: vec![FELT_TYPE, U32_TYPE],
+                        found: start_ty,
+                    });
+                }
             }
             CheckedStmtNode::Assignment(checked_assignment_node) => {
                 checked_assignment_node.type_id = self.substitute_all(checked_assignment_node.type_id, ctx)?;
@@ -846,6 +868,22 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                     *target = self.rewrite_expr(*target, ctx)?;
                     *num_bits = self.rewrite_expr(*num_bits, ctx)?;
                     *type_id = self.substitute_all(*type_id, ctx)?;
+                    // After instantiation, if the length resolves to a Const
+                    // type (literal or named const), bake the folded value
+                    // into the node so the interpreter sees a plain constant.
+                    // Other shapes are left as-is; the interpreter rejects a
+                    // non-constant length (H4 guard) rather than emitting a
+                    // wrong circuit. Trying to fold arbitrary expressions
+                    // here (e.g. `30 + 34`, which carries ty Felt even when
+                    // constant) is unsafe in the rewriter: evaluate_expr
+                    // consults runtime variable frames.
+                    let resolved = self.substitute_all(self.program[*num_bits].ty(), ctx)?;
+                    if let Some(const_node) = ctx.symbols[resolved].as_const().cloned() {
+                        let const_value = ctx.symbols.get_constant_value(const_node.value).to_value();
+                        if let Ok(n) = u32::try_from(ContextFelt::get_u64(&const_value)) {
+                            *num_bits = self.program.exprs.alloc_item(CheckedExprNode::Value(CheckedValueNode::Felt(F::from(n), *location)));
+                        }
+                    }
                 }
                 CheckedIntrinsicExprNode::Emit {
                     event_data,

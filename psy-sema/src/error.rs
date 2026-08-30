@@ -7,6 +7,11 @@ use crate::TypeId;
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("unsupported recursion: {what}")]
+    UnsupportedRecursion {
+        location: Location,
+        what: &'static str,
+    },
     #[error("{0:?}")]
     AnyhowError(#[from] anyhow::Error),
     #[error("{0:?}")]

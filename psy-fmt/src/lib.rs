@@ -915,7 +915,7 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
                 self.visit_expr(slot_index.clone(), ctx)?
             )),
             IntrinsicExprNode::CSetStateHashAt { slot_index, new_value, .. } => Ok(format!(
-                "__ctx_cset_state_hash_at({}, {})",
+                "__ctx_set_state_hash_at({}, {})",
                 self.visit_expr(slot_index.clone(), ctx)?,
                 self.visit_expr(new_value.clone(), ctx)?
             )),
@@ -962,7 +962,7 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
                 self.visit_unchecked_type(&target_type, false, ctx),
                 self.visit_expr(data, ctx)?,
             )),
-            IntrinsicExprNode::MemSizeOf { query_type: ty, .. } => Ok(format!("__mem_size_of::<{}>", self.visit_unchecked_type(&ty, false, ctx))),
+            IntrinsicExprNode::MemSizeOf { query_type: ty, .. } => Ok(format!("__mem_size_of::<{}>()", self.visit_unchecked_type(&ty, false, ctx))),
             IntrinsicExprNode::StorageRead {
                 contract_state_tree_height,
                 user_id,

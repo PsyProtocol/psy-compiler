@@ -48,7 +48,7 @@ const TAG_LATEST: &str = "latest";
 const STD_FILE: &str = "psy_compiler/psy-std/std.psy";
 
 impl PackageConfig {
-    fn resolve_to_package(&self, root_dir: &Path, processed: &mut Vec<String>) -> Result<crate::package::Package, ManifestError> {
+    fn resolve_to_package(&self, root_dir: &Path, processed: &mut Vec<PathBuf>) -> Result<crate::package::Package, ManifestError> {
         let name: crate::package::CrateName = if let Some(name) = &self.package.name {
             name.parse().map_err(|_| ManifestError::InvalidPackageName {
                 toml: root_dir.join("Dargo.toml"),
@@ -209,7 +209,7 @@ enum DependencyConfig {
 }
 
 impl DependencyConfig {
-    fn resolve_to_dependency(&self, pkg_root: &Path, processed: &mut Vec<String>) -> Result<crate::package::Dependency, ManifestError> {
+    fn resolve_to_dependency(&self, pkg_root: &Path, processed: &mut Vec<PathBuf>) -> Result<crate::package::Dependency, ManifestError> {
         let dep = match self {
             Self::Github { git, tag, directory } => {
                 let dir_path = clone_git_repo(git, tag).map_err(ManifestError::GitError)?;
@@ -242,8 +242,11 @@ impl DependencyConfig {
 
 /// Resolves a Dargo.toml file into a `Workspace` struct.
 pub fn resolve_workspace_from_toml(toml_path: &Path) -> Result<crate::workspace::Workspace, ManifestError> {
-    let dargo_toml = read_toml(toml_path)?;
-    let mut resolved = Vec::new();
+    let canonical_toml = toml_path
+        .canonicalize()
+        .map_err(|_| ManifestError::ReadFailed(toml_path.normalize()))?;
+    let dargo_toml = read_toml(&canonical_toml)?;
+    let mut resolved = vec![canonical_toml];
     let workspace = match dargo_toml.config {
         Config::Package { package_config } => {
             let member = package_config.resolve_to_package(&dargo_toml.root_dir, &mut resolved)?;
@@ -258,30 +261,30 @@ pub fn resolve_workspace_from_toml(toml_path: &Path) -> Result<crate::workspace:
     Ok(workspace)
 }
 
-fn resolve_package_from_toml(toml_path: &Path, processed: &mut Vec<String>) -> Result<crate::package::Package, ManifestError> {
-    let str_path = toml_path.to_str().expect("ICE - path is empty");
-    if processed.contains(&str_path.to_string()) {
+fn resolve_package_from_toml(toml_path: &Path, processed: &mut Vec<PathBuf>) -> Result<crate::package::Package, ManifestError> {
+    let canonical_toml = toml_path
+        .canonicalize()
+        .map_err(|_| ManifestError::ReadFailed(toml_path.normalize()))?;
+    if processed.contains(&canonical_toml) {
         let mut cycle = false;
         let mut message = String::new();
         for toml in processed {
-            cycle = cycle || toml == str_path;
+            cycle = cycle || toml == &canonical_toml;
             if cycle {
-                message += &format!("{} referencing ", toml);
+                message += &format!("{} referencing ", toml.display());
             }
         }
-        message += str_path;
+        message += &canonical_toml.display().to_string();
         return Err(ManifestError::CyclicDependency { cycle: message });
     }
 
-    if let Some(str) = toml_path.to_str() {
-        processed.push(str.to_string());
-    }
+    processed.push(canonical_toml.clone());
 
-    let dargo_toml = read_toml(toml_path)?;
+    let dargo_toml = read_toml(&canonical_toml)?;
     let result = match dargo_toml.config {
         Config::Package { package_config } => package_config.resolve_to_package(&dargo_toml.root_dir, processed),
     };
-    let pos = processed.iter().position(|toml| toml == str_path).expect("added package must be here");
+    let pos = processed.iter().position(|toml| toml == &canonical_toml).expect("added package must be here");
     processed.remove(pos);
     result
 }
@@ -325,4 +328,82 @@ fn read_toml(toml_path: &Path) -> Result<DargoToml, ManifestError> {
         config: toml_as_string.try_into()?,
     };
     Ok(dargo_toml)
+}
+
+#[cfg(test)]
+mod dependency_cycle_tests {
+    use super::*;
+
+    fn write_manifest(path: &Path, name: &str, dependency: &str) {
+        let contents = format!(
+            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\ntype = \"lib\"\n\n[dependencies]\ndep = {{ path = \"{dependency}\" }}\n"
+        );
+        std::fs::write(path.join("Dargo.toml"), contents).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detects_symlink_self_dependency() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        write_manifest(temp.path(), "self_cycle", "self");
+        symlink(temp.path(), temp.path().join("self")).unwrap();
+
+        let error = resolve_workspace_from_toml(&temp.path().join("Dargo.toml")).unwrap_err();
+        assert!(matches!(error, ManifestError::CyclicDependency { .. }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detects_two_package_cycle_through_symlink_alias() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        write_manifest(&a, "a", "../b");
+        write_manifest(&b, "b", "../alias-a");
+        symlink(&a, temp.path().join("alias-a")).unwrap();
+
+        let error = resolve_workspace_from_toml(&a.join("Dargo.toml")).unwrap_err();
+        assert!(matches!(error, ManifestError::CyclicDependency { .. }));
+    }
+
+    #[test]
+    fn detects_cycle_through_parent_directory_alias() {
+        let temp = tempfile::tempdir().unwrap();
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        write_manifest(&a, "a", "../b");
+        write_manifest(&b, "b", "../a/../a");
+
+        let error = resolve_workspace_from_toml(&a.join("Dargo.toml")).unwrap_err();
+        assert!(matches!(error, ManifestError::CyclicDependency { .. }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn accepts_non_cyclic_dependency_reached_through_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let dependency = temp.path().join("dependency");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&dependency).unwrap();
+        write_manifest(&root, "root", "../dependency-link");
+        std::fs::write(
+            dependency.join("Dargo.toml"),
+            "[package]\nname = \"dependency\"\nversion = \"0.1.0\"\ntype = \"lib\"\n",
+        )
+        .unwrap();
+        symlink(&dependency, temp.path().join("dependency-link")).unwrap();
+
+        resolve_workspace_from_toml(&root.join("Dargo.toml")).unwrap();
+    }
 }
