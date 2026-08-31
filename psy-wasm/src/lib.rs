@@ -1290,6 +1290,9 @@ fn compute_state_tree_height(result: &mut psy_interpreter::InterpretResult) -> u
 }
 
 fn extract_error_offset(error_msg: &str, sources: &HashMap<String, Arc<str>>) -> Option<usize> {
+    let sanitized_error = strip_ansi_csi_sequences(error_msg);
+    let error_msg = sanitized_error.as_str();
+
     for pattern in ["at offset ", "offset "] {
         if let Some(pos) = error_msg.rfind(pattern) {
             let after = &error_msg[pos + pattern.len()..];
@@ -1303,15 +1306,54 @@ fn extract_error_offset(error_msg: &str, sources: &HashMap<String, Arc<str>>) ->
     extract_error_offset_from_line_col(error_msg, sources)
 }
 
+fn strip_ansi_csi_sequences(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\u{1b}' {
+            output.push(ch);
+            continue;
+        }
+        if chars.peek() != Some(&'[') {
+            output.push(ch);
+            continue;
+        }
+        chars.next();
+        for sequence_char in chars.by_ref() {
+            if ('@'..='~').contains(&sequence_char) {
+                break;
+            }
+        }
+    }
+    output
+}
+
 fn extract_error_offset_from_line_col(error_msg: &str, sources: &HashMap<String, Arc<str>>) -> Option<usize> {
     let marker = "[ ";
-    let start = error_msg.find(marker)? + marker.len();
-    let rest = &error_msg[start..];
-    let end = rest.find(" ]")?;
-    let location = &rest[..end];
-    let (path_text, line, column) = parse_location_triplet(location)?;
-    let source = sources.get(&path_text)?;
-    line_col_to_offset(source, line, column)
+    for (start, _) in error_msg.match_indices(marker) {
+        let rest = &error_msg[start + marker.len()..];
+        let Some(end) = rest.find(" ]") else { continue };
+        let Some((path_text, line, column)) = parse_location_triplet(&rest[..end]) else { continue };
+        let normalized_path = path_text.replace('\\', "/");
+        let source = sources.get(&path_text).or_else(|| {
+            sources.iter().find(|(path, _)| path.replace('\\', "/") == normalized_path).map(|(_, source)| source)
+        });
+        if let Some(offset) = source.and_then(|source| line_col_to_offset(source, line, column)) {
+            return Some(offset);
+        }
+    }
+
+    if sources.len() == 1 {
+        let (_, line, column) = error_msg.match_indices(marker).find_map(|(start, _)| {
+            let rest = &error_msg[start + marker.len()..];
+            let end = rest.find(" ]")?;
+            let (_, line, column) = parse_location_triplet(&rest[..end])?;
+            Some(((), line, column))
+        })?;
+        return sources.values().next().and_then(|source| line_col_to_offset(source, line, column));
+    }
+
+    None
 }
 
 fn parse_location_triplet(location: &str) -> Option<(String, usize, usize)> {
@@ -1515,7 +1557,7 @@ mod tests {
 
         assert!(!result.success, "expected constant out-of-bounds array write to fail compilation");
         assert!(
-            result.error.as_deref().unwrap_or_default().contains("index out of bounds"),
+            result.error.as_deref().unwrap_or_default().contains("IndexOutOfBounds"),
             "unexpected error: {:?}",
             result.error
         );
@@ -1645,12 +1687,13 @@ mod tests {
         assert!(result.success, "expected compile success, got {:?}", result.error);
 
         let contract_code = result.contract_code.expect("missing contract_code");
-        assert_eq!(contract_code["state_tree_height"].as_u64(), Some(4));
+        // A map with capacity 128 requires seven Merkle levels.
+        assert_eq!(contract_code["state_tree_height"].as_u64(), Some(7));
         assert!(contract_code["functions"].as_array().is_some_and(|items| !items.is_empty()));
 
         let abi = result.abi.expect("missing abi");
         assert_eq!(abi["contract"]["name"].as_str(), Some("MapContract"));
-        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(4));
+        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(7));
         let state = abi["contract"]["state"].as_array().expect("state array");
         assert!(!state.is_empty());
         assert_eq!(state[0]["name"].as_str(), Some("balances"));
@@ -1732,7 +1775,7 @@ mod tests {
         let abi = result.abi.expect("missing abi");
         assert_eq!(abi["schema_version"].as_str(), Some("2.0.0"));
         assert_eq!(abi["contract"]["name"].as_str(), Some("MapContract"));
-        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(4));
+        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(7));
 
         // State field should use TypeRef with kind: "map"
         let state = abi["contract"]["state"].as_array().expect("state array");

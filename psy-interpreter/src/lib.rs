@@ -871,6 +871,15 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 } => {
                     let lhs_value = self.interpret_expr(program, left.clone(), ctx)?;
                     let condition = lhs_value.to_bool();
+                    let condition_type = self.context.get_op_type(condition.clone());
+                    let condition_is_constant_false = condition_type == DPNOpType::ConstantFalse
+                        || (condition_type == DPNOpType::Constant && self.context.get_constant_value(condition.clone()) == 0);
+                    if condition_is_constant_false && self.current_branch_definitely_executes() {
+                        return Err(Error::AssertionFailure {
+                            message: message.clone().unwrap_or_default(),
+                            location: Some(*location),
+                        });
+                    }
                     self.context
                         .assert_true(condition, Box::leak(message.clone().unwrap_or_default().into_boxed_str()));
                 }
@@ -885,6 +894,16 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     let rhs_value = self.interpret_expr(program, right.clone(), ctx)?;
                     let lhs = lhs_value.to_value();
                     let rhs = rhs_value.to_value();
+
+                    let both_constant = self.is_constant(lhs.clone()) && self.is_constant(rhs.clone());
+                    let constants_differ = both_constant
+                        && self.context.get_constant_value(lhs.clone()) != self.context.get_constant_value(rhs.clone());
+                    if constants_differ && self.current_branch_definitely_executes() {
+                        return Err(Error::AssertionFailure {
+                            message: message.clone().unwrap_or_default(),
+                            location: Some(*location),
+                        });
+                    }
 
                     self.context
                         .assert_eq(lhs, rhs, Box::leak(message.clone().unwrap_or_default().into_boxed_str()));
@@ -2146,6 +2165,17 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         ];
 
         constant_types.contains(&self.context.get_op_type(value))
+    }
+
+    /// Whether the interpreter is currently inside a branch that is statically
+    /// known to execute. Under symbolic execution both arms of an `if` are
+    /// interpreted: assertions inside a `ConstantFalse` arm are gated by the
+    /// condition stack and never fire, so they must not be treated as compile
+    /// time failures.
+    fn current_branch_definitely_executes(&self) -> bool {
+        let condition = self.context.get_current_condition();
+        let op_type = self.context.get_op_type(condition.clone());
+        op_type != DPNOpType::ConstantFalse && !(op_type == DPNOpType::Constant && self.context.get_constant_value(condition) == 0)
     }
 }
 

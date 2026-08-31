@@ -61,3 +61,24 @@ impl TypeQualifier {
         TypeQualifier { is_mutable, location }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn qualifier_display_preserves_keyword_order() {
+        let location = Location::default();
+        assert_eq!(Qualifier::new(false, false, location).to_string(), "");
+        assert_eq!(Qualifier::new(true, false, location).to_string(), "extern ");
+        assert_eq!(Qualifier::new(false, true, location).to_string(), "const ");
+        assert_eq!(Qualifier::new(true, true, location).to_string(), "extern const ");
+    }
+
+    #[test]
+    fn type_qualifier_only_renders_mutable() {
+        let location = Location::default();
+        assert_eq!(TypeQualifier::new(false, location).to_string(), "");
+        assert_eq!(TypeQualifier::new(true, location).to_string(), "mut ");
+    }
+}
