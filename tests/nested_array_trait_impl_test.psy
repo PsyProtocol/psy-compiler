@@ -3,13 +3,13 @@ fn size_of_nested<T: Storage>() -> Felt {
 }
 
 fn main() -> Felt {
-    let size2 = size_of_nested#<[[Felt; 2]; 3]>();
+    let size2 = size_of_nested::<[[Felt; 2]; 3]>();
     assert_eq(size2, 6, "nested array size [[Felt; 2]; 3] should be 6");
-    let size3 = size_of_nested#<[[[Felt; 2]; 3]; 4]>();
+    let size3 = size_of_nested::<[[[Felt; 2]; 3]; 4]>();
     assert_eq(size3, 24, "nested array size [[[Felt; 2]; 3]; 4] should be 24");
-    let generic_size2 = size_of_nested#<[[Felt; 2]; 3]>();
+    let generic_size2 = size_of_nested::<[[Felt; 2]; 3]>();
     assert_eq(generic_size2, 6, "generic nested array size should be 6");
-    let generic_size3 = size_of_nested#<[[[Felt; 2]; 3]; 4]>();
+    let generic_size3 = size_of_nested::<[[[Felt; 2]; 3]; 4]>();
     assert_eq(generic_size3, 24, "generic nested array size should be 24");
     return size2 + size3 + generic_size2 + generic_size3;
 }

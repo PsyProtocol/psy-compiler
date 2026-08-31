@@ -72,108 +72,108 @@ fn test_guta_verify_to_cap_proof() {
     let reward_leaf = [14766743708420665888, 17765979509351206360, 2105232290032940756, 3109752530715174030];
     let sibling_branch = [15235198788082409904, 2935782993509517981, 8212987016377471206, 16405734921858906756];
     let sibling_reward_leaf_0 = [6228363996522663727, 74339009091137294, 2550191691564954315, 5322880393740762406];
-    let mut top_siblings: [WeirdMerkleProofSiblingLevel; 32] = [new WeirdMerkleProofSiblingLevel {
+    let mut top_siblings: [WeirdMerkleProofSiblingLevel; 32] = [WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
-        }, new WeirdMerkleProofSiblingLevel {
+        }, WeirdMerkleProofSiblingLevel {
             sibling_branch: [0, 0, 0, 0],
             sibling_reward_leaf: [0, 0, 0, 0],
         }];
-    top_siblings[0] = new WeirdMerkleProofSiblingLevel {
+    top_siblings[0] = WeirdMerkleProofSiblingLevel {
         sibling_branch: [0, 0, 0, 0],
         sibling_reward_leaf: sibling_reward_leaf_0,
     };
-    let proof = new VariableHeightRewardMerkleProof {
+    let proof = VariableHeightRewardMerkleProof {
         top_siblings: top_siblings,
         sibling_branch: sibling_branch,
         reward_leaf: reward_leaf,

@@ -23,7 +23,7 @@ impl Test {
 fn main(a: Felt, b: Felt) -> Felt {
     void_fn();
     let res_add: Felt = add(a, b);
-    let test: Test = new Test {
+    let test: Test = Test {
         a: a,
         b: b,
     };

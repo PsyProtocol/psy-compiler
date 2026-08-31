@@ -1,38 +1,12 @@
 use std::path::PathBuf;
 
 use psy_ast::Location;
-use psy_common::FileId;
-use psy_lexer::{Loc, Token};
 use thiserror::Error as ThisError;
 
-#[derive(Debug, ThisError)]
-pub enum UserError {
-    #[error("{0}")]
-    LexicalError(#[from] psy_lexer::Error),
-    #[error("{0}")]
-    CommonError(#[from] psy_common::Error),
-    #[error("{0}")]
-    IoError(#[from] std::io::Error),
-    #[error("File could not be resolved")]
-    FileUnresolved,
-    #[error("Invalid module name")]
-    InvalidModuleName,
-    #[error("Extern function can only be defined in std")]
-    ExternFnNotInStd,
-    #[error("Missing function body")]
-    FunctionBodyMissing,
-    #[error("Invalid self parameter")]
-    InvalidSelfParameter,
-    #[error("Array length {length} exceeds the maximum supported length")]
-    ArrayLengthOverflow { length: u64, location: Location },
-}
-
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug, ThisError)]
 pub enum Error {
-    #[error("{0}")]
-    LexicalError(#[from] psy_lexer::Error),
     #[error("{0}")]
     CommonError(#[from] psy_common::Error),
     #[error("{0}")]
@@ -51,56 +25,62 @@ pub enum Error {
     FunctionBodyMissing,
     #[error("Invalid self parameter")]
     InvalidSelfParameter,
-    #[error("Array length {length} exceeds the maximum supported length")]
-    ArrayLengthOverflow { length: u64, location: Location },
-
-    #[error("invalid token")]
-    InvalidToken { location: Location },
-    #[error("unrecognized eof")]
-    UnrecognizedEof { expected: Vec<String>, location: Location },
-    #[error("unrecognized token")]
-    UnrecognizedToken {
-        token: String,
-        expected: Vec<String>,
+    #[error("unexpected end of file")]
+    UnexpectedEof { expected: Vec<ExpectedToken>, location: Location },
+    #[error("unexpected token {found}")]
+    UnexpectedToken {
+        found: String,
+        expected: Vec<ExpectedToken>,
         location: Location,
     },
-    #[error("extra token")]
-    ExtraToken { token: String, location: Location },
+    #[error("unsupported syntax: {feature}")]
+    UnsupportedSyntax { feature: String, location: Location },
+    #[error("lexical error")]
+    LexicalError { location: Location },
 }
 
-impl Error {
-    pub fn from_lalrpop_error<'input>(error: lalrpop_util::ParseError<usize, Token<'input>, UserError>, file_id: FileId) -> Self {
-        match error {
-            lalrpop_util::ParseError::InvalidToken { location } => Error::InvalidToken {
-                location: Location::new(file_id, location, location + 1),
-            },
-            lalrpop_util::ParseError::UnrecognizedEof { location, expected } => Error::UnrecognizedEof {
-                location: Location::new(file_id, location, location + 1),
-                expected,
-            },
-            lalrpop_util::ParseError::UnrecognizedToken {
-                token: (start, token, end),
-                expected,
-            } => Error::UnrecognizedToken {
-                token: token.to_string(),
-                expected: expected,
-                location: Location::new(file_id, start, end),
-            },
-            lalrpop_util::ParseError::ExtraToken { token: (start, token, end) } => Error::ExtraToken {
-                token: token.to_string(),
-                location: Location::new(file_id, start, end),
-            },
-            lalrpop_util::ParseError::User { error } => match error {
-                UserError::LexicalError(error) => Error::LexicalError(error),
-                UserError::CommonError(error) => Error::CommonError(error),
-                UserError::IoError(error) => Error::IoError(error),
-                UserError::FileUnresolved => Error::FileUnresolved,
-                UserError::InvalidModuleName => Error::InvalidModuleName,
-                UserError::ExternFnNotInStd => Error::ExternFnNotInStd,
-                UserError::FunctionBodyMissing => Error::FunctionBodyMissing,
-                UserError::InvalidSelfParameter => Error::InvalidSelfParameter,
-                UserError::ArrayLengthOverflow { length, location } => Error::ArrayLengthOverflow { length, location },
-            },
+/// A displayable token expectation for error reporting.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExpectedToken {
+    Keyword(&'static str),
+    Symbol(String),
+    Literal,
+    Ident,
+    Type,
+    Expression,
+    Statement,
+    Eof,
+}
+
+impl std::fmt::Display for ExpectedToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Keyword(s) => write!(f, "{}", s),
+            Self::Symbol(s) => write!(f, "{}", s),
+            Self::Literal => write!(f, "literal"),
+            Self::Ident => write!(f, "identifier"),
+            Self::Type => write!(f, "type"),
+            Self::Expression => write!(f, "expression"),
+            Self::Statement => write!(f, "statement"),
+            Self::Eof => write!(f, "end of file"),
+        }
+    }
+}
+
+impl ExpectedToken {
+    /// Classify a concrete token for parser diagnostics.
+    pub fn from_token<'src>(t: &psy_lexer::Token<'src>) -> Self {
+        use psy_lexer::Token::*;
+        match t {
+            KeywordConst | KeywordLet | KeywordMut | KeywordFn | KeywordStruct | KeywordEnum | KeywordImpl | KeywordTrait | KeywordReturn
+            | KeywordMatch | KeywordIf | KeywordElse | KeywordWhile | KeywordFor | KeywordIn | KeywordWhere | KeywordAs | KeywordType
+            | KeywordExtern | KeywordMod | KeywordUse | KeywordSelf | KeywordCrate | KeywordSuper | KeywordPub => {
+                Self::Keyword("keyword")
+            }
+            Ident(_) => Self::Ident,
+            U64(_) | U32(_) | Bool(_) | String(_) => Self::Literal,
+            TypeBool | TypeFelt | TypeU32 | TypeArray | TypeSelf => Self::Type,
+            _ => Self::Symbol(format!("{t:?}")),
         }
     }
 }

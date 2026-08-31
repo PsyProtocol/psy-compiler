@@ -12,7 +12,7 @@ fn main() {
         return a * ((a < b) as Felt) + b * ((a >= b) as Felt);
     };
     assert(min(5) == 1, "min(1, 2) == 1");
-    let mut p = new Person {
+    let mut p = Person {
         age: 10,
     };
     let incr_age = || -> Felt {

@@ -160,8 +160,6 @@ pub enum Token<'input> {
     #[token("__emit")]
     IntrinsicEmit,
 
-    #[token("new")]
-    KeywordNew,
     #[token("extern")]
     KeywordExtern,
 

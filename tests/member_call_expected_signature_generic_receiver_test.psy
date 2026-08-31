@@ -23,7 +23,7 @@ impl<T> ScoreBool for Holder<T> {
 }
 
 fn main() -> Felt {
-    let h: Holder<Felt> = new Holder {
+    let h: Holder<Felt> = Holder {
         value: 7,
     };
     let a = h.score(3);

@@ -1,5 +1,5 @@
 fn felt_u64_to_u32x2(x: Felt) -> [u32; 2] {
-    let bits = __split_bits(x, 64);
+    let bits = split_bits(x, 64);
     let mut lo: Felt = 0; let mut lo_pow: Felt = 1;
     for i in 0u32..32u32 { let idx = i as Felt; lo += (bits[idx] as Felt) * lo_pow; lo_pow *= 2; }
     let mut hi: Felt = 0; let mut hi_pow: Felt = 1;

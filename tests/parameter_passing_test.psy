@@ -17,11 +17,11 @@ fn main(a: Felt, b: Felt) -> Felt {
     modify_primitive(a);
     let mut arr: [Felt; 2] = [a, b];
     arr[0] += 2;
-    let mut p1: Person = new Person {
+    let mut p1: Person = Person {
         age: a,
     };
     // 2
-    let p2: Person = new Person {
+    let p2: Person = Person {
         age: arr[0],
     };
     // 4

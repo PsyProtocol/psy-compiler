@@ -26,8 +26,8 @@ pub fn get_value<T: Value>(value: T) -> Felt {
 // input:
 // output:
 fn main() {
-    let two = new Two {};
-    let three = new Three {};
+    let two = Two {};
+    let three = Three {};
 
     assert_eq(get_value(two), 2, "Expected 2 from Two");
     assert_eq(get_value(three), 3, "Expected 3 from Three");

@@ -12,10 +12,10 @@ pub struct C {
 
 fn main() {
     let c = CRef::new(ContractMetadata::current());
-    c.people = [new Person {
+    c.people = [Person {
             age: 10,
             score: 80,
-        }, new Person {
+        }, Person {
             age: 20,
             score: 90,
         }];

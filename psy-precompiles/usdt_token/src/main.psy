@@ -284,7 +284,7 @@ impl USDTTokenContractRef {
         let record_key: Hash = Self::withdrawal_record_key(nonce);
         assert(!c.state_map.contains_ns(6, record_key), "nonce already used for withdrawal");
         c.state_map.insert_ns(6, record_key, leaf_hash);
-        let event_data = new WithdrawalEvent {
+        let event_data = WithdrawalEvent {
             sender_user_id,
             destination_chain_index,
             token_address,
@@ -330,7 +330,7 @@ impl USDTTokenContractRef {
         let known: bool = deposit_tree.known_roots.contains_ns_other(source_chain_index, known_key);
         assert(known, "deposit root is not known");
 
-        let preimage = new ShieldClaimPublicInputsPreimage {
+        let preimage = ShieldClaimPublicInputsPreimage {
             shield_address,
             amount,
             token_address,
@@ -381,7 +381,7 @@ impl USDTTokenContractRef {
         assert(c.state_map.contains_ns(4, nullifier_hash) == false, "shield claim already used");
         c.state_map.insert_ns(4, nullifier_hash, [1, 0, 0, 0]);
         c.balance += amount_felt;
-        let event_data = new DepositClaimEvent {
+        let event_data = DepositClaimEvent {
             shield_address,
             nullifier_hash,
             amount: amount_felt,
@@ -409,7 +409,7 @@ impl USDTTokenContractRef {
 
     #[contract_method]
     pub fn simple_transfer(recipient: Felt, amount: Felt) {
-        let transfer_info_event = new TransferEvent {
+        let transfer_info_event = TransferEvent {
             to: recipient,
             amount,
         };
@@ -422,17 +422,17 @@ impl USDTTokenContractRef {
         let mut recipient_info = c.other_user_info[recipient].get();
         assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
 
-        c.other_user_info[recipient] = new OtherUserInfo {
+        c.other_user_info[recipient] = OtherUserInfo {
             amount_sent: recipient_info.amount_sent + amount,
             amount_claimed: recipient_info.amount_claimed
         };
 
-        let sender_start_info = new UserInfoEvent {
+        let sender_start_info = UserInfoEvent {
             balance: c.balance.get(),
         };
         sender_start_info.emit();
         c.balance = current_balance - amount;
-        let sender_end_info = new UserInfoEvent {
+        let sender_end_info = UserInfoEvent {
             balance: c.balance.get(),
         };
         sender_end_info.emit();
@@ -454,14 +454,14 @@ impl USDTTokenContractRef {
         assert(sender_info.amount_claimed < sender_total_sent, "no tokens to claim from this sender");
         let claimed = sender_total_sent - sender_info.amount_claimed;
 
-        c.other_user_info[sender] = new OtherUserInfo {
+        c.other_user_info[sender] = OtherUserInfo {
             amount_sent: sender_info.amount_sent,
             amount_claimed: sender_total_sent
         };
 
         c.balance += claimed;
 
-        let claim_event = new ClaimEvent {
+        let claim_event = ClaimEvent {
             from: sender,
             amount: claimed,
             amount_claimed: sender_total_sent,
@@ -510,7 +510,7 @@ impl USDTTokenContractRef {
                 let mut recipient_info = c.other_user_info[recipient].get();
                 assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
 
-                c.other_user_info[recipient] = new OtherUserInfo {
+                c.other_user_info[recipient] = OtherUserInfo {
                     amount_sent: recipient_info.amount_sent + amount,
                     amount_claimed: recipient_info.amount_claimed
                 };
@@ -541,7 +541,7 @@ impl USDTTokenContractRef {
                 let mut recipient_info = c.other_user_info[recipient].get();
                 assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
 
-                c.other_user_info[recipient] = new OtherUserInfo {
+                c.other_user_info[recipient] = OtherUserInfo {
                     amount_sent: recipient_info.amount_sent + amount,
                     amount_claimed: recipient_info.amount_claimed
                 };
@@ -600,7 +600,7 @@ impl USDTTokenContractRef {
     ) {
         let c = USDTTokenContractRef::new(ContractMetadata::current());
 
-        let preimage = new ProofPublicInputsPreimage {
+        let preimage = ProofPublicInputsPreimage {
             receiver,
             amount,
             user_tree_root,
@@ -655,7 +655,7 @@ impl USDTTokenContractRef {
         c.state_map.insert_ns(1, nullifier_key, [1, 0, 0, 0]);
 
         c.balance += preimage.amount;
-        let claim_event = new PrivateClaimEvent {
+        let claim_event = PrivateClaimEvent {
             shield_address: receiver,
             nullifier_hash,
             amount: preimage.amount,

@@ -18,28 +18,28 @@ pub struct SimpleContract {
 
 impl SimpleContract {
     pub fn new() -> Self {
-        return new SimpleContract {
+        return SimpleContract {
             a: 0,
-            b: new Person {
+            b: Person {
                 age: 0,
                 height: 0,
                 year_of_birth: 0,
             },
             c: 0,
-            d: new Person {
+            d: Person {
                 age: 0,
                 height: 0,
                 year_of_birth: 0,
             },
-            e: [new Person {
+            e: [Person {
                     age: 0,
                     height: 0,
                     year_of_birth: 0,
-                }, new Person {
+                }, Person {
                     age: 0,
                     height: 0,
                     year_of_birth: 0,
-                }, new Person {
+                }, Person {
                     age: 0,
                     height: 0,
                     year_of_birth: 0,
@@ -66,27 +66,27 @@ fn main() -> Felt {
     assert_eq(SimpleContract::size(), 21, "Error: Contract::size() should be 21");
     assert_eq(<[Felt; 2]>::size(), 2, "Error: [Felt;2]::size() should be 2");
     assert_eq(<[Felt; 4]>::size(), 4, "Error: [Felt;4]::size() should be 4");
-    SimpleContract::set_e([new Person {
+    SimpleContract::set_e([Person {
             age: 23,
             height: 183,
             year_of_birth: 2003,
-        }, new Person {
+        }, Person {
             age: 22,
             height: 182,
             year_of_birth: 2002,
-        }, new Person {
+        }, Person {
             age: 21,
             height: 181,
             year_of_birth: 2001,
         }]);
-    SimpleContract::set_d(new Person {
+    SimpleContract::set_d(Person {
         age: 40,
         height: 170,
         year_of_birth: 1980,
     });
     SimpleContract::set_f([8, 7, 6, 5]);
     SimpleContract::set_a(10);
-    SimpleContract::set_b(new Person {
+    SimpleContract::set_b(Person {
         age: 20,
         height: 180,
         year_of_birth: 2000,

@@ -20,8 +20,8 @@ pub struct C {
 
 fn main() {
     let c = CRef::new(ContractMetadata::current());
-    c.person = new Person {
-        profile: new Profile {
+    c.person = Person {
+        profile: Profile {
             age: 18,
             level: 2,
         },
@@ -30,7 +30,7 @@ fn main() {
     assert_eq(c.person.profile.age, 18, "nested profile age after person eq_assign");
     assert_eq(c.person.profile.level, 2, "nested profile level after person eq_assign");
     assert_eq(c.person.score, 50, "person score after person eq_assign");
-    c.person.profile = new Profile {
+    c.person.profile = Profile {
         age: 21,
         level: 4,
     };

@@ -1,0 +1,71 @@
+fn assert_u32x8_eq(got: [u32; 8], want: [u32; 8]) {
+    assert_eq(got[0], want[0], "leaf limb 0");
+    assert_eq(got[1], want[1], "leaf limb 1");
+    assert_eq(got[2], want[2], "leaf limb 2");
+    assert_eq(got[3], want[3], "leaf limb 3");
+    assert_eq(got[4], want[4], "leaf limb 4");
+    assert_eq(got[5], want[5], "leaf limb 5");
+    assert_eq(got[6], want[6], "leaf limb 6");
+    assert_eq(got[7], want[7], "leaf limb 7");
+}
+
+fn arrays_differ(a: [u32; 8], b: [u32; 8]) -> bool {
+    a[0] != b[0] || a[1] != b[1] || a[2] != b[2] || a[3] != b[3] || a[4] != b[4] || a[5] != b[5] || a[6] != b[6] || a[7] != b[7]
+}
+
+fn live_bridge_deposit_words() -> [u32; 41] {
+    // Frozen Bridge.sol abi.encodePacked vector (164 bytes / 41 big-endian u32 words):
+    // words [0..8)   = shieldAddress       = bytes32(uint256(2))
+    // words [8..16)  = token               = bytes32(uint256(uint160(address(0x1234))))
+    // words [16..24) = l2TokenContractId   = bytes32(uint256(1))
+    // words [24..32) = amount              = uint256(1)
+    // word  [32]     = source chain index  = uint32(0)
+    // words [33..41) = noteCommitment      = bytes32(uint256(3))
+    [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 2u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 4660u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 1u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 1u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 3u32]
+}
+
+fn frozen_live_bridge_deposit_digest() -> [u32; 8] {
+    // Independent EVM keccak256(abi.encodePacked(...)) oracle:
+    // 0x1444f3188612b73ebd3342049b4927038d4ec1597b229eb8b061f931bc39d816
+    // Keep this literal: deriving it with keccak256 here would only prove self-consistency.
+    [340063000u32, 2249373502u32, 3174253060u32, 2605262595u32, 2370748761u32, 2065866424u32, 2959210801u32, 3157907478u32]
+}
+
+#[test]
+fn bridge_deposit_leaf_matches_frozen_contract_vector() {
+    assert_u32x8_eq(keccak256(live_bridge_deposit_words()), frozen_live_bridge_deposit_digest());
+}
+
+#[test]
+fn bridge_deposit_leaf_binds_each_live_field_boundary() {
+    let base_words = live_bridge_deposit_words();
+    let base = keccak256(base_words);
+    let mut shield_changed = base_words;
+    shield_changed[7] = 3u32;
+    assert(arrays_differ(base, keccak256(shield_changed)), "shield address must bind leaf");
+    let mut token_changed = base_words;
+    token_changed[15] = 4661u32;
+    assert(arrays_differ(base, keccak256(token_changed)), "token must bind leaf");
+    let mut l2_token_changed = base_words;
+    l2_token_changed[23] = 2u32;
+    assert(arrays_differ(base, keccak256(l2_token_changed)), "L2 token ID must bind leaf");
+    let mut amount_high_changed = base_words;
+    amount_high_changed[24] = 1u32;
+    assert(arrays_differ(base, keccak256(amount_high_changed)), "uint256 amount high word must bind leaf");
+    let mut amount_low_changed = base_words;
+    amount_low_changed[31] = 2u32;
+    assert(arrays_differ(base, keccak256(amount_low_changed)), "uint256 amount low word must bind leaf");
+    let mut chain_changed = base_words;
+    chain_changed[32] = 1u32;
+    assert(arrays_differ(base, keccak256(chain_changed)), "chain index must bind leaf");
+    let mut note_changed = base_words;
+    note_changed[40] = 4u32;
+    assert(arrays_differ(base, keccak256(note_changed)), "note commitment must bind leaf");
+}
+
+#[test]
+fn legacy_144_byte_depositor_recipient_nonce_shape_cannot_match_live_leaf() {
+    let live = keccak256(live_bridge_deposit_words());
+    let legacy: [u32; 36] = [0u32, 0u32, 0u32, 4087338725u32, 447580406u32, 4107168440u32, 2188540367u32, 4290323046u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 187722745u32, 365221445u32, 4284051025u32, 2410626966u32, 1773760534u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 1000000000u32, 0u32, 1775065240u32];
+    assert(arrays_differ(live, keccak256(legacy)), "obsolete leaf layout must not alias live layout");
+}

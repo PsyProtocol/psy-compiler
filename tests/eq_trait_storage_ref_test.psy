@@ -17,16 +17,16 @@ fn main() {
     c.a = 1;
     assert_eq(c.a, 1, "assert_eq should use Eq trait for StorageRef");
     assert(c.a == 1, "== should use Eq trait for StorageRef");
-    c.person = new Person {
+    c.person = Person {
         age: 18,
         score: 90,
     };
     let p1: Person::RefType = c.person;
-    assert(p1 == new Person {
+    assert(p1 == Person {
         age: 18,
         score: 90,
     }, "== should use Eq trait for generated RefType");
-    assert_eq(p1, new Person {
+    assert_eq(p1, Person {
         age: 18,
         score: 90,
     }, "assert_eq should use Eq trait for generated RefType");

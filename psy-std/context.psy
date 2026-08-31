@@ -151,11 +151,15 @@ pub fn imt_contains_other_user(
 }
 
 pub fn invoke_sync<T, U>(contract_id: Felt, method_id: Felt, inputs: U) -> T {
-    __invoke_sync#<T>(contract_id, method_id, inputs)
+    __invoke_sync::<T>(contract_id, method_id, inputs)
 }
 
 pub fn invoke_deferred<T, U>(contract_id: Felt, method_id: Felt, inputs: U) {
     __invoke_deferred(contract_id, method_id, inputs);
+}
+
+pub fn secp256k1_verify(pub_key: [u32; 16], msg: Hash, sig: [u32; 16]) -> bool {
+    __secp256k1_verify(pub_key, msg, sig)
 }
 
 pub fn clear_entire_tree() {

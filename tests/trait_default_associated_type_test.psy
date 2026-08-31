@@ -8,7 +8,7 @@ pub trait NewTrait {
 
 impl NewTrait for FeltNumber {
     pub fn new() -> Self {
-        new FeltNumber {
+        FeltNumber {
             value: 777,
         }
     }

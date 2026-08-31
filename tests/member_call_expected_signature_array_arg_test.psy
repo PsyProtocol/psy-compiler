@@ -23,7 +23,7 @@ impl ScoreArray for Meter {
 }
 
 fn main() -> Felt {
-    let m: Meter = new Meter {
+    let m: Meter = Meter {
         bias: 3,
     };
     let a: Felt = m.score(4);

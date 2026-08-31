@@ -133,8 +133,10 @@ ci:
 	       --nocapture
 
 	@RUST_LOG=${LOG_LEVEL} cargo test --profile ${PROFILE} \
+	       --package psy_compiler_common \
 	       --package psy-sema \
 	       --package psy-interpreter \
+	       --package psy-package \
 	       -- \
 	       --nocapture
 
@@ -202,7 +204,7 @@ compile-counter-contract:
 compile-counter-abi:
 	@cd $(COUNTER_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyCounterContractRef --abi-name counter --method-names set_value increment
 
-PSY_GENESIS ?= $(PWD)/../psy-genesis
+PSY_GENESIS ?= $(PWD)/../psy-node/psy-genesis
 PSY_NODE ?= $(PWD)/../psy-node
 GENESIS_CONTRACTS_FILE := $(PSY_GENESIS)/genesis_contracts.json
 GENESIS_ABI_DIR := $(PSY_GENESIS)/genesis_abi

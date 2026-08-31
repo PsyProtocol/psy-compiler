@@ -110,75 +110,19 @@ impl<'a> StorageProcessor<'a> {
         attr: &AttrNode,
         ctx: &mut V,
     ) -> TraitImplNode {
-        let emit_method = self.generate_event_emit_method(struct_node, attr, ctx);
         TraitImplNode {
             associated_types: IndexMap::new(),
             generic_parameters: vec![],
             ty: UncheckedType::Basic(struct_node.name),
             trait_ty: UncheckedType::Basic(Identifier::new(ctx.intern("Event"), attr.location)),
-            body: vec![emit_method],
+            body: vec![],
+            attrs: vec![],
             comments: vec![],
             location: attr.location,
             is_generated: true,
         }
     }
 
-    fn generate_event_emit_method<
-        F: Clone + From<u32>,
-        C,
-        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
-    >(
-        &self,
-        struct_node: &StructNode,
-        attr: &AttrNode,
-        ctx: &mut V,
-    ) -> DefId {
-        // __emit(self);
-        let self_expr = ctx.alloc_expression(ExprNode::Path(PathNode {
-            root: None,
-            segments: vec![],
-            target: UncheckedType::Basic(Identifier::new(IdentId::SELF, attr.location)),
-            is_ty: false,
-            location: attr.location,
-        }));
-        let emit_instics_expr = ctx.alloc_expression(ExprNode::Intrinsic(IntrinsicExprNode::Emit {
-            event_data: self_expr,
-            location: attr.location,
-        }));
-        let emit_stmt = ctx.alloc_statement(StmtNode::Expression(emit_instics_expr));
-        let block = ctx.alloc_expression(ExprNode::BlockExpr(BlockExprNode {
-            stmts: vec![emit_stmt],
-            expr: None,
-            expr_comments: vec![],
-            location: attr.location,
-        }));
-
-        let parameter = FunctionParameter {
-            name: Identifier::new(IdentId::SELF, attr.location),
-            qualifier: TypeQualifier::new(false, attr.location),
-            ty: UncheckedType::Basic(Identifier::new(IdentId::TYPE_SELF, attr.location)),
-            location: attr.location,
-        };
-
-        let f = FunctionNode {
-            name: Identifier::new(ctx.intern("emit"), attr.location),
-            parameters: vec![parameter],
-            generic_parameters: vec![],
-            body: Some(block),
-            return_type: None,
-            qualifier: Qualifier {
-                is_extern: false,
-                is_const: false,
-                location: attr.location,
-            },
-            visibility: Visibility::Public,
-            attrs: vec![],
-            comments: vec![],
-            location: attr.location,
-        };
-
-        ctx.alloc_definition(DefinitionNode::Function(f))
-    }
 
     fn generate_storage_impl<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
         &self,
@@ -225,6 +169,7 @@ impl<'a> StorageProcessor<'a> {
             trait_ty: UncheckedType::Basic(Identifier::new(ctx.intern("Storage"), attr.location)),
             ty: UncheckedType::Basic(struct_node.name),
             body: methods,
+            attrs: vec![],
             comments: vec![],
             location: attr.location,
             is_generated: true,
@@ -259,6 +204,7 @@ impl<'a> StorageProcessor<'a> {
                     attr.location,
                 ),
                 body: methods,
+                attrs: vec![],
                 comments: vec![],
                 location: attr.location,
                 is_generated: true,
@@ -597,6 +543,7 @@ impl<'a> StorageProcessor<'a> {
             generic_parameters: struct_node.generic_parameters.clone(),
             ty: UncheckedType::Basic(struct_node.name),
             body: methods,
+            attrs: vec![],
             comments: vec![],
             location: attr.location,
             is_generated: true,
@@ -645,6 +592,7 @@ impl<'a> StorageProcessor<'a> {
         let callee = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
             target: self_target,
             field: set_ident,
+            generic_parameters: Vec::new(),
             location: attr.location,
         }));
         let set_call = ctx.alloc_expression(ExprNode::MemberCall(MemberCallNode {
@@ -693,6 +641,7 @@ impl<'a> StorageProcessor<'a> {
             trait_ty: UncheckedType::Generic(Identifier::new(ctx.intern("EqAssign"), attr.location), vec![base_ty], attr.location),
             ty: UncheckedType::Basic(ref_struct.name),
             body: vec![ctx.alloc_definition(DefinitionNode::Function(eq_assign_fn))],
+            attrs: vec![],
             comments: vec![],
             location: attr.location,
             is_generated: true,
@@ -741,22 +690,26 @@ impl<'a> StorageProcessor<'a> {
             let self_field_target = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                 target: self_target,
                 field: *field_name,
+                generic_parameters: Vec::new(),
                 location: attr.location,
             }));
             let self_field_receiver = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                 target: self_receiver,
                 field: *field_name,
+                generic_parameters: Vec::new(),
                 location: attr.location,
             }));
             let rhs_field = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                 target: rhs_expr,
                 field: *field_name,
+                generic_parameters: Vec::new(),
                 location: attr.location,
             }));
             let eq_ident = Identifier::new(ctx.intern("eq"), attr.location);
             let callee = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                 target: self_field_target,
                 field: eq_ident,
+                generic_parameters: Vec::new(),
                 location: attr.location,
             }));
             let field_eq = ctx.alloc_expression(ExprNode::MemberCall(MemberCallNode {
@@ -818,6 +771,7 @@ impl<'a> StorageProcessor<'a> {
             trait_ty: UncheckedType::Generic(Identifier::new(ctx.intern("Eq"), attr.location), vec![base_ty], attr.location),
             ty: UncheckedType::Basic(ref_struct.name),
             body: vec![ctx.alloc_definition(DefinitionNode::Function(eq_fn))],
+            attrs: vec![],
             comments: vec![],
             location: attr.location,
             is_generated: true,
@@ -1274,26 +1228,31 @@ impl<'a> StorageProcessor<'a> {
                 let metadata_target_expr = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                     target: self_expr.clone(),
                     field: field_name.clone(),
+                    generic_parameters: Vec::new(),
                     location: attr.location,
                 }));
                 let metadata_expr = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                     target: metadata_target_expr.clone(),
                     field: metadata_ident,
+                    generic_parameters: Vec::new(),
                     location: attr.location,
                 }));
                 let csth_expr = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                     target: metadata_expr.clone(),
                     field: contract_state_tree_height_ident,
+                    generic_parameters: Vec::new(),
                     location: attr.location,
                 }));
                 let user_id_expr = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                     target: metadata_expr.clone(),
                     field: user_id_ident,
+                    generic_parameters: Vec::new(),
                     location: attr.location,
                 }));
                 let contract_id_expr = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                     target: metadata_expr,
                     field: contract_id_ident,
+                    generic_parameters: Vec::new(),
                     location: attr.location,
                 }));
                 ctx.alloc_expression(ExprNode::Call(CallNode {
@@ -1306,12 +1265,14 @@ impl<'a> StorageProcessor<'a> {
                 let field_access = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                     target: self_expr.clone(),
                     field: Identifier::new(field_name.id, attr.location),
+                    generic_parameters: Vec::new(),
                     location: attr.location,
                 }));
                 let get_ident = Identifier::new(ctx.intern("get"), attr.location);
                 let get_callee = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                     target: field_access.clone(),
                     field: get_ident,
+                    generic_parameters: Vec::new(),
                     location: attr.location,
                 }));
                 ctx.alloc_expression(ExprNode::MemberCall(MemberCallNode {
@@ -1440,6 +1401,7 @@ impl<'a> StorageProcessor<'a> {
             let value_field = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                 target: value_expr.clone(),
                 field: Identifier::new(field_name.id, attr.location),
+                generic_parameters: Vec::new(),
                 location: attr.location,
             }));
 
@@ -1465,12 +1427,14 @@ impl<'a> StorageProcessor<'a> {
                 let field_access = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                     target: self_expr.clone(),
                     field: Identifier::new(field_name.id, attr.location),
+                    generic_parameters: Vec::new(),
                     location: attr.location,
                 }));
                 let set_ident = Identifier::new(ctx.intern("set"), attr.location);
                 let set_callee = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                     target: field_access.clone(),
                     field: set_ident,
+                    generic_parameters: Vec::new(),
                     location: attr.location,
                 }));
                 let set_call = ctx.alloc_expression(ExprNode::MemberCall(MemberCallNode {
@@ -2321,6 +2285,7 @@ impl<'a> StorageProcessor<'a> {
         let field = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
             target: value,
             field: Identifier::new(*field_name, attr.location),
+            generic_parameters: Vec::new(),
             location: attr.location,
         }));
         let node = CallNode {
@@ -2404,6 +2369,7 @@ impl<'a, F: Clone + From<u32> + ContextFelt + 'static, C> AstVisitor<F, C> for S
                     generic_parameters: ref_struct.generic_parameters.clone(),
                     ty: UncheckedType::Basic(ref_struct.name),
                     body: methods,
+                    attrs: vec![],
                     comments: vec![],
                     location: attr.location,
                     is_generated: true,
@@ -2416,6 +2382,7 @@ impl<'a, F: Clone + From<u32> + ContextFelt + 'static, C> AstVisitor<F, C> for S
                     trait_ty: UncheckedType::Basic(Identifier::new(ctx.intern("StorageNew"), attr.location)),
                     ty: UncheckedType::Basic(ref_struct.name),
                     body: vec![self.generate_new_method(&ref_struct, attr, ctx, include_offset)],
+                    attrs: vec![],
                     comments: vec![],
                     location: attr.location,
                     is_generated: true,

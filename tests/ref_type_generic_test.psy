@@ -14,7 +14,7 @@ impl NewTrait for Felt {
 
 impl NewTrait for FeltNumber {
     pub fn new() -> Self {
-        new FeltNumber {
+        FeltNumber {
             value: Felt::new(),
         }
     }
@@ -42,7 +42,7 @@ pub struct StorageRef2<T: RefTypeTrait> {
 
 impl<T: RefTypeTrait> StorageRef2<T> {
     pub fn new(offset: Felt, metadata: Felt) -> Self {
-        return new StorageRef2<T> {
+        return StorageRef2<T> {
             offset: offset,
             metadata: metadata,
         };

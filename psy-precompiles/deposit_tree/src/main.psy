@@ -37,7 +37,7 @@ impl PsyDepositTreeContractRef {
     }
 
     fn felt_u64_to_u32x2(x: Felt) -> [u32; 2] {
-        let bits = __split_bits(x, 64);
+        let bits = split_bits(x, 64);
 
         let mut lo: Felt = 0;
         let mut lo_pow: Felt = 1;
@@ -348,7 +348,7 @@ impl PsyDepositTreeContractRef {
         let new_global_root_hash = Self::update_global_root_for_chain_hash(chain_index, new_chain_root_hash);
         let new_global_root = Self::hash_to_u32x8(new_global_root_hash);
 
-        let event_data = new DepositLeafAppended {
+        let event_data = DepositLeafAppended {
             chain_index,
             index: idx,
             leaf,

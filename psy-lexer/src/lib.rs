@@ -1,32 +1,47 @@
 mod error;
 mod token;
-mod transformer;
 
-use logos::{Logos, SpannedIter};
+use logos::Logos;
 
-pub use crate::{error::*, token::Token, transformer::*};
+pub use crate::{error::*, token::Token};
 
-pub type Loc = usize;
-pub type Spanned<Tok> = Result<(Loc, Tok, Loc)>;
-
-pub struct Lexer<'input> {
-    token_stream: SpannedIter<'input, Token<'input>>,
+/// A token with its byte span in the source text.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpannedToken<'src> {
+    pub kind: Token<'src>,
+    pub start: usize,
+    pub end: usize,
 }
 
-impl<'input> Lexer<'input> {
-    pub fn new(input: &'input str) -> Self {
-        Self {
-            token_stream: Token::lexer(input).spanned(),
+/// A lexer error with its byte span in the source text.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LocatedError {
+    pub kind: error::Error,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// Result of collecting all tokens from a source string.
+pub type LexResult<'src> = std::result::Result<Vec<SpannedToken<'src>>, LocatedError>;
+
+/// Collect all tokens from source and stop at the first located lexer error.
+pub fn lex_all<'src>(input: &'src str) -> LexResult<'src> {
+    let mut tokens = Vec::new();
+    for (result, span) in Token::lexer(input).spanned() {
+        match result {
+            Ok(kind) => tokens.push(SpannedToken {
+                kind,
+                start: span.start,
+                end: span.end,
+            }),
+            Err(kind) => {
+                return Err(LocatedError {
+                    kind,
+                    start: span.start,
+                    end: span.end,
+                });
+            }
         }
     }
-}
-
-impl<'input> Iterator for Lexer<'input> {
-    type Item = Spanned<Token<'input>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.token_stream
-            .next()
-            .map(|(token, location)| Ok((location.start, token?, location.end)))
-    }
+    Ok(tokens)
 }

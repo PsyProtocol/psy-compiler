@@ -9,7 +9,7 @@ pub trait Evaluator<F: Clone + From<u32> + ContextFelt, C> {
         program: &CheckedProgram<F>,
         expr: &CheckedExprNode<F>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
-    ) -> CheckedValueRef<F>;
+    ) -> anyhow::Result<CheckedValueRef<F>>;
     fn to_constant(&mut self, value: F) -> u64;
     fn from_constant(&mut self, value: ConstValue) -> F;
 }

@@ -74,7 +74,7 @@ pub struct NamespacedMapRef<K, V, C: u32> {
 
 impl<T> StorageNew for StorageRef<T> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
-        return new StorageRef<T> {
+        return StorageRef<T> {
             offset,
             metadata
         };
@@ -83,7 +83,7 @@ impl<T> StorageNew for StorageRef<T> {
 
 impl<T, N: Felt> StorageNew for ArrayRef<T, N> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
-        return new ArrayRef<T, N> {
+        return ArrayRef<T, N> {
             offset,
             metadata
         };
@@ -92,7 +92,7 @@ impl<T, N: Felt> StorageNew for ArrayRef<T, N> {
 
 impl<K, V, C: u32> StorageNew for MapRef<K, V, C> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
-        return new MapRef<K, V, C> {
+        return MapRef<K, V, C> {
             offset,
             metadata
         };
@@ -101,7 +101,7 @@ impl<K, V, C: u32> StorageNew for MapRef<K, V, C> {
 
 impl<K, V, C: u32> StorageNew for NamespacedMapRef<K, V, C> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
-        return new NamespacedMapRef<K, V, C> {
+        return NamespacedMapRef<K, V, C> {
             offset,
             metadata
         };
@@ -199,7 +199,7 @@ impl<T: Storage, N: Felt> Storage for [T; N] {
         contract_id: Felt,
         offset: Felt
     ) -> Self {
-        mem::transmute#<Self>(__storage_read_range(
+        mem::transmute::<Self>(__storage_read_range(
             contract_state_tree_height,
             user_id,
             contract_id,
@@ -226,7 +226,7 @@ impl<K, V, C: u32> Storage for Map<K, V, C> {
         _contract_id: Felt,
         _offset: Felt
     ) -> Self {
-        new Map<K, V, C> {}
+        Map<K, V, C> {}
     }
 
     pub fn write(_offset: Felt, _value: Self) {
@@ -247,7 +247,7 @@ impl<K, V, C: u32> Storage for NamespacedMap<K, V, C> {
         _contract_id: Felt,
         _offset: Felt
     ) -> Self {
-        new NamespacedMap<K, V, C> {}
+        NamespacedMap<K, V, C> {}
     }
 
     pub fn write(_offset: Felt, _value: Self) {
@@ -275,7 +275,7 @@ impl<T: Storage, N: Felt> StorageAt<T, N> for [T; N] {
 
 impl<T: Storage> StorageRef<T> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
-        return new StorageRef<T> {
+        return StorageRef<T> {
             offset,
             metadata
         };
@@ -298,7 +298,7 @@ impl<T: Storage> StorageRef<T> {
 
 impl<T: Storage, N: Felt> ArrayRef<T, N> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
-        return new ArrayRef<T, N> {
+        return ArrayRef<T, N> {
             offset,
             metadata
         };
@@ -325,7 +325,7 @@ impl<T: Storage, N: Felt> ArrayRef<T, N> {
 
 impl<K: ToHash, V: ToHash, C: u32> MapRef<K, V, C> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
-        return new MapRef<K, V, C> {
+        return MapRef<K, V, C> {
             offset,
             metadata
         };
@@ -419,7 +419,7 @@ impl<K: ToHash, V: ToHash, C: u32> MapRef<K, V, C> {
 
 impl<K: ToHash, V: ToHash, C: u32> NamespacedMapRef<K, V, C> {
     pub fn new(offset: Felt, metadata: ContractMetadata) -> Self {
-        return new NamespacedMapRef<K, V, C> {
+        return NamespacedMapRef<K, V, C> {
             offset,
             metadata
         };
@@ -508,7 +508,7 @@ pub struct ContractMetadata {
 
 impl ContractMetadata {
     pub fn new(contract_id: Felt, user_id: Felt) -> Self {
-        return new ContractMetadata {
+        return ContractMetadata {
             contract_state_tree_height: context::get_contract_state_tree_height(contract_id),
             contract_id,
             user_id,
@@ -517,7 +517,7 @@ impl ContractMetadata {
 
     pub fn current() -> Self {
         let contract_id = context::get_contract_id();
-        return new ContractMetadata {
+        return ContractMetadata {
             contract_state_tree_height: context::get_contract_state_tree_height(contract_id),
             contract_id,
             user_id: context::get_user_id(),
@@ -848,4 +848,12 @@ impl ShrAssign<u32> for StorageRef<u32> {
     pub fn shr_assign(self: Self, rhs: u32) {
         self.set(self.get() >> rhs);
     }
+}
+
+pub fn sum_bits<N: Felt>(bits: [Felt; N]) -> Felt {
+    __sum_bits(bits)
+}
+
+pub fn split_bits<N: Felt>(target: Felt, num_bits: N) -> [Felt; N] {
+    __split_bits(target, num_bits)
 }

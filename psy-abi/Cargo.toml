@@ -12,3 +12,8 @@ psy_data = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = "1.4"
+psy-interpreter = { workspace = true }
+psy-package = { workspace = true }
+psy_common = { workspace = true }
+psy_vm = { workspace = true }
+serial_test = { workspace = true }

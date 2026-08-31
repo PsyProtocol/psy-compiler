@@ -4,8 +4,8 @@ use psy_ast::IdentId;
 use psy_vm::dpn::ops::context_trait::ContextFelt;
 
 use crate::{
-    rewriter::Rewriter, CheckedArrayNode, CheckedFunctionSignature, CheckedStructField, CheckedStructNode, Constraint, Implementer, Result, ScopeId,
-    Type, TypeChecker, TypeCheckerVisitorContext, TypeId,
+    rewriter::Rewriter, CheckedArrayNode, CheckedFunctionSignature, CheckedStructField, CheckedStructNode, Constraint, Error, Implementer, Result,
+    ScopeId, Type, TypeChecker, TypeCheckerVisitorContext, TypeId,
 };
 
 #[derive(Debug)]
@@ -76,7 +76,6 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
             }
             (_, Type::TypeVariable(_)) => {
                 if self.satisfies_constraint(lhs_ty, rhs_ty, ctx) {
-                    self.infcx.equate(rhs_ty, lhs_ty);
                     return true;
                 }
                 false
@@ -211,7 +210,15 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                     return Ok(instance);
                 }
 
-                let instance = self.instantiate_function(poly_ty, generic_parameters, ctx)?;
+                if !self.active_function_instantiations.insert(poly_ty) {
+                    return Err(Error::UnsupportedRecursion {
+                        location: func.location,
+                        what: "generic function instantiation is recursive",
+                    });
+                }
+                let instance = self.instantiate_function(poly_ty, generic_parameters, ctx);
+                self.active_function_instantiations.remove(&poly_ty);
+                let instance = instance?;
                 Ok(self.program[instance].as_function().unwrap().type_id)
             }
 
