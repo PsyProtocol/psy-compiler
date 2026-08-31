@@ -376,6 +376,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "slow end-to-end circuit generation; run with `make test-slow`"]
     async fn test_doc() {
         insta::glob!("../../../tests", "*_test.psy", |path| {
             let source = std::fs::read_to_string(path).expect("test fixture should be readable");

@@ -73,7 +73,8 @@ pub(crate) async fn run(args: TestCommand) -> crate::errors::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "slow end-to-end proving; run serially with `make test-slow`"]
     async fn psy_unit_test() {
         insta::glob!("../../../tests", "*_test.psy", |path| {
             let args = TestCommand { file: path.into() };

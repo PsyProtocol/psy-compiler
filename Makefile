@@ -1,10 +1,53 @@
 PROFILE := release
+COVERAGE_PROFILE := dev
 LOG_LEVEL := dargo=info
+COVERAGE_MIN_LINES ?= 85
+COVERAGE_MIN_FUNCTIONS ?= 80
+COVERAGE_DIR ?= target/coverage
+COVERAGE_IGNORE_REGEX := '(^|/)(psy-lsp-server/psy-lsp-vscode|psy-wasm/demo-(web|node)|[^/]+/src/main\.rs)(/|$$)'
 
 export DARGO_STD_PATH := $(PWD)/psy-std/std.psy
 
 check:
 	@cargo check --workspace --all-targets --tests --benches --examples --bins
+
+# Fast, deterministic Rust test entry point. Tests marked `ignore` are the
+# proving/end-to-end suite and run separately through `test-slow`.
+test:
+	@RUST_LOG=$(LOG_LEVEL) cargo test --profile $(PROFILE) --workspace --all-targets -- --nocapture
+
+# Expensive proving tests mutate process-global compiler state and therefore
+# must run serially. They are intentionally kept out of the PR-fast path.
+test-slow:
+	@RUST_LOG=$(LOG_LEVEL) cargo test --profile $(PROFILE) --package dargo -- --ignored --test-threads=1 --nocapture
+
+# Generate a local HTML report and a machine-readable LCOV report. This target
+# intentionally has no threshold so it can be used to establish a baseline.
+coverage:
+	@mkdir -p $(COVERAGE_DIR)
+	@cargo llvm-cov clean --workspace
+	@RUST_LOG=$(LOG_LEVEL) cargo llvm-cov \
+		--profile $(COVERAGE_PROFILE) \
+		--workspace --all-targets \
+		--ignore-filename-regex $(COVERAGE_IGNORE_REGEX) \
+		--html --output-dir $(COVERAGE_DIR)/html
+	@RUST_LOG=$(LOG_LEVEL) cargo llvm-cov report \
+		--profile $(COVERAGE_PROFILE) \
+		--ignore-filename-regex $(COVERAGE_IGNORE_REGEX) \
+		--lcov --output-path $(COVERAGE_DIR)/lcov.info
+
+# CI/release gate. Keep this separate from `coverage` so a baseline report can
+# still be produced while a module is being brought up to the target.
+coverage-ci:
+	@mkdir -p $(COVERAGE_DIR)
+	@cargo llvm-cov clean --workspace
+	@RUST_LOG=$(LOG_LEVEL) cargo llvm-cov \
+		--profile $(COVERAGE_PROFILE) \
+		--workspace --all-targets \
+		--ignore-filename-regex $(COVERAGE_IGNORE_REGEX) \
+		--lcov --output-path $(COVERAGE_DIR)/lcov.info \
+		--fail-under-lines $(COVERAGE_MIN_LINES) \
+		--fail-under-functions $(COVERAGE_MIN_FUNCTIONS)
 
 fix:
 	# @cargo machete --fix
@@ -163,7 +206,7 @@ wasm-web:
 
 wasm: wasm-node wasm-web
 
-.PHONY: check fix build format update-snapshots wasm wasm-node wasm-web
+.PHONY: check test test-slow coverage coverage-ci fix build format update-snapshots wasm wasm-node wasm-web
 
 FILE                     := $(PWD)/tests/opcode_test.psy
 PARAMETERS               := 1,2
