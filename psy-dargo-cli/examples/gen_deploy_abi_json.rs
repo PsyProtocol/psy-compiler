@@ -21,9 +21,8 @@
 ///     ../psy-precompiles/mining_rewards/target/mining_rewards.abi.json:mining_rewards
 use std::{env, fs, path::Path};
 
-// Same default genesis deployer / state-tree-height as gen_deploy_json.
+// Same default genesis deployer as gen_deploy_json.
 const DEFAULT_DEPLOYER: &str = "f83aa03c3e21321421696202b90f4dab0a9f87237c231bbba58b8f93c799126e";
-const DEFAULT_STATE_TREE_HEIGHT: u8 = 32;
 
 fn get_file_stem(path: &str) -> String {
     Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or("contract").to_string()
@@ -64,6 +63,7 @@ fn main() -> anyhow::Result<()> {
         let contract_name = abi["contract"]["name"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("ABI {} is missing contract.name", input_path))?;
+        let state_tree_height = state_tree_height_from_abi(&abi, input_path)?;
 
         let abi_filename = format!("{}.json", contract_name);
         let abi_path = Path::new(output_dir).join(&abi_filename);
@@ -77,7 +77,7 @@ fn main() -> anyhow::Result<()> {
             name,
             deployer: DEFAULT_DEPLOYER.to_string(),
             abi_path: abi_filename,
-            state_tree_height: DEFAULT_STATE_TREE_HEIGHT,
+            state_tree_height,
         });
     }
 
@@ -90,6 +90,13 @@ fn main() -> anyhow::Result<()> {
     println!("Written {} ABI file(s) + abi_list.json to {}", precompiles.len(), output_dir);
 
     Ok(())
+}
+
+fn state_tree_height_from_abi(abi: &serde_json::Value, input_path: &str) -> anyhow::Result<u8> {
+    let height = abi["contract"]["state_tree_height"]
+        .as_u64()
+        .ok_or_else(|| anyhow::anyhow!("ABI {} is missing a valid contract.state_tree_height", input_path))?;
+    u8::try_from(height).map_err(|_| anyhow::anyhow!("contract.state_tree_height {} in {} exceeds u8", height, input_path))
 }
 
 struct ManifestPrecompile {
@@ -121,4 +128,24 @@ fn build_manifest(precompiles: &[ManifestPrecompile]) -> String {
     out.push_str("  \"contracts\": []\n");
     out.push_str("}\n");
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_state_tree_height_from_contract_abi() {
+        let abi = serde_json::json!({"contract": {"state_tree_height": 23}});
+        assert_eq!(state_tree_height_from_abi(&abi, "mining_rewards.abi.json").unwrap(), 23);
+    }
+
+    #[test]
+    fn rejects_missing_or_out_of_range_state_tree_height() {
+        let missing = serde_json::json!({"contract": {}});
+        assert!(state_tree_height_from_abi(&missing, "missing.abi.json").is_err());
+
+        let too_large = serde_json::json!({"contract": {"state_tree_height": 256}});
+        assert!(state_tree_height_from_abi(&too_large, "large.abi.json").is_err());
+    }
 }
