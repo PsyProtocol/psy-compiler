@@ -168,6 +168,7 @@ interpret:
 compile-token-contract:
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit simple_mint simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
 
+
 compile-mining-rewards-contract:
 	@cd $(MINING_REWARDS_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyPOWMiningRewardsClaimContractRef --method-names start_session end_session claim_guta_rewards_1 claim_guta_rewards_2 claim_guta_rewards_5
 
@@ -205,22 +206,26 @@ compile-counter-abi:
 	@cd $(COUNTER_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyCounterContractRef --abi-name counter --method-names set_value increment
 
 PSY_GENESIS ?= $(PWD)/../psy-node/psy-genesis
-PSY_NODE ?= $(PWD)/../psy-node
 GENESIS_CONTRACTS_FILE := $(PSY_GENESIS)/genesis_contracts.json
 GENESIS_ABI_DIR := $(PSY_GENESIS)/genesis_abi
 ABI_OUTPUT_DIR := $(PWD)/target/genesis_abi
 
-# Compile all precompile contracts, generate the psy-genesis contract artifact,
-# then regenerate ABI files and copy them to psy-genesis/genesis_abi/.
+# Compile all precompile contracts and the token update variant, generate the
+# psy-genesis contract artifact, then regenerate ABI files into
+# psy-genesis/genesis_abi/. psy-genesis owns all token artifacts.
 gen-deploy-json: build \
-	compile-token-contract compile-usdt-token-contract \
-	compile-mining-rewards-contract compile-deposit-tree-contract \
-	compile-withdrawal-tree-contract compile-faucet-contract
+	compile-usdt-token-contract compile-mining-rewards-contract \
+	compile-deposit-tree-contract compile-withdrawal-tree-contract \
+	compile-faucet-contract
+	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
+	@mv $(TOKEN_CONTRACT_PATH)/target/token.json $(TOKEN_CONTRACT_PATH)/target/token.update.json
+	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit simple_mint simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
 	@mkdir -p $(PSY_GENESIS) $(GENESIS_ABI_DIR)
 	@test -f $(TOKEN_CONTRACT_PATH)/target/token.json || { echo "error: missing compiled token artifact: $(TOKEN_CONTRACT_PATH)/target/token.json"; exit 1; }
-	@test -d $(PSY_NODE)/client_prover || { echo "error: missing psy-node client_prover directory: $(PSY_NODE)/client_prover"; exit 1; }
-	@cp $(TOKEN_CONTRACT_PATH)/target/token.json $(PSY_NODE)/client_prover/token.json
-	@echo "refreshed $(PSY_NODE)/client_prover/token.json from compiled token artifact"
+	@test -f $(TOKEN_CONTRACT_PATH)/target/token.update.json || { echo "error: missing compiled token update artifact: $(TOKEN_CONTRACT_PATH)/target/token.update.json"; exit 1; }
+	@cp $(TOKEN_CONTRACT_PATH)/target/token.json $(PSY_GENESIS)/token.json
+	@cp $(TOKEN_CONTRACT_PATH)/target/token.update.json $(PSY_GENESIS)/token.update.json
+	@echo "refreshed $(PSY_GENESIS)/token.json and token.update.json from compiled token artifacts"
 	@cargo run --release --package dargo --example gen_deploy_json -- \
 		$(GENESIS_CONTRACTS_FILE) \
 		$(TOKEN_CONTRACT_PATH)/target/token.json \
@@ -238,8 +243,6 @@ gen-deploy-json: build \
 	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyWithdrawalTreeContractRef --abi-name withdrawal_tree --output-dir $(ABI_OUTPUT_DIR) --method-names get_root get_chain_root append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
 	@cd $(FAUCET_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyFaucetContractRef --abi-name faucet --output-dir $(ABI_OUTPUT_DIR) --method-names faucet
 	@# `compile` does not emit .abi.json — always source it from the freshly generated $(ABI_OUTPUT_DIR)
-	@cp $(ABI_OUTPUT_DIR)/token.abi.json $(PSY_NODE)/client_prover/token.abi.json
-	@echo "refreshed $(PSY_NODE)/client_prover/token.abi.json from $(ABI_OUTPUT_DIR)"
 	@cargo run --release --package dargo --example gen_deploy_abi_json -- \
 		$(GENESIS_ABI_DIR) \
 		$(ABI_OUTPUT_DIR)/token.abi.json:token \
@@ -248,5 +251,5 @@ gen-deploy-json: build \
 		$(ABI_OUTPUT_DIR)/withdrawal_tree.abi.json:withdrawal_tree \
 		$(ABI_OUTPUT_DIR)/usdt_token.abi.json:usdt \
 		$(ABI_OUTPUT_DIR)/faucet.abi.json:faucet
-	@node -e 'const fs=require("fs"),cp=require("child_process"),crypto=require("crypto"),path=require("path"); const compilerRevision=cp.execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(); const isSource=relativePath=>{const normalized=relativePath.replace(/\\/g,"/"); const lower=normalized.toLowerCase(); if(normalized===".compiler-artifact.json")return false; if(["Cargo.toml","Cargo.lock","rust-toolchain.toml","Makefile"].includes(normalized))return true; if(["build.rs","precompiles.json","package.json"].includes(path.posix.basename(normalized)))return true; return [".rs",".psy",".toml",".lock"].some(extension=>lower.endsWith(extension));}; const entries=cp.execFileSync("git",["ls-tree","-r","--full-tree",compilerRevision],{encoding:"utf8"}).trim().split("\n").filter(Boolean).map(line=>{const match=line.match(/^[0-9]+ blob ([0-9a-f]+)\t(.+)$$/); if(!match)throw new Error(`invalid tree entry: $${line}`); return {blob:match[1],path:match[2]};}).filter(entry=>isSource(entry.path)).sort((a,b)=>Buffer.compare(Buffer.from(a.path),Buffer.from(b.path))); const hash=crypto.createHash("sha256"); for(const entry of entries){const blob=cp.execFileSync("git",["cat-file","blob",entry.blob]); hash.update(entry.path); hash.update("\0"); hash.update(blob); hash.update("\0");} const artifact=fs.readFileSync("$(GENESIS_CONTRACTS_FILE)"); const sidecar={compilerRevision,compilerSourcesHash:hash.digest("hex"),artifactSha256:crypto.createHash("sha256").update(artifact).digest("hex"),artifactByteSize:artifact.length}; fs.writeFileSync("$(PSY_GENESIS)/.genesis_contracts.compiler-artifact.json",JSON.stringify(sidecar,null,2)+"\n");'
+	@node -e 'const fs=require("fs"),cp=require("child_process"),crypto=require("crypto"),path=require("path"); const compilerRevision=cp.execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(); const isSource=relativePath=>{const normalized=relativePath.replace(/\\/g,"/"); const lower=normalized.toLowerCase(); if(normalized===".compiler-artifact.json")return false; if(["Cargo.toml","Cargo.lock","rust-toolchain.toml","Makefile"].includes(normalized))return true; if(["build.rs","precompiles.json","package.json"].includes(path.posix.basename(normalized)))return true; return [".rs",".psy",".toml",".lock"].some(extension=>lower.endsWith(extension));}; const entries=cp.execFileSync("git",["ls-tree","-r","--full-tree",compilerRevision],{encoding:"utf8"}).trim().split("\n").filter(Boolean).map(line=>{const match=line.match(/^[0-9]+ blob ([0-9a-f]+)\t(.+)$$/); if(!match)throw new Error(`invalid tree entry: $${line}`); return {blob:match[1],path:match[2]};}).filter(entry=>isSource(entry.path)).sort((a,b)=>Buffer.compare(Buffer.from(a.path),Buffer.from(b.path))); const hash=crypto.createHash("sha256"); for(const entry of entries){const blob=cp.execFileSync("git",["cat-file","blob",entry.blob]); hash.update(entry.path); hash.update("\0"); hash.update(blob); hash.update("\0");} const digest=file=>{const bytes=fs.readFileSync(file); return {sha256:crypto.createHash("sha256").update(bytes).digest("hex"),byteSize:bytes.length};}; const genesis=digest("$(GENESIS_CONTRACTS_FILE)"),token=digest("$(PSY_GENESIS)/token.json"),tokenUpdate=digest("$(PSY_GENESIS)/token.update.json"); const sidecar={compilerRevision,compilerSourcesHash:hash.digest("hex"),artifactSha256:genesis.sha256,artifactByteSize:genesis.byteSize,tokenArtifactSha256:token.sha256,tokenArtifactByteSize:token.byteSize,tokenUpdateArtifactSha256:tokenUpdate.sha256,tokenUpdateArtifactByteSize:tokenUpdate.byteSize}; fs.writeFileSync("$(PSY_GENESIS)/.genesis_contracts.compiler-artifact.json",JSON.stringify(sidecar,null,2)+"\n");'
 	@echo "psy-genesis contract artifact + genesis_abi/ + compiler provenance regenerated"
