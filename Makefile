@@ -133,6 +133,12 @@ ci:
 	       --nocapture
 
 	@RUST_LOG=${LOG_LEVEL} cargo test --profile ${PROFILE} \
+	       --package dargo \
+	       --example gen_deploy_abi_json \
+	       -- \
+	       --nocapture
+
+	@RUST_LOG=${LOG_LEVEL} cargo test --profile ${PROFILE} \
 	       --package psy_compiler_common \
 	       --package psy-sema \
 	       --package psy-interpreter \
