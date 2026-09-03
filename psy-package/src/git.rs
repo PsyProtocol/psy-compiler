@@ -71,9 +71,11 @@ fn dargo_crates() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use url::Url;
 
-    use super::resolve_folder_name;
+    use super::{dargo_crates, git_dep_location, git_dep_location_from_url, resolve_folder_name};
 
     #[test]
     fn test_resolve_folder_name() {
@@ -84,5 +86,34 @@ mod tests {
         };
         test_fixture("https://github.com/PsyProtocol/psy-bigint/");
         test_fixture("https://github.com/PsyProtocol/psy-bigint");
+    }
+
+    #[test]
+    fn dependency_locations_support_https_ssh_and_malformed_urls() {
+        let https = git_dep_location_from_url("https://github.com/PsyProtocol/psy-bigint.git", "main");
+        assert_eq!(
+            https,
+            dargo_crates().join("github.com/PsyProtocol/psy-bigint.git/main")
+        );
+
+        let ssh = git_dep_location_from_url("git@github.com:PsyProtocol/psy-bigint.git", "v1");
+        assert_eq!(
+            ssh,
+            dargo_crates().join("github.com/PsyProtocol/psy-bigint.git/v1")
+        );
+
+        let malformed = git_dep_location_from_url("not a valid url %", "tag");
+        assert_eq!(malformed.parent(), Some(dargo_crates().as_path()));
+        assert!(malformed.file_name().unwrap().to_string_lossy().starts_with("ssh-"));
+        assert!(malformed.file_name().unwrap().to_string_lossy().ends_with("-tag"));
+    }
+
+    #[test]
+    fn dependency_location_uses_domain_path_and_tag() {
+        let url = Url::parse("https://example.test/org/repository").unwrap();
+        assert_eq!(
+            git_dep_location(&url, "release"),
+            dargo_crates().join(PathBuf::from("example.test/org/repository/release"))
+        );
     }
 }

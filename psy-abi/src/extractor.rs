@@ -1,7 +1,4 @@
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    path::Path,
-};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use psy_ast::{DefId, DefaultVisitorContext, FunctionNode, Program, StructNode, UncheckedType, Visibility, VisitorContext};
 
@@ -11,16 +8,8 @@ use crate::{
 };
 
 #[derive(Clone)]
-struct MethodCompatInfo {
-    method_id: u32,
-    is_view: bool,
-}
-
-#[derive(Clone)]
 struct StructFieldLayout {
-    pub name: String,
     pub offset: usize,
-    pub felt_size: usize,
 }
 
 #[derive(Clone)]
@@ -37,123 +26,6 @@ impl AbiExtractor {
     pub fn new(contract_name: String) -> Self {
         Self { contract_name }
     }
-
-
-    fn collect_struct_def_ids<F: Clone + From<u32>>(&self, ctx: &DefaultVisitorContext<F, ()>) -> HashMap<String, DefId> {
-        let mut structs = HashMap::new();
-        for i in 0..ctx.program().defs.len() {
-            let def_id = DefId::from(i);
-            if let Some(struct_node) = ctx.definition(def_id).as_struct() {
-                let struct_name = ctx.ident(struct_node.name).0.to_string();
-                if !self.is_internal_type(&struct_name) {
-                    structs.insert(struct_name, def_id);
-                }
-            }
-        }
-        structs
-    }
-
-    fn collect_referenced_type_names_from_struct<F: Clone + From<u32>>(
-        &self,
-        struct_node: &StructNode,
-        ctx: &DefaultVisitorContext<F, ()>,
-    ) -> Vec<String> {
-        let mut names = Vec::new();
-        for (_, field) in struct_node.fields.iter().filter(|(_, field)| Self::is_public(&field.visibility)) {
-            self.collect_referenced_type_names(&field.ty, ctx, &mut names);
-        }
-        names
-    }
-
-    fn collect_referenced_type_names_from_impl_functions<F: Clone + From<u32>>(
-        &self,
-        struct_name: &str,
-        ctx: &DefaultVisitorContext<F, ()>,
-        included_defs: Option<&HashSet<DefId>>,
-    ) -> Vec<String> {
-        let mut names = Vec::new();
-        for i in 0..ctx.program().defs.len() {
-            let def_id = DefId::from(i);
-            if included_defs.is_some_and(|defs| !defs.contains(&def_id)) {
-                continue;
-            }
-            let Some(impl_node) = ctx.definition(def_id).as_impl() else {
-                continue;
-            };
-            let impl_type_name = self.extract_type_name(&impl_node.ty, ctx);
-            if impl_type_name != struct_name && impl_type_name != format!("{struct_name}Ref") {
-                continue;
-            }
-            for &function_def_id in &impl_node.body {
-                let Some(function) = ctx.definition(function_def_id).as_function() else {
-                    continue;
-                };
-                let function_name = ctx.ident(function.name).0.to_string();
-                if !Self::is_public(&function.visibility) || self.is_internal_function(&function_name) {
-                    continue;
-                }
-                for param in &function.parameters {
-                    self.collect_referenced_type_names(&param.ty, ctx, &mut names);
-                }
-                if let Some(return_type) = &function.return_type {
-                    self.collect_referenced_type_names(return_type, ctx, &mut names);
-                }
-            }
-        }
-        names
-    }
-
-    fn collect_referenced_type_names<F: Clone + From<u32>>(&self, ty: &UncheckedType, ctx: &DefaultVisitorContext<F, ()>, names: &mut Vec<String>) {
-        match ty {
-            UncheckedType::Basic(identifier) => names.push(ctx.ident(*identifier).0.to_string()),
-            UncheckedType::Generic(identifier, generics, _) => {
-                names.push(ctx.ident(*identifier).0.to_string());
-                for generic in generics {
-                    self.collect_referenced_type_names(generic, ctx, names);
-                }
-            }
-            UncheckedType::Array(inner, _, _) => self.collect_referenced_type_names(inner, ctx, names),
-            UncheckedType::Tuple(items, _) => {
-                for item in items {
-                    self.collect_referenced_type_names(item, ctx, names);
-                }
-            }
-            UncheckedType::FunctionSignature(signature, _) => {
-                for parameter in &signature.parameters {
-                    self.collect_referenced_type_names(parameter, ctx, names);
-                }
-                if let Some(return_type) = &signature.return_type {
-                    self.collect_referenced_type_names(return_type, ctx, names);
-                }
-            }
-            UncheckedType::Path(path) => self.collect_referenced_type_names(&path.target, ctx, names),
-            UncheckedType::TraitCast(inner, trait_ty, _) => {
-                self.collect_referenced_type_names(inner, ctx, names);
-                self.collect_referenced_type_names(trait_ty, ctx, names);
-            }
-            UncheckedType::Const(_, _) | UncheckedType::Unknown => {}
-        }
-    }
-
-    fn collect_package_def_ids<F: Clone + From<u32>>(&self, ctx: &DefaultVisitorContext<F, ()>, package_root: &Path) -> HashSet<DefId> {
-        let package_root = normalize_path_for_prefix(package_root);
-        let mut defs = HashSet::new();
-
-        for module in ctx.program().modules.iter() {
-            let Some(module_path) = ctx.program().file_resolver.resolve_path(&module.data().file_id) else {
-                continue;
-            };
-            let module_path = normalize_path_for_prefix(&module_path);
-            if module_path.starts_with(&package_root) {
-                defs.extend(module.data().definitions.iter().copied());
-            }
-        }
-
-        defs
-    }
-
-
-
     /// Extract the ABI from the same checked program.
     ///
     /// `state_tree_height` is computed once at the build step via
@@ -621,12 +493,10 @@ impl AbiExtractor {
 
         let mut offset = 0usize;
         let mut fields = Vec::new();
-        for (field_name, field) in &struct_node.fields {
+        for (_field_name, field) in &struct_node.fields {
             let felt_size = self.felt_size_for_type(ctx, &field.ty, struct_nodes, layouts);
             fields.push(StructFieldLayout {
-                name: ctx.ident(*field_name).0.to_string(),
                 offset,
-                felt_size,
             });
             offset += felt_size;
         }
@@ -634,95 +504,6 @@ impl AbiExtractor {
         let layout = StructLayout { felt_size: offset, fields };
         layouts.insert(name.to_string(), layout.clone());
         layout
-    }
-
-    fn compat_type_metadata<F: Clone + From<u32>>(
-        &self,
-        ctx: &DefaultVisitorContext<F, ()>,
-        ty: &UncheckedType,
-        struct_nodes: &BTreeMap<String, &StructNode>,
-        struct_layouts: &HashMap<String, StructLayout>,
-    ) -> (
-        usize,
-        bool,
-        Option<usize>,
-        Option<String>,
-        Option<usize>,
-        bool,
-        Option<String>,
-        Option<String>,
-        Option<usize>,
-    ) {
-        let mut layouts = struct_layouts.clone();
-        if let Some((key_type, value_type, capacity)) = self.extract_imt_map_info(ctx, ty) {
-            return (
-                capacity.saturating_mul(4),
-                false,
-                None,
-                None,
-                Some(4),
-                true,
-                Some(key_type),
-                Some(value_type),
-                Some(capacity),
-            );
-        }
-
-        match ty {
-            UncheckedType::Array(inner, size, _) => {
-                let inner_size = self.felt_size_for_type(ctx, inner, struct_nodes, &mut layouts);
-                let length = size.as_u64().unwrap_or(0) as usize;
-                (
-                    inner_size.saturating_mul(length),
-                    true,
-                    Some(length),
-                    Some(self.stringify_unchecked_type(ctx, inner)),
-                    Some(inner_size),
-                    false,
-                    None,
-                    None,
-                    None,
-                )
-            }
-            _ => (
-                self.felt_size_for_type(ctx, ty, struct_nodes, &mut layouts),
-                false,
-                None,
-                None,
-                None,
-                false,
-                None,
-                None,
-                None,
-            ),
-        }
-    }
-
-    fn resolve_sub_fields_for_type<F: Clone + From<u32>>(
-        &self,
-        ctx: &DefaultVisitorContext<F, ()>,
-        ty: &UncheckedType,
-        struct_nodes: &BTreeMap<String, &StructNode>,
-        struct_layouts: &HashMap<String, StructLayout>,
-    ) -> Option<Vec<StructFieldLayout>> {
-        let struct_name = match ty {
-            UncheckedType::Basic(identifier) => Some(ctx.ident(*identifier).0.to_string()),
-            UncheckedType::Path(path) => Some(self.extract_type_name(&path.target, ctx)),
-            UncheckedType::Array(inner, _, _) => match inner.as_ref() {
-                UncheckedType::Basic(identifier) => Some(ctx.ident(*identifier).0.to_string()),
-                UncheckedType::Path(path) => Some(self.extract_type_name(&path.target, ctx)),
-                _ => None,
-            },
-            _ => None,
-        }?;
-
-        if !struct_nodes.contains_key(&struct_name) {
-            return None;
-        }
-
-        struct_layouts
-            .get(&struct_name)
-            .and_then(|layout| if layout.fields.is_empty() { None } else { Some(layout.fields.clone()) })
     }
 
     fn felt_size_for_type<F: Clone + From<u32>>(
@@ -830,10 +611,6 @@ impl AbiExtractor {
     }
 }
 
-fn normalize_path_for_prefix(path: &Path) -> std::path::PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
-}
-
 /// `ceil(log2(value))` for `value >= 1`; returns 0 for `value <= 1`.
 fn ceil_log2(value: u64) -> u16 {
     if value <= 1 {
@@ -850,6 +627,19 @@ fn state_tree_height_for_total_felts(total_felts: usize) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use psy_ast::{ConstValue, Identifier, Location, PathNode};
+
+    fn type_fixture() -> (Program<u32>, HashMap<&'static str, Identifier>) {
+        let mut program = Program::new();
+        let identifiers = ["Felt", "Bool", "u32", "Hash", "Widget", "Map", "NamespacedMap", "Other"]
+            .into_iter()
+            .map(|name| {
+                let id = program.interner.intern_ident(name);
+                (name, Identifier::new(id, Location::default()))
+            })
+            .collect();
+        (program, identifiers)
+    }
 
     #[test]
     fn state_tree_height_accounts_for_four_felts_per_leaf() {
@@ -858,6 +648,47 @@ mod tests {
         assert_eq!(state_tree_height_for_total_felts(65), 5);
         assert_eq!(state_tree_height_for_total_felts(128), 5);
         assert_eq!(state_tree_height_for_total_felts(129), 6);
+    }
+
+    #[test]
+    fn ceil_log2_handles_zero_one_powers_and_u64_boundaries() {
+        assert_eq!(ceil_log2(0), 0);
+        assert_eq!(ceil_log2(1), 0);
+        assert_eq!(ceil_log2(2), 1);
+        assert_eq!(ceil_log2(3), 2);
+        assert_eq!(ceil_log2(4), 2);
+        assert_eq!(ceil_log2(5), 3);
+        assert_eq!(ceil_log2(1u64 << 63), 63);
+        assert_eq!(ceil_log2(u64::MAX), 64);
+    }
+
+    #[test]
+    fn state_tree_height_saturates_large_felt_counts_without_overflow() {
+        let height = state_tree_height_for_total_felts(usize::MAX);
+
+        assert!(height >= 4);
+        assert!(height <= u16::MAX);
+    }
+
+    #[test]
+    fn state_tree_height_clamps_small_layouts_to_the_minimum_tree() {
+        // 1..=16 felts all pack into at most 4 leaves (2^2), clamped to min 4.
+        for felts in 1..=16 {
+            assert_eq!(state_tree_height_for_total_felts(felts), 4, "felts = {felts}");
+        }
+        // 17 felts round up to 5 leaves, which needs height 3 — still clamped.
+        assert_eq!(state_tree_height_for_total_felts(17), 4);
+        // The clamp stops binding once 256 leaves (2^8) are exceeded: 1024 felts
+        // are exactly 256 leaves (height 8), 1025 spill into 257 (height 9).
+        assert_eq!(state_tree_height_for_total_felts(1024), 8);
+        assert_eq!(state_tree_height_for_total_felts(1025), 9);
+    }
+
+    #[test]
+    fn state_tree_height_saturates_instead_of_panicking_at_usize_max_neighbors() {
+        // saturating_add(3) on usize::MAX must not wrap around to a small value.
+        assert_eq!(state_tree_height_for_total_felts(usize::MAX), state_tree_height_for_total_felts(usize::MAX - 3));
+        assert_eq!(state_tree_height_for_total_felts(usize::MAX - 2), state_tree_height_for_total_felts(usize::MAX));
     }
 
     #[test]
@@ -896,4 +727,134 @@ mod tests {
         assert!(!extractor.is_internal_function("mint"));
         assert!(!extractor.is_internal_function("claim"));
     }
+
+    #[test]
+    fn type_refs_cover_primitives_structs_arrays_paths_and_maps() {
+        let (mut program, identifiers) = type_fixture();
+        let ctx = DefaultVisitorContext::<u32, ()>::new(&mut program);
+        let extractor = AbiExtractor::new("Contract".into());
+        let basic = |name| UncheckedType::Basic(identifiers[name]);
+
+        assert_eq!(
+            extractor.unchecked_type_to_typeref(&ctx, &basic("Felt")),
+            TypeRef::Primitive { name: PrimitiveTypeName::Felt }
+        );
+        assert_eq!(
+            extractor.unchecked_type_to_typeref(&ctx, &basic("Bool")),
+            TypeRef::Primitive { name: PrimitiveTypeName::Bool }
+        );
+        assert_eq!(
+            extractor.unchecked_type_to_typeref(&ctx, &basic("u32")),
+            TypeRef::Primitive { name: PrimitiveTypeName::U32 }
+        );
+        assert_eq!(
+            extractor.unchecked_type_to_typeref(&ctx, &basic("Hash")),
+            TypeRef::Primitive { name: PrimitiveTypeName::Hash }
+        );
+        assert_eq!(
+            extractor.unchecked_type_to_typeref(&ctx, &basic("Widget")),
+            TypeRef::Struct { name: "Widget".into() }
+        );
+
+        let array = UncheckedType::Array(
+            Box::new(basic("Hash")),
+            ConstValue::U32(3),
+            Location::default(),
+        );
+        assert_eq!(
+            extractor.unchecked_type_to_typeref(&ctx, &array),
+            TypeRef::Array {
+                item: Box::new(TypeRef::Primitive { name: PrimitiveTypeName::Hash }),
+                length: 3,
+                item_felt_size: 4,
+            }
+        );
+
+        let path = UncheckedType::Path(Box::new(PathNode::from_target_ty(basic("u32"))));
+        assert_eq!(
+            extractor.unchecked_type_to_typeref(&ctx, &path),
+            TypeRef::Primitive { name: PrimitiveTypeName::U32 }
+        );
+
+        let map = UncheckedType::Generic(
+            identifiers["Map"],
+            vec![basic("Hash"), basic("Widget"), UncheckedType::Const(ConstValue::Felt(16), Location::default())],
+            Location::default(),
+        );
+        assert_eq!(
+            extractor.unchecked_type_to_typeref(&ctx, &map),
+            TypeRef::Map {
+                map_kind: MapKind::Map,
+                key: Box::new(TypeRef::Primitive { name: PrimitiveTypeName::Hash }),
+                value: Box::new(TypeRef::Struct { name: "Widget".into() }),
+                capacity: 16,
+                value_felt_size: 0,
+                alignment_felts: 4,
+            }
+        );
+    }
+
+    #[test]
+    fn map_and_type_string_helpers_cover_invalid_and_nested_shapes() {
+        let (mut program, identifiers) = type_fixture();
+        let ctx = DefaultVisitorContext::<u32, ()>::new(&mut program);
+        let extractor = AbiExtractor::new("Contract".into());
+        let basic = |name| UncheckedType::Basic(identifiers[name]);
+        let constant = |value| UncheckedType::Const(value, Location::default());
+
+        assert_eq!(extractor.const_len_from_type(&constant(ConstValue::Felt(9))), Some(9));
+        assert_eq!(extractor.const_len_from_type(&constant(ConstValue::U32(7))), Some(7));
+        assert_eq!(extractor.const_len_from_type(&constant(ConstValue::Bool(true))), None);
+        assert_eq!(extractor.const_len_from_type(&UncheckedType::Unknown), None);
+
+        assert!(extractor
+            .extract_canonical_map_info(&ctx, "Other", &[])
+            .is_none());
+        assert!(extractor
+            .extract_canonical_map_info(&ctx, "Map", &[basic("Felt")])
+            .is_none());
+        let namespaced = extractor
+            .extract_canonical_map_info(
+                &ctx,
+                "NamespacedMap",
+                &[basic("Felt"), basic("u32"), constant(ConstValue::Bool(false))],
+            )
+            .unwrap();
+        assert_eq!(namespaced.0, MapKind::NamespacedMap);
+        assert_eq!(namespaced.3, 0);
+
+        let tuple = UncheckedType::Tuple(vec![basic("Felt"), basic("u32")], Location::default());
+        let nested = UncheckedType::Generic(
+            identifiers["Other"],
+            vec![tuple.clone(), constant(ConstValue::U32(2))],
+            Location::default(),
+        );
+        assert_eq!(extractor.stringify_unchecked_type(&ctx, &tuple), "(Felt, u32)");
+        assert_eq!(extractor.stringify_unchecked_type(&ctx, &nested), "Other<(Felt, u32), 2u32>");
+        assert_eq!(
+            extractor.stringify_unchecked_type(
+                &ctx,
+                &UncheckedType::TraitCast(
+                    Box::new(basic("Widget")),
+                    Box::new(basic("Other")),
+                    Location::default(),
+                ),
+            ),
+            "Widget as Other"
+        );
+        assert_eq!(extractor.stringify_unchecked_type(&ctx, &UncheckedType::Unknown), "unknown");
+    }
+
+    #[test]
+    fn empty_program_has_minimum_tree_height_and_fallback_contract_name() {
+        let mut program = Program::<u32>::new();
+        let extractor = AbiExtractor::new("Fallback".into());
+        assert_eq!(extractor.compute_state_tree_height(&mut program), 4);
+        let abi = extractor.extract_abi(&mut program, 4, &HashMap::new()).unwrap();
+        assert_eq!(abi.contract.name, "Fallback");
+        assert!(abi.contract.state.is_empty());
+        assert!(abi.contract.methods.is_empty());
+        assert!(abi.types.is_empty());
+    }
+
 }

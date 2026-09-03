@@ -68,6 +68,9 @@ impl<'a, 'b, F: ContextFelt + From<u32>, C: DPNContext<F>> Parser<'a, 'b, F, C> 
 
     fn parse_module(program: &mut Program<F>, ctx: &mut C, current_path: &PathBuf, location: Location, visibility: Visibility) -> Result<ModuleNode> {
         let module_name = resolve_module_name(program, current_path);
+        if !is_valid_module_name(&program.interner[module_name].0) {
+            return Err(Error::InvalidModuleName);
+        }
         let file_id = program.file_resolver.resolve_file(current_path.clone())?;
 
         // Keep the source alive independently so parsing can mutably borrow the
@@ -212,6 +215,16 @@ pub fn resolve_module_path<F: Clone + From<u32>>(
     Some(path)
 }
 
+fn is_valid_module_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+
+    (first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|character| character.is_ascii_alphanumeric() || character == '_')
+}
+
 pub fn resolve_module_name<F: Clone + From<u32>>(program: &mut Program<F>, file_path: &Path) -> IdentId {
     let interner = &mut program.interner;
     let file_name_without_extension = file_path.file_stem().and_then(|s| s.to_str()).unwrap();
@@ -292,6 +305,34 @@ mod tests {
     use psy_vm::dpn::ops::exec_context::QExecContext;
 
     use super::Parser;
+
+    #[test]
+    fn module_file_names_use_identifier_syntax() {
+        assert!(super::is_valid_module_name("foo"));
+        assert!(super::is_valid_module_name("_foo42"));
+        for name in ["", "42foo", "foo-bar", "foo.bar", "foo/bar", "foo bar", "包"] {
+            assert!(!super::is_valid_module_name(name), "accepted invalid module name {name:?}");
+        }
+    }
+
+    #[test]
+    fn parsing_rejects_invalid_module_file_name() {
+        let path = PathBuf::from("foo-bar.psy");
+        let mut program = Program::new();
+        let file_id = program.file_resolver.add_file(path.clone(), "");
+        let mut ctx = QExecContext::new();
+
+        let error = Parser::parse_module(
+            &mut program,
+            &mut ctx,
+            &path,
+            psy_ast::Location::new(file_id, 0, 0),
+            psy_ast::Visibility::Public,
+        )
+        .expect_err("a hyphenated module file name must be rejected");
+        assert!(matches!(error, super::Error::InvalidModuleName));
+    }
+
     #[test]
     fn test_psy_parser() {
         let mut program = Program::new();

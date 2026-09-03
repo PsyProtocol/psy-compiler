@@ -221,4 +221,134 @@ mod artifact_name_tests {
             .expect_err("path traversal must be rejected");
         assert!(matches!(error, CliError::InvalidArtifactName(ref invalid) if invalid == "../escaped"));
     }
+
+    #[test]
+    fn artifact_writer_adds_json_extension_and_creates_output_directory() {
+        let root = std::env::temp_dir().join(format!("psy-dargo-artifact-test-{}", std::process::id()));
+        let output_dir = root.join("nested/output");
+        let _ = std::fs::remove_dir_all(&root);
+
+        let path = save_build_artifact_to_file(&serde_json::json!({"ok": true}), "artifact", &output_dir).unwrap();
+        assert_eq!(path, output_dir.join("artifact.json"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), r#"{"ok":true}"#);
+
+        let existing = save_build_artifact_to_file(&serde_json::json!({"ok": false}), "existing.json", &output_dir).unwrap();
+        assert_eq!(existing, output_dir.join("existing.json"));
+        assert_eq!(std::fs::read_to_string(existing).unwrap(), r#"{"ok":false}"#);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod cli_path_tests {
+    use std::path::PathBuf;
+
+    use psy_package::{Dependency, Package, Workspace};
+
+    use super::{parse_path, resolve_crate_path_graph};
+
+    #[test]
+    fn parse_path_resolves_relative_and_preserves_absolute_paths() {
+        let relative = parse_path("nested/package").unwrap();
+        assert!(relative.is_absolute());
+        assert!(relative.ends_with("nested/package"));
+
+        let absolute = if cfg!(windows) { r"C:\package" } else { "/package" };
+        assert_eq!(parse_path(absolute).unwrap(), PathBuf::from(absolute));
+    }
+
+    #[test]
+    fn crate_path_graph_honors_entry_override_and_deduplicates_dependencies() {
+        let shared = Package {
+            root_dir: PathBuf::from("shared"),
+            entry_path: PathBuf::from("src/lib.psy"),
+            ..Package::default()
+        };
+        let left = Package {
+            root_dir: PathBuf::from("left"),
+            entry_path: PathBuf::from("src/lib.psy"),
+            dependencies: [("shared".parse().unwrap(), Dependency::Local { package: shared.clone() })]
+                .into_iter()
+                .collect(),
+            ..Package::default()
+        };
+        let root = Package {
+            root_dir: PathBuf::from("root"),
+            entry_path: PathBuf::from("src/main.psy"),
+            dependencies: [("left".parse().unwrap(), Dependency::Local { package: left.clone() })]
+                .into_iter()
+                .chain([("shared".parse().unwrap(), Dependency::Local { package: shared })])
+                .collect(),
+            ..Package::default()
+        };
+        let workspace = Workspace {
+            package: root,
+            ..Workspace::default()
+        };
+
+        let graph = resolve_crate_path_graph(&workspace, Some(PathBuf::from("root/src/alternate.psy")));
+        assert_eq!(graph.nodes().len(), 3);
+        assert!(graph.contains_node(&PathBuf::from("root/root/src/alternate.psy")));
+        assert!(graph.contains_node(&PathBuf::from("left/src/lib.psy")));
+        assert!(graph.contains_node(&PathBuf::from("shared/src/lib.psy")));
+    }
+
+    #[test]
+    fn with_workspace_resolves_the_manifest_and_applies_the_target_override() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_nanos();
+        let dir = std::env::temp_dir().join(format!("psy_dargo_ws_{nanos}"));
+        std::fs::create_dir_all(dir.join("src")).expect("create src");
+        std::fs::write(dir.join("src").join("app.psy"), "fn main() {}\n").expect("write app.psy");
+        std::fs::write(
+            dir.join("Dargo.toml"),
+            "[package]\nname = \"wsdemo\"\ntype = \"bin\"\nentry = \"src/app.psy\"\nauthors = [\"\"]\n\n[dependencies]\n",
+        )
+        .expect("write Dargo.toml");
+
+        let custom_target = dir.join("custom-target");
+        let config = super::DargoConfig { program_dir: dir.clone(), target_dir: Some(custom_target.clone()) };
+        let seen = super::with_workspace((), config, |_cmd, workspace: psy_package::Workspace| {
+            assert_eq!(workspace.target_dir, custom_target, "target override must be applied");
+            Ok(())
+        });
+        seen.expect("with_workspace must resolve the temp manifest and run the command");
+
+        // A program dir without a manifest cannot resolve a workspace.
+        let empty = std::env::temp_dir().join(format!("psy_dargo_ws_empty_{nanos}"));
+        std::fs::create_dir_all(&empty).expect("create empty dir");
+        let config = super::DargoConfig { program_dir: empty.clone(), target_dir: None };
+        super::with_workspace((), config, |_cmd, _workspace: psy_package::Workspace| Ok(()))
+            .expect_err("a manifest-less directory must fail resolution");
+
+        std::fs::remove_dir_all(dir).ok();
+        std::fs::remove_dir_all(empty).ok();
+    }
+
+    #[tokio::test]
+    async fn with_workspace_async_resolves_the_manifest_and_applies_the_target_override() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_nanos();
+        let dir = std::env::temp_dir().join(format!("psy_dargo_ws_async_{nanos}"));
+        std::fs::create_dir_all(dir.join("src")).expect("create src");
+        std::fs::write(dir.join("src").join("app.psy"), "fn main() {}\n").expect("write app.psy");
+        std::fs::write(
+            dir.join("Dargo.toml"),
+            "[package]\nname = \"wsasync\"\ntype = \"bin\"\nentry = \"src/app.psy\"\nauthors = [\"\"]\n\n[dependencies]\n",
+        )
+        .expect("write Dargo.toml");
+
+        let custom_target = dir.join("custom-target");
+        let config = super::DargoConfig { program_dir: dir.clone(), target_dir: Some(custom_target.clone()) };
+        super::with_workspace_async((), config, |_cmd, workspace: psy_package::Workspace| async move {
+            assert_eq!(workspace.target_dir, custom_target, "target override must be applied");
+            Ok(())
+        })
+        .await
+        .expect("with_workspace_async must resolve the temp manifest and run the command");
+
+        std::fs::remove_dir_all(dir).ok();
+    }
 }

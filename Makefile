@@ -4,7 +4,7 @@ LOG_LEVEL := dargo=info
 COVERAGE_MIN_LINES ?= 85
 COVERAGE_MIN_FUNCTIONS ?= 80
 COVERAGE_DIR ?= target/coverage
-COVERAGE_IGNORE_REGEX := '(^|/)(psy-lsp-server/psy-lsp-vscode|psy-wasm/demo-(web|node)|[^/]+/src/main\.rs)(/|$$)'
+COVERAGE_IGNORE_REGEX := '(^|/)(psy-lsp-server/psy-lsp-vscode|psy-wasm/demo-(web|node)|psy-precompiles/src/bin|[^/]+/src/main\.rs)(/|$$)'
 
 export DARGO_STD_PATH := $(PWD)/psy-std/std.psy
 

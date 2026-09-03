@@ -292,3 +292,42 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use psy_vm::dpn::ops::sym_felt::SymFeltRef;
+
+    use super::*;
+
+    #[test]
+    fn equations_track_scopes_and_contexts() {
+        let mut infcx: InferCtxt<SymFeltRef, ()> = InferCtxt::new();
+        assert!(!infcx.has_equations(), "a fresh context has no equations");
+        assert!(infcx.get_equations().is_empty());
+        assert_eq!(infcx.probe(TypeId(0)), None, "nothing is bound yet");
+
+        infcx.equate(TypeId(0), TypeId(1));
+        assert!(infcx.has_equations());
+        assert_eq!(infcx.get_equations().get(&TypeId(0)), Some(&TypeId(1)));
+        assert_eq!(infcx.probe(TypeId(0)), Some(TypeId(1)), "innermost binding wins");
+        assert_eq!(infcx.probe(TypeId(1)), None, "reverse direction stays unbound");
+
+        // A nested scope shadows the outer binding; leaving the scope
+        // restores it.
+        infcx.enter_scope();
+        infcx.equate(TypeId(0), TypeId(2));
+        assert_eq!(infcx.probe(TypeId(0)), Some(TypeId(2)));
+        infcx.exit_scope();
+        assert_eq!(infcx.probe(TypeId(0)), Some(TypeId(1)));
+
+        // A nested context hides every outer equation; leaving the context
+        // brings them back.
+        infcx.enter_context();
+        assert!(!infcx.has_equations(), "a fresh context starts empty");
+        assert_eq!(infcx.probe(TypeId(0)), None);
+        infcx.equate(TypeId(0), TypeId(3));
+        assert_eq!(infcx.probe(TypeId(0)), Some(TypeId(3)));
+        infcx.exit_context();
+        assert_eq!(infcx.probe(TypeId(0)), Some(TypeId(1)));
+    }
+}

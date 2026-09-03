@@ -576,3 +576,600 @@ pub fn dummy_range() -> Range {
         end: tower_lsp::lsp_types::Position { line: 0, character: 1 },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use futures::StreamExt as _;
+    use psy_ast::{Program, TextPosition, TextRange};
+    use psy_common::Graph;
+    use psy_sema::TypeCheckerVisitorContext;
+    use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
+    use serial_test::serial;
+    use tower_lsp::lsp_types::{
+        CompletionParams, Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+        DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams, FormattingOptions,
+        GotoDefinitionParams, HoverContents, HoverParams, InitializeParams, InitializedParams, MarkupKind,
+        OneOf, PartialResultParams, ReferenceContext, ReferenceParams, RenameParams, TextDocumentIdentifier,
+        TextDocumentItem, TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+        TextDocumentSyncSaveOptions, Url, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
+    };
+    use tower_lsp::{LanguageServer, LspService};
+
+    use super::{dummy_range, to_lsp_position, to_lsp_range, try_uri_to_path, DiagnosticBundle, QLspSimple};
+
+    #[test]
+    fn uri_conversion_accepts_file_urls_and_rejects_non_file_urls() {
+        let file = Url::from_file_path("/tmp/example.psy").unwrap();
+        assert_eq!(try_uri_to_path(&file).unwrap().to_str(), Some("/tmp/example.psy"));
+        let https = Url::parse("https://example.com/example.psy").unwrap();
+        assert!(try_uri_to_path(&https).is_none());
+    }
+
+    #[test]
+    fn lsp_position_and_range_conversion_preserve_coordinates() {
+        let position = to_lsp_position(TextPosition { line: 3, character: 7 });
+        assert_eq!(position.line, 3);
+        assert_eq!(position.character, 7);
+
+        let range = to_lsp_range(TextRange {
+            start: TextPosition { line: 1, character: 2 },
+            end: TextPosition { line: 4, character: 5 },
+        });
+        assert_eq!(range.start.line, 1);
+        assert_eq!(range.start.character, 2);
+        assert_eq!(range.end.line, 4);
+        assert_eq!(range.end.character, 5);
+    }
+
+    #[test]
+    fn dummy_range_is_a_single_character_at_document_start() {
+        let range = dummy_range();
+        assert_eq!(range.start.line, 0);
+        assert_eq!(range.start.character, 0);
+        assert_eq!(range.end.line, 0);
+        assert_eq!(range.end.character, 1);
+    }
+
+    /// Builds a backend without spawning the client-socket drain task. Only
+    /// suitable for tests that never trigger client notifications.
+    fn quiet_backend() -> (LspService<QLspSimple>, ()) {
+        let (service, _socket) = LspService::new(QLspSimple::new);
+        (service, ())
+    }
+
+    /// Builds a backend whose client socket is continuously drained in the
+    /// background, so `publish_diagnostics` / `log_message` calls never block.
+    fn drained_backend() -> LspService<QLspSimple> {
+        let (service, socket) = LspService::new(QLspSimple::new);
+        tokio::spawn(async move {
+            let mut socket = socket;
+            while socket.next().await.is_some() {}
+        });
+        service
+    }
+
+    /// Writes `main.psy` into a fresh temp dir and returns the canonicalized
+    /// dir and file paths (canonicalization matches `format_file`'s behavior).
+    fn write_psy_workspace(source: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let file = dir.path().join("app.psy");
+        std::fs::write(&file, source).expect("write app.psy");
+        let file = file.canonicalize().expect("canonicalize main.psy");
+        let root = dir.path().canonicalize().expect("canonicalize root");
+        (dir, root, file)
+    }
+
+    fn entry_graph(file: &PathBuf) -> Graph<PathBuf> {
+        let mut graph = Graph::new();
+        graph.add_node(file.clone());
+        graph
+    }
+
+    const VALID_MAIN: &str = "fn main(q: Felt) -> Felt {\n    return q;\n}\n";
+
+    /// Cursor position (0-based line, character) of the first `needle` on the
+    /// given line. Sources in these tests are ASCII, so byte == character.
+    fn position_at(source: &str, line: u32, needle: char) -> tower_lsp::lsp_types::Position {
+        let text_line = source.lines().nth(line as usize).unwrap_or_else(|| panic!("line {line} missing"));
+        let character = text_line.find(needle).unwrap_or_else(|| panic!("{needle:?} missing on line {line}")) as u32;
+        tower_lsp::lsp_types::Position { line, character }
+    }
+
+    fn text_document(uri: &Url) -> TextDocumentIdentifier {
+        TextDocumentIdentifier { uri: uri.clone() }
+    }
+
+    fn position_params(uri: &Url, position: tower_lsp::lsp_types::Position) -> TextDocumentPositionParams {
+        TextDocumentPositionParams { text_document: text_document(uri), position }
+    }
+
+    #[test]
+    fn state_helpers_manage_root_path_graph_and_diagnostics_caches() {
+        let (service, _) = quiet_backend();
+        let server = service.inner();
+
+        assert_eq!(server.get_root_path(), PathBuf::new());
+        assert!(server.root_uri().is_none());
+        assert!(server.resolve_file_id(&PathBuf::from("/nowhere/main.psy")).is_err());
+
+        let root = PathBuf::from("/tmp/psy-lsp-state-test");
+        server.set_root_path(&root).expect("set root path");
+        assert_eq!(server.get_root_path(), root);
+        assert!(server.root_uri().is_some());
+
+        server.set_ctx(TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(Program::new())).expect("set ctx");
+        assert!(!server.is_ready());
+
+        let entry = PathBuf::from("/tmp/psy-lsp-state-test/main.psy");
+        server.set_crate_path_graph_cache(entry.clone(), entry_graph(&entry));
+        let cached = server.get_cached_crate_path_graph(&entry).expect("cached graph");
+        assert!(cached.contains_node(&entry));
+        assert!(server.get_cached_crate_path_graph(&PathBuf::from("/tmp/other.psy")).is_none());
+
+        server.remove_crate_path_graph_cache(&entry);
+        assert!(server.get_cached_crate_path_graph(&entry).is_none());
+        server.set_crate_path_graph_cache(entry.clone(), entry_graph(&entry));
+        server.clear_all_crate_path_graph_cache();
+        assert!(server.get_cached_crate_path_graph(&entry).is_none());
+
+        let bundle = DiagnosticBundle {
+            uri: Some(Url::from_file_path(&entry).unwrap()),
+            diagnostics: vec![Diagnostic {
+                range: dummy_range(),
+                severity: Some(DiagnosticSeverity::ERROR),
+                message: "boom".to_string(),
+                source: Some("psy-lsp".to_string()),
+                ..Default::default()
+            }],
+        };
+        assert!(server.get_last_diagnostics().is_none());
+        server.set_last_diagnostics(bundle);
+        assert!(server.get_last_diagnostics().expect("cached bundle").diagnostics.len() == 1);
+        server.clear_last_diagnostics();
+        assert!(server.get_last_diagnostics().is_none());
+    }
+
+    #[tokio::test]
+    async fn lifecycle_notifications_and_stub_handlers_are_noops() {
+        let service = drained_backend();
+        let server = service.inner();
+        let uri = Url::from_file_path("/tmp/psy-lsp-lifecycle/example.psy").unwrap();
+
+        server.initialized(InitializedParams {}).await;
+        server.did_change(DidChangeTextDocumentParams {
+            text_document: VersionedTextDocumentIdentifier { uri: uri.clone(), version: 1 },
+            content_changes: vec![],
+        })
+        .await;
+        server.did_close(DidCloseTextDocumentParams { text_document: text_document(&uri) }).await;
+        server.did_change_configuration(tower_lsp::lsp_types::DidChangeConfigurationParams {
+            settings: serde_json::json!({}),
+        })
+        .await;
+        server.did_change_workspace_folders(Default::default()).await;
+        server.did_change_watched_files(tower_lsp::lsp_types::DidChangeWatchedFilesParams { changes: vec![] }).await;
+
+        // A non-file URI cannot be saved, so `did_save` bails out early.
+        let https = Url::parse("https://example.com/example.psy").unwrap();
+        server.did_save(DidSaveTextDocumentParams { text_document: text_document(&https), text: None }).await;
+
+        // Without an opened document there is nothing to re-publish.
+        server.did_open(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "psy".to_string(),
+                version: 1,
+                text: String::new(),
+            },
+        })
+        .await;
+
+        // Completion and rename are not implemented yet.
+        let completion = server
+            .completion(CompletionParams {
+                text_document_position: position_params(&uri, tower_lsp::lsp_types::Position { line: 0, character: 0 }),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+                partial_result_params: PartialResultParams { partial_result_token: None },
+                context: None,
+            })
+            .await;
+        assert!(completion.expect("completion").is_none());
+
+        let rename = server
+            .rename(RenameParams {
+                text_document_position: position_params(&uri, tower_lsp::lsp_types::Position { line: 0, character: 0 }),
+                new_name: "renamed".to_string(),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+            })
+            .await;
+        assert!(rename.expect("rename").is_none());
+
+        // Before the first successful typecheck every language feature degrades to `None`.
+        assert!(!server.is_ready());
+        assert!(server.goto_definition(GotoDefinitionParams {
+            text_document_position_params: position_params(&uri, tower_lsp::lsp_types::Position { line: 0, character: 0 }),
+            work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+            partial_result_params: PartialResultParams { partial_result_token: None },
+        })
+        .await
+        .expect("goto not ready")
+        .is_none());
+        assert!(server
+            .hover(HoverParams {
+                text_document_position_params: position_params(&uri, tower_lsp::lsp_types::Position { line: 0, character: 0 }),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+            })
+            .await
+            .expect("hover not ready")
+            .is_none());
+        assert!(server
+            .references(ReferenceParams {
+                text_document_position: position_params(&uri, tower_lsp::lsp_types::Position { line: 0, character: 0 }),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+                partial_result_params: PartialResultParams { partial_result_token: None },
+                context: ReferenceContext { include_declaration: true },
+            })
+            .await
+            .expect("references not ready")
+            .is_none());
+        assert!(server
+            .formatting(DocumentFormattingParams {
+                text_document: text_document(&uri),
+                options: FormattingOptions::default(),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+            })
+            .await
+            .expect("formatting not ready")
+            .is_none());
+
+        server.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn did_open_republishes_cached_diagnostics_for_the_same_document_only() {
+        let service = drained_backend();
+        let server = service.inner();
+        let uri = Url::from_file_path("/tmp/psy-lsp-open/a.psy").unwrap();
+        let other_uri = Url::from_file_path("/tmp/psy-lsp-open/b.psy").unwrap();
+
+        server.did_open(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "psy".to_string(),
+                version: 1,
+                text: String::new(),
+            },
+        })
+        .await;
+        assert!(server.get_last_diagnostics().is_none());
+
+        // A cached bundle without a URI never re-publishes.
+        server.set_last_diagnostics(DiagnosticBundle { uri: None, diagnostics: vec![] });
+        server.maybe_publish_cached_diagnostics(&uri).await;
+
+        server.set_last_diagnostics(DiagnosticBundle {
+            uri: Some(uri.clone()),
+            diagnostics: vec![Diagnostic {
+                range: dummy_range(),
+                severity: Some(DiagnosticSeverity::ERROR),
+                message: "stale".to_string(),
+                source: Some("psy-lsp".to_string()),
+                ..Default::default()
+            }],
+        });
+
+        // Opening a different document must not touch the cached bundle.
+        server.did_open(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: other_uri,
+                language_id: "psy".to_string(),
+                version: 1,
+                text: String::new(),
+            },
+        })
+        .await;
+        assert_eq!(server.get_last_diagnostics().expect("still cached").uri, Some(uri.clone()));
+
+        // Re-opening the cached document re-publishes and keeps the cache.
+        server.did_open(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "psy".to_string(),
+                version: 2,
+                text: String::new(),
+            },
+        })
+        .await;
+        assert_eq!(server.get_last_diagnostics().expect("still cached after open").uri, Some(uri));
+
+        // Clearing drops the cache entirely.
+        server.clear_cached_diagnostics().await;
+        assert!(server.get_last_diagnostics().is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn collect_diagnostics_sync_bundles_parse_and_type_errors() {
+        let (service, _) = quiet_backend();
+        let server = service.inner();
+        let (dir, root, file) = write_psy_workspace("fn main( {\n}\n");
+        server.set_crate_path_graph_cache(root.clone(), entry_graph(&file));
+
+        let bundle = server.collect_diagnostics_sync(&root).expect("parse error bundle");
+        let uri = Url::from_file_path(&file).unwrap();
+        assert_eq!(bundle.uri, Some(uri.clone()));
+        assert_eq!(bundle.diagnostics.len(), 1);
+        let diagnostic = &bundle.diagnostics[0];
+        assert_eq!(diagnostic.severity, Some(DiagnosticSeverity::ERROR));
+        assert_eq!(diagnostic.source.as_deref(), Some("psy-lsp"));
+        assert!(!diagnostic.message.is_empty());
+        // The failed typecheck must not have produced a usable context.
+        assert!(!server.is_ready());
+
+        // A semantically invalid (but parseable) file yields a type-check diagnostic.
+        std::fs::write(&file, "fn main() -> Felt {\n    let x: Felt = 1;\n    x = 2;\n    return x;\n}\n").unwrap();
+        let bundle = server.collect_diagnostics_sync(&root).expect("type error bundle");
+        assert_eq!(bundle.uri, Some(uri));
+        assert_eq!(bundle.diagnostics.len(), 1);
+        assert!(bundle.diagnostics[0].message.contains('x'), "unexpected message: {}", bundle.diagnostics[0].message);
+        assert!(!server.is_ready());
+
+        // Without a cached crate graph the manifest lookup must fail.
+        let orphan_dir = tempfile::tempdir().unwrap();
+        let orphan_root = orphan_dir.path().canonicalize().unwrap();
+        assert!(server.collect_diagnostics_sync(&orphan_root).is_err());
+
+        drop(dir);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn initialize_typechecks_the_workspace_and_drives_the_diagnostics_lifecycle() {
+        let service = drained_backend();
+        let server = service.inner();
+        let (dir, root, file) = write_psy_workspace(VALID_MAIN);
+        let uri = Url::from_file_path(&file).unwrap();
+        server.set_crate_path_graph_cache(root.clone(), entry_graph(&file));
+
+        // A missing or remote root URI is rejected before any work happens.
+        let missing = server.initialize(InitializeParams::default()).await;
+        assert!(missing.is_err());
+        let remote = server
+            .initialize(InitializeParams {
+                root_uri: Some(Url::parse("https://example.com/").unwrap()),
+                ..Default::default()
+            })
+            .await;
+        assert!(remote.is_err());
+
+        let result = server
+            .initialize(InitializeParams {
+                root_uri: Some(Url::from_file_path(&root).unwrap()),
+                ..Default::default()
+            })
+            .await
+            .expect("initialize succeeds");
+        assert!(server.is_ready());
+        assert_eq!(server.get_root_path(), root);
+
+        let capabilities = result.capabilities;
+        assert_eq!(capabilities.hover_provider, Some(tower_lsp::lsp_types::HoverProviderCapability::Simple(true)));
+        assert_eq!(capabilities.definition_provider, Some(OneOf::Left(true)));
+        assert_eq!(capabilities.references_provider, Some(OneOf::Left(true)));
+        assert_eq!(capabilities.document_formatting_provider, Some(OneOf::Left(true)));
+        match capabilities.text_document_sync {
+            Some(TextDocumentSyncCapability::Options(options)) => {
+                assert_eq!(options.open_close, Some(true));
+                assert_eq!(options.change, Some(TextDocumentSyncKind::INCREMENTAL));
+                assert_eq!(options.save, Some(TextDocumentSyncSaveOptions::Supported(true)));
+            }
+            other => panic!("unexpected text document sync capability: {other:?}"),
+        }
+
+        // A parse error publishes a diagnostic and remembers it.
+        std::fs::write(&file, "fn main( {\n}\n").unwrap();
+        server.init_and_publish_diagnostics(&root).await.expect("publish parse error");
+        let bundle = server.get_last_diagnostics().expect("cached parse-error bundle");
+        assert_eq!(bundle.uri, Some(uri.clone()));
+        assert_eq!(bundle.diagnostics.len(), 1);
+
+        // A failing recompile (no manifest) clears the previous diagnostics and logs to the client.
+        let orphan_dir = tempfile::tempdir().unwrap();
+        let orphan_root = orphan_dir.path().canonicalize().unwrap();
+        server.init_and_publish_diagnostics(&orphan_root).await.expect("failure is reported, not propagated");
+        assert!(server.get_last_diagnostics().is_none());
+
+        // A successful recompile yields an empty bundle without a URI.
+        std::fs::write(&file, VALID_MAIN).unwrap();
+        server.init_and_publish_diagnostics(&root).await.expect("publish valid workspace");
+        assert!(server.get_last_diagnostics().is_none());
+        assert!(server.is_ready());
+
+        drop(dir);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn did_save_recompiles_only_known_documents() {
+        let service = drained_backend();
+        let server = service.inner();
+        let (dir, root, file) = write_psy_workspace(VALID_MAIN);
+        server.set_crate_path_graph_cache(root.clone(), entry_graph(&file));
+        server.collect_diagnostics_sync(&root).expect("initial diagnostics");
+        assert!(server.is_ready());
+
+        // Non-file URIs bail out immediately.
+        let https = Url::parse("https://example.com/main.psy").unwrap();
+        server.did_save(DidSaveTextDocumentParams { text_document: text_document(&https), text: None }).await;
+
+        // A file the workspace never resolved is skipped.
+        let unknown = Url::from_file_path(root.join("other.psy")).unwrap();
+        server.did_save(DidSaveTextDocumentParams { text_document: text_document(&unknown), text: None }).await;
+        assert!(server.get_last_diagnostics().is_none());
+
+        // Saving a known document recompiles the workspace.
+        let uri = Url::from_file_path(&file).unwrap();
+        server.did_save(DidSaveTextDocumentParams { text_document: text_document(&uri), text: None }).await;
+        assert!(server.is_ready());
+
+        drop(dir);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn goto_hover_references_and_formatting_answer_real_positions() {
+        let service = drained_backend();
+        let server = service.inner();
+        let (dir, root, file) = write_psy_workspace(VALID_MAIN);
+        let uri = Url::from_file_path(&file).unwrap();
+        server.set_crate_path_graph_cache(root.clone(), entry_graph(&file));
+        server.collect_diagnostics_sync(&root).expect("diagnostics");
+        assert!(server.is_ready());
+
+        let usage = position_at(VALID_MAIN, 1, 'q');
+
+        // Non-file URIs and unregistered files are hard errors.
+        let https = Url::parse("https://example.com/main.psy").unwrap();
+        assert!(server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: position_params(&https, usage),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+                partial_result_params: PartialResultParams { partial_result_token: None },
+            })
+            .await
+            .is_err());
+        assert!(server
+            .hover(HoverParams {
+                text_document_position_params: position_params(&https, usage),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+            })
+            .await
+            .is_err());
+        assert!(server
+            .references(ReferenceParams {
+                text_document_position: position_params(&https, usage),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+                partial_result_params: PartialResultParams { partial_result_token: None },
+                context: ReferenceContext { include_declaration: true },
+            })
+            .await
+            .is_err());
+        let unknown = Url::from_file_path(root.join("missing.psy")).unwrap();
+        assert!(server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: position_params(&unknown, usage),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+                partial_result_params: PartialResultParams { partial_result_token: None },
+            })
+            .await
+            .is_err());
+        assert!(server
+            .formatting(DocumentFormattingParams {
+                text_document: text_document(&unknown),
+                options: FormattingOptions::default(),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+            })
+            .await
+            .is_err());
+
+        // Positions that are not identifiers resolve to nothing.
+        let whitespace = tower_lsp::lsp_types::Position { line: 2, character: 0 };
+        assert!(server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: position_params(&uri, whitespace),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+                partial_result_params: PartialResultParams { partial_result_token: None },
+            })
+            .await
+            .expect("goto whitespace")
+            .is_none());
+        assert!(server
+            .hover(HoverParams {
+                text_document_position_params: position_params(&uri, whitespace),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+            })
+            .await
+            .expect("hover whitespace")
+            .is_none());
+        assert!(server
+            .references(ReferenceParams {
+                text_document_position: position_params(&uri, whitespace),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+                partial_result_params: PartialResultParams { partial_result_token: None },
+                context: ReferenceContext { include_declaration: true },
+            })
+            .await
+            .expect("references whitespace")
+            .is_none());
+
+        // Jumping from the usage of `q` lands on the parameter declaration.
+        let response = server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: position_params(&uri, usage),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+                partial_result_params: PartialResultParams { partial_result_token: None },
+            })
+            .await
+            .expect("goto definition")
+            .expect("definition found");
+        match response {
+            tower_lsp::lsp_types::GotoDefinitionResponse::Scalar(location) => {
+                assert_eq!(location.uri, uri);
+                assert_eq!(location.range.start, position_at(VALID_MAIN, 0, 'q'));
+            }
+            other => panic!("unexpected goto definition response: {other:?}"),
+        }
+
+        // Hovering the usage reports the variable and its type.
+        let hover = server
+            .hover(HoverParams {
+                text_document_position_params: position_params(&uri, usage),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+            })
+            .await
+            .expect("hover")
+            .expect("hover text");
+        match hover.contents {
+            HoverContents::Markup(markup) => {
+                assert_eq!(markup.kind, MarkupKind::Markdown);
+                assert!(markup.value.contains('q'), "unexpected hover text: {}", markup.value);
+            }
+            other => panic!("unexpected hover contents: {other:?}"),
+        }
+
+        // References exclude the queried position itself but keep the declaration.
+        let references = server
+            .references(ReferenceParams {
+                text_document_position: position_params(&uri, usage),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+                partial_result_params: PartialResultParams { partial_result_token: None },
+                context: ReferenceContext { include_declaration: true },
+            })
+            .await
+            .expect("references")
+            .expect("reference list");
+        assert!(!references.is_empty());
+        assert!(references.iter().all(|location| location.uri == uri));
+        assert!(references
+            .iter()
+            .any(|location| location.range.start == position_at(VALID_MAIN, 0, 'q')));
+
+        // Formatting replaces the whole document.
+        let edits = server
+            .formatting(DocumentFormattingParams {
+                text_document: text_document(&uri),
+                options: FormattingOptions::default(),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+            })
+            .await
+            .expect("formatting")
+            .expect("format edits");
+        assert_eq!(edits.len(), 1);
+        assert!(edits[0].new_text.contains("fn main"), "unexpected format output: {}", edits[0].new_text);
+        assert_eq!(edits[0].range.start, tower_lsp::lsp_types::Position { line: 0, character: 0 });
+
+        drop(dir);
+    }
+}

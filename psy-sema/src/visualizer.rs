@@ -587,6 +587,7 @@ impl<'a, F: Clone + From<u32> + ContextFelt, C> TypeCheckerVisitorVisualizerInne
             }
             DefinitionNode::Trait(node) => {
                 writeln!(fmt, "Trait");
+                fmt.indent();
                 writeln!(fmt, "Name: {:?}", node.name);
                 writeln!(fmt, "Visibility: {:?}", node.visibility);
                 writeln!(fmt, "Associated Types");
@@ -744,5 +745,41 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisualizer<F, C> for TypeCheckerV
         let mut fmt = IndentFormatter::new();
         visualizer.debug_definition(def_id, &mut fmt);
         fmt.finish_without_new_line()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IndentFormatter;
+
+    #[test]
+    fn indent_formatter_tracks_nested_indentation() {
+        let mut formatter = IndentFormatter::new();
+        formatter.writeln("root");
+        formatter.indent();
+        formatter.writeln("child");
+        formatter.indent();
+        formatter.write("leaf");
+        formatter.dedent();
+        formatter.writeln("after");
+        formatter.dedent();
+        assert_eq!(formatter.finish(), "root\n    child\nleaf    after\n");
+    }
+
+    #[test]
+    fn indent_formatter_removes_trailing_newlines_only() {
+        let mut formatter = IndentFormatter::new();
+        formatter.writeln("  value  ");
+        assert_eq!(formatter.finish_without_new_line(), "  value  ");
+    }
+
+    #[test]
+    fn indent_formatter_write_indent_supports_multiple_levels() {
+        let mut formatter = IndentFormatter::new();
+        formatter.indent();
+        formatter.indent();
+        formatter.write_indent();
+        formatter.write("x");
+        assert_eq!(formatter.finish(), "        x");
     }
 }

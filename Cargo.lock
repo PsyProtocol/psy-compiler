@@ -1863,6 +1863,7 @@ dependencies = [
  "serde",
  "serde_cbor",
  "serde_json",
+ "serial_test",
  "thiserror 2.0.18",
  "tokio",
  "zstd 0.13.3",
@@ -5498,6 +5499,7 @@ name = "psy-lsp-server"
 version = "0.1.0"
 dependencies = [
  "dargo",
+ "futures",
  "lsp-types 0.97.0",
  "psy-ast",
  "psy-interpreter",
@@ -5505,6 +5507,9 @@ dependencies = [
  "psy-sema",
  "psy_compiler_common",
  "psy_vm",
+ "serde_json",
+ "serial_test",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tower-lsp",

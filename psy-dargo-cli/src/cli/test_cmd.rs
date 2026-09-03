@@ -72,6 +72,10 @@ pub(crate) async fn run(args: TestCommand) -> crate::errors::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+
+    use serial_test::serial;
+
     use super::*;
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "slow end-to-end proving; run serially with `make test-slow`"]
@@ -84,5 +88,26 @@ mod tests {
                 psy_sema::STD_PRIMITIVE_SCOPE_ID.take()
             };
         });
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn test_command_runs_passing_psy_tests_end_to_end() {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock");
+        // Identifier-stem file name keeps the derived module name valid.
+        let file = std::env::temp_dir().join(format!("psy_dargo_test_ok_{}.psy", nanos.as_nanos()));
+        fs::write(
+            &file,
+            "#[test]\nfn doubles() {\n    assert_eq(dbl(21), 42, \"dbl\");\n}\n\nfn dbl(x: Felt) -> Felt {\n    return x * 2;\n}\n",
+        )
+        .expect("write test file");
+
+        run(TestCommand { file: file.clone() }).await.expect("passing #[test] functions must execute and prove");
+
+        #[allow(static_mut_refs)]
+        unsafe {
+            psy_sema::STD_PRIMITIVE_SCOPE_ID.take()
+        };
+        fs::remove_file(file).ok();
     }
 }

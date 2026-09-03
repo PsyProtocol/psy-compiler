@@ -2400,6 +2400,60 @@ fn main() {}
             let _ = STD_PRIMITIVE_SCOPE_ID.take();
         };
     }
+
+    #[test]
+    #[serial]
+    fn test_typecheck_storage_array_generates_read_at_and_write_at_impls() {
+        psy_common::setup_logging().ok();
+
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("psy_storage_array_{unique}.psy"));
+        // Mirrors tests/array_ref_struct_index_test.psy: an array field on a
+        // storage-derived contract drives StorageProcessor to synthesize the
+        // StorageAt (read_at/write_at) impls during preprocessing.
+        let source = r#"
+#[derive(Storage)]
+pub struct Person {
+    pub age: Felt,
+    pub score: Felt,
+}
+
+#[contract]
+#[derive(Storage)]
+pub struct C {
+    pub people: [Person; 2],
+}
+
+fn main() {
+    let c = CRef::new(ContractMetadata::current());
+    c.people[0] = Person {
+        age: 10,
+        score: 80,
+    };
+    let p1: Person::RefType = c.people[0];
+    p1.age += 1;
+    assert_eq(c.people[0].age, 11, "people[0].age after +=");
+    assert(p1 == Person {
+        age: 11,
+        score: 80,
+    }, "RefType from index should support ==");
+}
+"#;
+        fs::write(&path, source).unwrap();
+
+        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+        interpreter
+            .typecheck_single(path.clone())
+            .expect("storage array contracts must preprocess and typecheck");
+
+        let _ = fs::remove_file(path);
+
+        #[allow(static_mut_refs)]
+        unsafe {
+            let _ = STD_PRIMITIVE_SCOPE_ID.take();
+        };
+    }
+
     #[test]
     #[serial]
     fn test_rejects_raw_intrinsic_outside_std() {
@@ -2663,6 +2717,243 @@ fn main() {
             let _ = STD_PRIMITIVE_SCOPE_ID.take();
         };
     }
+
+    /// The index-access desugaring (`a[i]` on a non-array) reports a specific
+    /// error for each reachable failure mode: a non-Felt index, and an
+    /// `index` member that does not resolve to a matching method. The
+    /// arity/parameter-mismatch arms are unreachable because `find_member`
+    /// already filters candidates by the same predicate.
+    /// Generic paths through constrained type variables resolve associated
+    /// members, and a member that is not provided by the declared trait
+    /// constraints is rejected with a TypeMismatch naming the implemented
+    /// traits.
+    #[test]
+    #[serial]
+    fn test_generic_type_variable_path_resolution() {
+        let cases: [(&str, &str, bool, &str); 3] = [
+            (
+                "unconstrained_member_access",
+                r#"
+pub trait Value {
+    pub fn value() -> Felt;
+}
+
+pub struct Two {}
+
+impl Value for Two {
+    pub fn value() -> Felt {
+        return 2;
+    }
+}
+
+fn unconstrained<T>(x: T) -> Felt {
+    return <T as Value>::value();
+}
+
+fn main() -> Felt {
+    return unconstrained(Two {});
+}
+"#,
+                false,
+                "Expected",
+            ),
+            (
+                "constrained_associated_type_field",
+                r#"
+pub trait Produces {
+    pub type Out;
+    pub fn make() -> Self::Out;
+}
+
+pub struct Maker {}
+
+impl Produces for Maker {
+    pub type Out = Felt;
+    pub fn make() -> Self::Out {
+        return 7;
+    }
+}
+
+struct Wrapper<T: Produces> {
+    pub payload: T::Out,
+}
+
+fn main() -> Felt {
+    let w = Wrapper::<Maker> { payload: 3 };
+    return w.payload;
+}
+"#,
+                true,
+                "",
+            ),
+            (
+                "constrained_static_method",
+                r#"
+pub trait Value {
+    pub fn value() -> Felt;
+}
+
+pub struct Two {}
+
+impl Value for Two {
+    pub fn value() -> Felt {
+        return 2;
+    }
+}
+
+fn measured<T: Value>(x: T) -> Felt {
+    return T::value();
+}
+
+fn main() -> Felt {
+    return measured(Two {});
+}
+"#,
+                true,
+                "",
+            ),
+        ];
+
+        for (index, (name, source, must_pass, expected_fragment)) in cases.into_iter().enumerate() {
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!("psy_generic_path_{index}_{unique}.psy"));
+            fs::write(&path, source).unwrap();
+
+            let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+            let result = interpreter.typecheck_single(path.clone());
+            let err_msg = match (&result, must_pass) {
+                (Ok(_), true) => String::new(),
+                (Ok(_), false) => panic!("expected `{name}` to be rejected"),
+                (Err(_), true) => panic!("expected `{name}` to typecheck: {:#}", result.err().unwrap()),
+                (Err(err), false) => format!("{err:#}"),
+            };
+            assert!(
+                err_msg.contains(expected_fragment),
+                "unexpected error for `{name}`: {err_msg}"
+            );
+
+            let _ = fs::remove_file(path);
+            #[allow(static_mut_refs)]
+            unsafe {
+                let _ = STD_PRIMITIVE_SCOPE_ID.take();
+            };
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_index_access_sugar_error_arms() {
+        let cases: [(&str, &str, bool, &str); 3] = [
+            (
+                "non_felt_index",
+                r#"
+fn main() {
+    let a: [Felt; 2] = [1, 2];
+    let v: Felt = a[true];
+}
+"#,
+                false,
+                "Expected pub Felt",
+            ),
+            (
+                "unresolved_index_member",
+                r#"
+struct Wrapper {
+    pub index: Felt,
+}
+
+fn main() {
+    let w = Wrapper { index: 1 };
+    let v: Felt = w[0];
+}
+"#,
+                false,
+                "Unresolved member index",
+            ),
+            (
+                "index_method_success",
+                r#"
+struct Wrapper {
+    pub pad: Felt,
+}
+
+impl Wrapper {
+    pub fn index(self: Self, i: Felt) -> Felt {
+        return self.pad + i;
+    }
+}
+
+fn main() -> Felt {
+    let w = Wrapper { pad: 1 };
+    return w[0];
+}
+"#,
+                true,
+                "",
+            ),
+        ];
+
+        for (index, (name, source, must_pass, expected_fragment)) in cases.into_iter().enumerate() {
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!("psy_index_sugar_{index}_{unique}.psy"));
+            fs::write(&path, source).unwrap();
+
+            let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+            let result = interpreter.typecheck_single(path.clone());
+            let err_msg = match (&result, must_pass) {
+                (Ok(_), true) => String::new(),
+                (Ok(_), false) => panic!("expected `{name}` to be rejected by the index sugar"),
+                (Err(_), true) => panic!("expected `{name}` to typecheck: {:#}", result.err().unwrap()),
+                (Err(err), false) => format!("{err:#}"),
+            };
+            assert!(
+                err_msg.contains(expected_fragment),
+                "unexpected error for `{name}`: {err_msg}"
+            );
+
+            let _ = fs::remove_file(path);
+            #[allow(static_mut_refs)]
+            unsafe {
+                let _ = STD_PRIMITIVE_SCOPE_ID.take();
+            };
+        }
+    }
+
+    /// The public intrinsics reject mismatched or non-const arguments where
+    /// the typechecker enforces them: `hash_two_to_one` requires Hash
+    /// operands, and `split_bits` requires a compile-time-const bit length.
+    #[test]
+    #[serial]
+    fn test_public_intrinsic_type_mismatch_arms() {
+        let cases = [
+            ("hash_two_to_one_bad_first", r#"fn main() { let h = hash_two_to_one(true, [1, 2, 3, 4]); }"#),
+            ("hash_two_to_one_bad_second", r#"fn main() { let h = hash_two_to_one([1, 2, 3, 4], true); }"#),
+            ("split_bits_non_const_length", r#"fn main(x: Felt) { let v = split_bits(15, x); }"#),
+        ];
+
+        for (index, (name, source)) in cases.into_iter().enumerate() {
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!("psy_pub_intrinsic_ty_{index}_{unique}.psy"));
+            fs::write(&path, source).unwrap();
+
+            let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+            let err = match interpreter.typecheck_single(path.clone()) {
+                Ok(_) => panic!("expected `{name}` to fail typechecking"),
+                Err(err) => err,
+            };
+            let err_msg = format!("{err:#}");
+            assert!(
+                err_msg.contains("TypeMismatch") || err_msg.contains("Expected"),
+                "unexpected error for `{name}`: {err_msg}"
+            );
+
+            let _ = fs::remove_file(path);
+            #[allow(static_mut_refs)]
+            unsafe {
+                let _ = STD_PRIMITIVE_SCOPE_ID.take();
+            };
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2698,4 +2989,39 @@ mod qa_fix_tests {
 #[cfg(test)]
 mod panic_fix_tests {
     include!("panic_fix_tests.rs");
+}
+
+#[cfg(test)]
+mod visualizer_tests {
+    include!("visualizer_tests.rs");
+}
+
+#[cfg(test)]
+mod generic_instantiation_tests {
+    include!("generic_instantiation_tests.rs");
+}
+
+#[cfg(test)]
+mod std_override_tests {
+    include!("std_override_tests.rs");
+}
+
+#[cfg(test)]
+mod interp_exec_tests {
+    include!("interp_exec_tests.rs");
+}
+
+#[cfg(test)]
+mod intrinsic_exec_tests {
+    include!("intrinsic_exec_tests.rs");
+}
+
+#[cfg(test)]
+mod sema_edge_tests {
+    include!("sema_edge_tests.rs");
+}
+
+#[cfg(test)]
+mod exec_edge_tests {
+    include!("exec_edge_tests.rs");
 }

@@ -281,3 +281,158 @@ impl<'a, F: Clone + From<u32>, C> VisitorContext<F, C> for DefaultVisitorContext
         self.program.interner.intern_lambda()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use psy_common::FileId;
+
+    use crate::{Comment, Identifier, Location, ModuleNode, UseNode, ValueNode, Visibility};
+
+    use super::*;
+
+    type Ctx<'a> = DefaultVisitorContext<'a, u32, ()>;
+
+    fn module_node(name: usize) -> ModuleNode {
+        ModuleNode {
+            name: Identifier::new(IdentId(name), Location::default()),
+            file_id: FileId(0),
+            modules: vec![],
+            inline_modules: vec![],
+            definitions: vec![],
+            visibility: Visibility::Public,
+            comments: vec![],
+            location: Location::default(),
+        }
+    }
+
+    fn use_definition(id: usize) -> DefinitionNode {
+        DefinitionNode::Use(UseNode {
+            visibility: Visibility::Private,
+            kind: Identifier::new(IdentId(id), Location::default()),
+            segments: vec![],
+            target: None,
+            comments: vec![Comment::new_line("doc".to_string(), Location::default())],
+            location: Location::default(),
+        })
+    }
+
+    fn felt_value() -> ExprNode<u32> {
+        ExprNode::Value(ValueNode::Felt(7u32, Location::default()))
+    }
+
+    #[test]
+    fn function_node_types_are_functions() {
+        assert!(NodeType::FunctionDef.is_function());
+        assert!(NodeType::LambdaFunctionExpr.is_function());
+        assert!(!NodeType::Module.is_function());
+        assert!(!NodeType::UseDef.is_function());
+        assert!(!NodeType::ValueExpr.is_function());
+    }
+
+    #[test]
+    fn node_id_stack_tracks_ancestry() {
+        let mut program = Program::<u32>::new();
+        let mut context = Ctx::new(&mut program);
+        context.push_node_id(NodeId::Expr(ExprId(1)));
+        context.push_node_id(NodeId::Stmt(StmtId(2)));
+        context.push_node_id(NodeId::Def(DefId(3)));
+
+        assert_eq!(context.node_id(), NodeId::Def(DefId(3)));
+        assert_eq!(context.ancestor_node_id(0), NodeId::Def(DefId(3)));
+        assert_eq!(context.ancestor_node_id(2), NodeId::Expr(ExprId(1)));
+        assert_eq!(context.node_path().len(), 3);
+
+        context.pop_node_id();
+        assert_eq!(context.node_id(), NodeId::Stmt(StmtId(2)));
+    }
+
+    #[test]
+    fn node_type_dispatches_by_node_kind() {
+        let mut program = Program::<u32>::new();
+        let expr_id = program.exprs.alloc_item(felt_value());
+        let stmt_id = program.stmts.alloc_item(StmtNode::Expression(expr_id));
+        let def_id = program.defs.alloc_item(use_definition(1));
+
+        let mut context = Ctx::new(&mut program);
+        context.push_node_id(NodeId::Expr(expr_id));
+        assert_eq!(context.node_type(), NodeType::ValueExpr);
+        context.push_node_id(NodeId::Stmt(stmt_id));
+        assert_eq!(context.ancestor_node_type(1), NodeType::ValueExpr);
+        assert_eq!(context.node_type(), NodeType::ExpressionStmt);
+        context.push_node_id(NodeId::Def(def_id));
+        assert_eq!(context.node_type(), NodeType::UseDef);
+        context.push_node_id(NodeId::Module(ModuleId(0)));
+        assert_eq!(context.node_type(), NodeType::Module);
+        assert_eq!(context.ancestor_node_type(3), NodeType::ValueExpr);
+    }
+
+    #[test]
+    fn ident_interning_round_trips() {
+        let mut program = Program::<u32>::new();
+        let mut context = Ctx::new(&mut program);
+        let id = context.intern("inserted");
+        assert_eq!(context.ident(id).0, "inserted");
+        assert_ne!(context.intern_lambda(), context.intern_lambda());
+    }
+
+    #[test]
+    fn modules_are_indexed_and_traversed() {
+        let mut program = Program::<u32>::new();
+        let root_id = program.modules.add_node(module_node(10));
+        let child_id = program.modules.add_node(module_node(11));
+        program.add_module_child(Some(root_id), child_id);
+
+        let context = Ctx::new(&mut program);
+        assert_eq!(context.module(root_id).name.id, IdentId(10));
+        assert_eq!(context.module_children(root_id), &[child_id]);
+        assert_eq!(context.module_children(child_id), &[]);
+        assert_eq!(context.program().modules[root_id].data().name.id, IdentId(10));
+        assert_eq!(context.dependency_graph().nodes().len(), 0);
+    }
+
+    #[test]
+    fn insert_definition_places_items_relative_to_existing_ones() {
+        let mut program = Program::<u32>::new();
+        let module_id = program.modules.add_node(module_node(20));
+        let first = program.defs.alloc_item(use_definition(21));
+        let second = program.defs.alloc_item(use_definition(22));
+        program.modules[module_id].data_mut().definitions = vec![first, second];
+
+        let mut context = Ctx::new(&mut program);
+        // insert_definition resolves the target module one level up the stack.
+        context.push_node_id(NodeId::Module(module_id));
+        context.push_node_id(NodeId::Def(first));
+
+        context.insert_definition(use_definition(23), InsertPosition::Front);
+        context.insert_definition(use_definition(24), InsertPosition::End);
+        context.insert_definition(use_definition(25), InsertPosition::Before(NodeId::Def(second)));
+        context.insert_definition(use_definition(26), InsertPosition::After(NodeId::Def(first)));
+
+        let inserted: Vec<usize> = program.modules[module_id]
+            .data()
+            .definitions
+            .iter()
+            .map(|def_id| program.defs[*def_id].as_use().unwrap().kind.id.0 as usize)
+            .collect();
+        assert_eq!(inserted, vec![23, 21, 26, 25, 22, 24]);
+    }
+
+    #[test]
+    fn allocation_and_replacement_round_trip() {
+        let mut program = Program::<u32>::new();
+        let mut context = Ctx::new(&mut program);
+
+        let expr_id = context.alloc_expression(felt_value());
+        let stmt_id = context.alloc_statement(StmtNode::Expression(expr_id));
+        let def_id = context.alloc_definition(use_definition(30));
+
+        assert!(matches!(context.expression(expr_id), ExprNode::Value(ValueNode::Felt(_, _))));
+        assert!(matches!(context.statement(stmt_id), StmtNode::Expression(_)));
+        assert!(matches!(context.definition(def_id), DefinitionNode::Use(_)));
+
+        context.replace_definition(def_id, use_definition(31));
+        assert_eq!(context.definition(def_id).as_use().unwrap().kind.id, IdentId(31));
+        context.replace_statement(stmt_id, StmtNode::Definition(def_id));
+        assert!(matches!(context.statement(stmt_id), StmtNode::Definition(id) if *id == def_id));
+    }
+}

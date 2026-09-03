@@ -156,7 +156,8 @@ pub enum TypeAbiSpec {
         inner_type: String,
         length: u64,
     },
-}impl TypeAbiSpec {
+}
+impl TypeAbiSpec {
     pub fn from_unchecked_type<F: Clone + From<u32>>(unchecked_type: &UncheckedType, ctx: &DefaultVisitorContext<F, ()>) -> Self {
         match unchecked_type {
             UncheckedType::Basic(identifier) => TypeAbiSpec::Basic(ctx.ident(*identifier).0.to_string()),
@@ -175,5 +176,111 @@ pub enum TypeAbiSpec {
             UncheckedType::Path(path) => Self::from_unchecked_type(&path.target, ctx),
             _ => TypeAbiSpec::Basic("unknown".to_string()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_abi() -> Abi {
+        Abi {
+            schema_version: "2.0.0".to_string(),
+            contract: AbiContract {
+                name: "Wallet".to_string(),
+                state_tree_height: 7,
+                state: vec![AbiStateField {
+                    name: "balances".to_string(),
+                    ty: TypeRef::Map {
+                        map_kind: MapKind::Map,
+                        key: Box::new(TypeRef::Primitive {
+                            name: PrimitiveTypeName::Hash,
+                        }),
+                        value: Box::new(TypeRef::Array {
+                            item: Box::new(TypeRef::Primitive {
+                                name: PrimitiveTypeName::Felt,
+                            }),
+                            length: 2,
+                            item_felt_size: 1,
+                        }),
+                        capacity: 128,
+                        value_felt_size: 2,
+                        alignment_felts: 4,
+                    },
+                    offset: 0,
+                    felt_size: 2,
+                }],
+                methods: vec![AbiMethod {
+                    name: "balance".to_string(),
+                    method_id: 3,
+                    state_mutability: StateMutability::View,
+                    inputs: vec![AbiParam {
+                        name: "owner".to_string(),
+                        ty: TypeRef::Struct { name: "Owner".to_string() },
+                        felt_size: 4,
+                    }],
+                    outputs: vec![AbiParam {
+                        name: "result".to_string(),
+                        ty: TypeRef::Primitive {
+                            name: PrimitiveTypeName::U32,
+                        },
+                        felt_size: 1,
+                    }],
+                    input_felt_count: 4,
+                    output_felt_count: 1,
+                    vm_type: None,
+                }],
+            },
+            types: vec![AbiStructType {
+                kind: AbiTypeKind::Struct,
+                name: "Owner".to_string(),
+                felt_size: 4,
+                fields: vec![AbiStructField {
+                    name: "id".to_string(),
+                    ty: TypeRef::Primitive {
+                        name: PrimitiveTypeName::Hash,
+                    },
+                    offset_within_parent: 0,
+                    felt_size: 4,
+                }],
+            }],
+        }
+    }
+
+    #[test]
+    fn abi_json_round_trip_preserves_recursive_layout() {
+        let abi = sample_abi();
+        let json = abi.to_json().expect("sample ABI should serialize");
+        let decoded: Abi = serde_json::from_str(&json).expect("serialized ABI should deserialize");
+
+        assert_eq!(decoded, abi);
+        assert!(json.contains("\"state_mutability\": \"view\""));
+        assert!(!json.contains("vm_type"), "None vm_type must be omitted");
+    }
+
+    #[test]
+    fn abi_enum_wire_names_are_stable() {
+        assert_eq!(serde_json::to_string(&StateMutability::External).unwrap(), "\"external\"");
+        assert_eq!(serde_json::to_string(&AbiTypeKind::Struct).unwrap(), "\"struct\"");
+        assert_eq!(serde_json::to_string(&MapKind::ContractHashMap).unwrap(), "\"contract_hash_map\"");
+        assert_eq!(serde_json::to_string(&MapKind::NamespacedMap).unwrap(), "\"namespaced_map\"");
+        assert!(StateMutability::View.is_view());
+        assert!(!StateMutability::External.is_view());
+    }
+
+    #[test]
+    fn type_abi_spec_supports_both_wire_shapes() {
+        let basic: TypeAbiSpec = serde_json::from_str("\"Felt\"").unwrap();
+        assert_eq!(basic, TypeAbiSpec::Basic("Felt".to_string()));
+
+        let array: TypeAbiSpec = serde_json::from_str(r#"{"type":"Array","inner_type":"Hash","length":8}"#).unwrap();
+        assert_eq!(
+            array,
+            TypeAbiSpec::Array {
+                type_name: "Array".to_string(),
+                inner_type: "Hash".to_string(),
+                length: 8,
+            }
+        );
     }
 }
