@@ -341,11 +341,203 @@ mod tests {
 
     use num_traits::Num;
     use plonky2::field::fft::ifft;
-    use psy_ast::Location;
+    use psy_ast::{IdentId, Identifier, Location, ModuleNode, Qualifier, Visibility};
     use psy_package::{CrateName, Package, PackageType};
+    use psy_sema::{ScopeId, Type};
 
     use super::*;
     use crate::cli::compile_cmd::CompileOptions;
+
+    fn line_comment(content: &str) -> psy_ast::Comment {
+        psy_ast::Comment::new_line(content.to_string(), Location::default())
+    }
+
+    fn function_node_with_comments(comments: Vec<psy_ast::Comment>) -> FunctionNode {
+        FunctionNode(CheckedFunctionNode {
+            name: Identifier::new(IdentId(0), Location::default()),
+            parameters: vec![],
+            generic_parameters: vec![],
+            body: None,
+            qualifier: Qualifier::default(),
+            return_type: TypeId(1),
+            return_type_path: None,
+            scope_id: ScopeId(0),
+            visibility: Visibility::Public,
+            attrs: vec![],
+            type_id: TypeId(1),
+            comments,
+            location: Location::default(),
+        })
+    }
+
+    fn circuit_named(name: &str) -> DPNFunctionCircuitDefinition {
+        DPNFunctionCircuitDefinition {
+            name: name.to_string(),
+            method_id: 0,
+            circuit_inputs: vec![],
+            circuit_outputs: vec![],
+            state_commands: vec![],
+            state_command_resolution_indices: vec![],
+            assertions: vec![],
+            definitions: vec![],
+            events: vec![],
+        }
+    }
+
+    #[test]
+    fn comment_classification_matches_marker_prefixes_with_and_without_slashes() {
+        let with_slashes = Comment::from(line_comment("// input: 1"));
+        assert!(with_slashes.is_input_comment());
+        assert!(!with_slashes.is_output_comment());
+
+        let without_slashes = Comment::from(line_comment("output: true"));
+        assert!(without_slashes.is_output_comment());
+        assert!(!without_slashes.is_input_comment());
+
+        let metadata = Comment::from(line_comment("// description: records a transfer"));
+        assert!(metadata.is_metadata_comment("description"));
+        assert!(!metadata.is_metadata_comment("author"));
+        assert!(!Comment::from(line_comment("plain commentary")).is_metadata_comment("description"));
+    }
+
+    #[test]
+    fn parse_value_covers_bools_hex_decimals_and_the_fallback() {
+        let comment = Comment::from(line_comment("input: ignored"));
+        assert_eq!(comment.parse_value("TRUE"), CommentParamValue::Bool(true));
+        assert_eq!(comment.parse_value("False"), CommentParamValue::Bool(false));
+        assert_eq!(comment.parse_value("0x10"), CommentParamValue::Felt(BigUint::from(16u32)));
+        // Invalid hex digits fall through every parser to the zero fallback.
+        assert_eq!(comment.parse_value("0xzz"), CommentParamValue::Felt(BigUint::from(0u32)));
+        assert_eq!(comment.parse_value("42"), CommentParamValue::U32(42));
+        let big = BigUint::from_str_radix("99999999999999999999", 10).unwrap();
+        assert_eq!(comment.parse_value("99999999999999999999"), CommentParamValue::Felt(big));
+        assert_eq!(comment.parse_value("-7"), CommentParamValue::Felt(BigUint::from(0u32)));
+        assert_eq!(comment.parse_value("junk"), CommentParamValue::Felt(BigUint::from(0u32)));
+    }
+
+    #[test]
+    fn input_and_output_parsing_skip_blank_entries_and_require_markers() {
+        let comment = Comment::from(line_comment("input: 1, , 2 ,"));
+        assert_eq!(
+            comment.parse_input_values(),
+            vec![CommentParamValue::U32(1), CommentParamValue::U32(2)]
+        );
+
+        let comment = Comment::from(line_comment("output: true"));
+        assert_eq!(comment.parse_output_values(), vec![CommentParamValue::Bool(true)]);
+
+        assert!(Comment::from(line_comment("1, 2")).parse_input_values().is_empty());
+        assert!(Comment::from(line_comment("input: 1")).parse_output_values().is_empty());
+        assert!(Comment::from(line_comment("input:")).parse_input_values().is_empty());
+    }
+
+    #[test]
+    fn metadata_content_returns_the_trimmed_value_for_the_requested_key() {
+        let comment = Comment::from(line_comment("// description:  keeps contracts documented  "));
+        assert_eq!(comment.parse_metadata_content("description").as_deref(), Some("keeps contracts documented"));
+        assert_eq!(comment.parse_metadata_content("author"), None);
+    }
+
+    #[test]
+    fn function_nodes_aggregate_comment_inputs_outputs_and_metadata() {
+        let documented = function_node_with_comments(vec![
+            line_comment("input: 1"),
+            line_comment("input: true"),
+            line_comment("// output: 0x10"),
+            line_comment("description: sums the grid"),
+            line_comment("author: psy"),
+            line_comment("priority: high"),
+            line_comment("foo-bar: dropped key"),
+            line_comment("plain note"),
+        ]);
+        assert!(documented.is_input_comment());
+        assert_eq!(
+            documented.get_input_parameters_from_comments(),
+            vec![CommentParamValue::U32(1), CommentParamValue::Bool(true)]
+        );
+        assert_eq!(
+            documented.get_output_expectations_from_comments(),
+            vec![CommentParamValue::Felt(BigUint::from(16u32))]
+        );
+        assert_eq!(documented.get_metadata("description").as_deref(), Some("sums the grid"));
+        assert_eq!(documented.get_metadata("missing"), None);
+
+        let metadata = documented.get_all_metadata();
+        assert_eq!(metadata.get("description").map(String::as_str), Some("sums the grid"));
+        assert_eq!(metadata.get("author").map(String::as_str), Some("psy"));
+        assert_eq!(metadata.get("priority").map(String::as_str), Some("high"));
+        assert!(!metadata.contains_key("input"));
+        assert!(!metadata.contains_key("output"));
+        assert!(!metadata.contains_key("foo-bar"));
+
+        let silent = function_node_with_comments(vec![line_comment("no markers here")]);
+        assert!(!silent.is_input_comment());
+        assert!(silent.get_input_parameters_from_comments().is_empty());
+        assert!(silent.get_output_expectations_from_comments().is_empty());
+        assert!(silent.get_metadata("description").is_none());
+        assert!(silent.get_all_metadata().is_empty());
+    }
+
+    #[test]
+    fn param_conversion_covers_every_comment_value_kind() {
+        assert_eq!(convert_param_to_field(&CommentParamValue::Bool(true)), GoldilocksField::ONE);
+        assert_eq!(convert_param_to_field(&CommentParamValue::Bool(false)), GoldilocksField::ZERO);
+        assert_eq!(convert_param_to_field(&CommentParamValue::U32(7)), GoldilocksField::from_noncanonical_u64(7));
+        let felt = BigUint::from_str_radix("123456789abcdef", 16).unwrap();
+        assert_eq!(
+            convert_param_to_field(&CommentParamValue::Felt(felt.clone())),
+            GoldilocksField::from_noncanonical_biguint(felt)
+        );
+    }
+
+    #[test]
+    fn metadata_extraction_keeps_only_input_commented_methods_present_in_symbols() {
+        use psy_common::FileId;
+        use psy_common::tree::TreeNode;
+        use psy_sema::CheckedProgram;
+
+        let program = psy_ast::Program::<SymFeltRef>::new();
+        let mut ctx = TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(program);
+        let mut typechecker = TypeChecker::new(
+            CheckedProgram::new(),
+            Box::new(psy_interpreter::Interpreter::<SymFeltRef, QExecContext>::new(QExecContext::new())),
+        );
+
+        // Seed the root module so lookups against ModuleId::root() resolve.
+        let root = TreeNode::new(
+            ModuleId::root(),
+            ModuleNode {
+                name: Identifier::new(IdentId(0), Location::default()),
+                file_id: FileId(0),
+                modules: vec![],
+                inline_modules: vec![],
+                definitions: vec![],
+                visibility: Visibility::Public,
+                comments: vec![],
+                location: Location::default(),
+            },
+        );
+        ctx.symbols.load_modules(std::iter::once(&root));
+
+        let documented = function_node_with_comments(vec![line_comment("input: 1")]).0;
+        let priced_ident = ctx.intern("priced");
+        ctx.symbols
+            .add_type(Some(ScopeId(0)), priced_ident, Type::Function(documented))
+            .expect("documented function type registers");
+        let silent = function_node_with_comments(vec![]);
+        let silent_ident = ctx.intern("silent");
+        ctx.symbols
+            .add_type(Some(ScopeId(0)), silent_ident, Type::Function(silent.0))
+            .expect("silent function type registers");
+
+        let compile_results = vec![circuit_named("priced"), circuit_named("silent"), circuit_named("ghost")];
+        let metadata = extract_function_metadata_from_context(&mut ctx, &mut typechecker, &compile_results);
+        assert_eq!(metadata.len(), 1, "only the input-commented contract method is kept: {metadata:?}");
+        assert!(metadata.contains_key("priced"));
+
+        assert!(find_contract_method_by_name(&mut ctx, &mut typechecker, "priced".to_string()).is_some());
+        assert!(find_contract_method_by_name(&mut ctx, &mut typechecker, "ghost".to_string()).is_none());
+    }
 
     #[test]
     fn test_parse_input_values() {

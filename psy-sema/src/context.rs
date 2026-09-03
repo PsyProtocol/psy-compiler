@@ -186,3 +186,205 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeCheckerVisitorContext<F, C> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use indexmap::IndexMap;
+
+    use psy_ast::{
+        Comment, DefId, DefinitionNode, ExprId, ExprNode, IdentId, Identifier, Location, ModuleId, NodeId, NodeType, StmtId, StmtNode, UseNode,
+        ValueNode, Visibility,
+    };
+    use psy_vm::dpn::ops::sym_felt::SymFeltRef;
+
+    use super::*;
+    use crate::{CheckedStructField, CheckedStructNode, ExpectedFunctionSignature, ExpectedReturnType, FELT_TYPE, ScopeId, VOID_TYPE};
+
+    type Ctx = TypeCheckerVisitorContext<SymFeltRef, ()>;
+
+    fn ctx() -> Ctx {
+        TypeCheckerVisitorContext::new(Program::new())
+    }
+
+    fn signature(parameter: TypeId) -> ExpectedFunctionSignature {
+        ExpectedFunctionSignature {
+            parameters: vec![parameter],
+            return_type: ExpectedReturnType::Known(VOID_TYPE),
+            receiver: None,
+        }
+    }
+
+    fn felt_value() -> ExprNode<SymFeltRef> {
+        ExprNode::Value(ValueNode::Felt(SymFeltRef(7), Location::default()))
+    }
+
+    fn use_definition() -> DefinitionNode {
+        DefinitionNode::Use(UseNode {
+            visibility: Visibility::Private,
+            kind: Identifier::new(IdentId(1), Location::default()),
+            segments: vec![],
+            target: None,
+            comments: vec![Comment::new_line("doc".to_string(), Location::default())],
+            location: Location::default(),
+        })
+    }
+
+    #[test]
+    fn expected_signature_stack_lifecycle() {
+        let mut context = ctx();
+        assert_eq!(context.expected_signature(), None);
+        assert_eq!(context.ancestor_expected_signature(0), None);
+
+        let outer = signature(FELT_TYPE);
+        context.push_expected_signature(outer.clone());
+        let inner = signature(VOID_TYPE);
+        context.push_expected_signature(inner.clone());
+
+        assert_eq!(context.expected_signature(), Some(inner.clone()));
+        assert_eq!(context.ancestor_expected_signature(0), Some(&inner));
+        assert_eq!(context.ancestor_expected_signature(1), Some(&outer));
+        assert_eq!(context.ancestor_expected_signature(2), None);
+        assert_eq!(context.expected_signature_path().len(), 2);
+
+        context.pop_expected_signature();
+        assert_eq!(context.expected_signature(), Some(outer));
+    }
+
+    #[test]
+    fn node_id_stack_tracks_ancestry() {
+        let mut context = ctx();
+        context.push_node_id(NodeId::Expr(ExprId(1)));
+        context.push_node_id(NodeId::Stmt(StmtId(2)));
+        context.push_node_id(NodeId::Def(DefId(3)));
+
+        assert_eq!(context.node_id(), NodeId::Def(DefId(3)));
+        assert_eq!(context.ancestor_node_id(0), NodeId::Def(DefId(3)));
+        assert_eq!(context.ancestor_node_id(1), NodeId::Stmt(StmtId(2)));
+        assert_eq!(context.ancestor_node_id(2), NodeId::Expr(ExprId(1)));
+        assert_eq!(context.node_path().len(), 3);
+
+        context.pop_node_id();
+        assert_eq!(context.node_id(), NodeId::Stmt(StmtId(2)));
+    }
+
+    #[test]
+    fn node_type_dispatches_by_node_kind() {
+        let mut context = ctx();
+
+        let expr_id = context.program.exprs.alloc_item(felt_value());
+        context.push_node_id(NodeId::Expr(expr_id));
+        assert_eq!(context.node_type(), NodeType::ValueExpr);
+        assert_eq!(context.ancestor_node_type(0), NodeType::ValueExpr);
+
+        let stmt_id = context.program.stmts.alloc_item(StmtNode::Expression(expr_id));
+        context.push_node_id(NodeId::Stmt(stmt_id));
+        assert_eq!(context.node_type(), NodeType::ExpressionStmt);
+
+        let def_id = context.program.defs.alloc_item(use_definition());
+        context.push_node_id(NodeId::Def(def_id));
+        assert_eq!(context.node_type(), NodeType::UseDef);
+
+        context.push_node_id(NodeId::Module(ModuleId(0)));
+        assert_eq!(context.node_type(), NodeType::Module);
+        assert_eq!(context.ancestor_node_type(3), NodeType::ValueExpr);
+    }
+
+    #[test]
+    fn ident_interning_round_trips() {
+        let mut context = ctx();
+        let id = context.intern("size_of_it");
+        assert_eq!(context.ident(id).0, "size_of_it");
+
+        let lambda_a = context.intern_lambda();
+        let lambda_b = context.intern_lambda();
+        assert_ne!(lambda_a, lambda_b);
+    }
+
+    #[test]
+    fn program_accessors_expose_arena_items() {
+        let mut context = ctx();
+        let expr_id = context.program.exprs.alloc_item(felt_value());
+        let stmt_id = context.program.stmts.alloc_item(StmtNode::Expression(expr_id));
+        let def_id = context.alloc_definition(use_definition());
+
+        assert!(matches!(context.expression(expr_id), ExprNode::Value(ValueNode::Felt(_, _))));
+        assert!(matches!(context.statement(stmt_id), StmtNode::Expression(id) if *id == expr_id));
+        assert!(matches!(context.definition(def_id), DefinitionNode::Use(_)));
+        assert_eq!(context.program().exprs[expr_id], ExprNode::Value(ValueNode::Felt(SymFeltRef(7), Location::default())));
+        assert_eq!(context.dependency_graph().nodes().len(), 0);
+    }
+
+    #[test]
+    fn size_of_counts_primitives_and_nested_struct_fields() {
+        let mut context = ctx();
+        let felt = context.symbols.create_type(Type::Felt).unwrap();
+        let bool_ty = context.symbols.create_type(Type::Bool).unwrap();
+        let u32_ty = context.symbols.create_type(Type::U32).unwrap();
+        assert_eq!(context.size_of(felt), 1);
+        assert_eq!(context.size_of(bool_ty), 1);
+        assert_eq!(context.size_of(u32_ty), 1);
+
+        let point = {
+            let mut fields = IndexMap::new();
+            fields.insert(
+                Identifier::new(IdentId(10), Location::default()),
+                CheckedStructField::new(felt, vec![], Visibility::Public, vec![], Location::default()),
+            );
+            fields.insert(
+                Identifier::new(IdentId(11), Location::default()),
+                CheckedStructField::new(felt, vec![], Visibility::Public, vec![], Location::default()),
+            );
+            context
+                .symbols
+                .create_type(Type::Struct(CheckedStructNode {
+                    name: Identifier::new(IdentId(12), Location::default()),
+                    generic_parameters: vec![],
+                    fields,
+                    scope_id: ScopeId(0),
+                    attrs: vec![],
+                    visibility: Visibility::Public,
+                    comments: vec![],
+                    location: Location::default(),
+                    type_id: TypeId(999),
+                }))
+                .unwrap()
+        };
+        assert_eq!(context.size_of(point), 2);
+
+        let outer = {
+            let mut fields = IndexMap::new();
+            fields.insert(
+                Identifier::new(IdentId(13), Location::default()),
+                CheckedStructField::new(point, vec![], Visibility::Public, vec![], Location::default()),
+            );
+            fields.insert(
+                Identifier::new(IdentId(14), Location::default()),
+                CheckedStructField::new(felt, vec![], Visibility::Public, vec![], Location::default()),
+            );
+            context
+                .symbols
+                .create_type(Type::Struct(CheckedStructNode {
+                    name: Identifier::new(IdentId(15), Location::default()),
+                    generic_parameters: vec![],
+                    fields,
+                    scope_id: ScopeId(0),
+                    attrs: vec![],
+                    visibility: Visibility::Public,
+                    comments: vec![],
+                    location: Location::default(),
+                    type_id: TypeId(998),
+                }))
+                .unwrap()
+        };
+        assert_eq!(context.size_of(outer), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "not yet implemented")]
+    fn size_of_rejects_unsupported_shapes() {
+        let mut context = ctx();
+        let felt = context.symbols.create_type(Type::Felt).unwrap();
+        let tuple = context.symbols.create_type(Type::Tuple(vec![felt, felt])).unwrap();
+        let _ = context.size_of(tuple);
+    }
+}

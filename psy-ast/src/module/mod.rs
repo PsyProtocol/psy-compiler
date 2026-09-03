@@ -120,3 +120,71 @@ pub enum ModuleItemNode {
     Definition(DefId),
     Comment(Comment),
 }
+
+#[cfg(test)]
+mod tests {
+    use psy_common::FileId;
+
+    use super::*;
+
+    fn identifier(name: &str) -> Identifier {
+        let id = match name {
+            "std" => IdentId::STD,
+            "prelude" => IdentId::PRELUDE,
+            "primitive" => IdentId::PRIMITIVE,
+            _ => IdentId::from(999usize),
+        };
+        Identifier::new(id, Location::new(FileId(0), 0, 0))
+    }
+
+    fn empty_module(name: &str) -> ModuleNode {
+        ModuleNode {
+            name: identifier(name),
+            file_id: FileId(0),
+            modules: Vec::new(),
+            inline_modules: Vec::new(),
+            definitions: Vec::new(),
+            visibility: Visibility::Public,
+            comments: Vec::new(),
+            location: Location::new(FileId(0), 0, 0),
+        }
+    }
+
+    #[test]
+    fn module_constructor_separates_children_and_definitions() {
+        let mut defs = Arena::new();
+        let external = (identifier("external"), Visibility::Private, Location::default());
+        let inline = empty_module("inline");
+        let module = ModuleNode::new(
+            identifier("root"),
+            FileId(0),
+            Visibility::Public,
+            vec![
+                ModuleItemNode::ModuleDecl(external),
+                ModuleItemNode::InlineModule(inline),
+                ModuleItemNode::Definition(DefId::from(0usize)),
+            ],
+            &mut defs,
+            Vec::new(),
+            Location::default(),
+        );
+
+        assert_eq!(module.modules.len(), 1);
+        assert_eq!(module.modules[0].0.id, identifier("external").id);
+        assert_eq!(module.inline_modules.len(), 1);
+        assert_eq!(module.inline_modules[0].name.id, identifier("inline").id);
+        assert_eq!(module.definitions, vec![DefId::from(0usize)]);
+    }
+
+    #[test]
+    fn standard_module_helpers_match_only_known_standard_names() {
+        for name in ["std", "prelude", "primitive"] {
+            let module = empty_module(name);
+            assert!(module.is_std(), "{name} should be a standard module");
+        }
+        let primitive = empty_module("primitive");
+        assert!(primitive.is_self_primitive());
+        assert!(!empty_module("user").is_std());
+        assert!(!empty_module("user").is_self_primitive());
+    }
+}

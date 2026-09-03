@@ -595,3 +595,526 @@ pub fn lowering_interpreter_error<F: Clone + From<u32> + ContextFelt, C>(error: 
 
     anyhow::Error::from(error).context(context)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use psy_ast::{Location, Program};
+    use psy_common::FileId;
+    use psy_parser::error::ExpectedToken;
+    use psy_vm::dpn::ops::sym_felt::SymFeltRef;
+    use psy_sema::{Type, TypeCheckerVisitorContext, TypeId};
+    use psy_vm::dpn::ops::exec_context::QExecContext;
+
+    use super::{
+        format_expected_pretty, lowering_interpreter_error, lowering_parse_error, lowering_sema_error, parse_error_to_diagnostic,
+        span_to_range, typecheck_error_to_diagnostic, Error,
+    };
+
+    #[test]
+    fn expected_token_formatting_handles_all_list_lengths() {
+        assert_eq!(format_expected_pretty(&[]), "(no expected tokens)");
+        assert_eq!(format_expected_pretty(&[ExpectedToken::Ident]), "identifier");
+        assert_eq!(format_expected_pretty(&[ExpectedToken::Ident, ExpectedToken::Literal]), "identifier or literal");
+        assert_eq!(
+            format_expected_pretty(&[ExpectedToken::Ident, ExpectedToken::Literal, ExpectedToken::Eof]),
+            "identifier, literal or end of file"
+        );
+    }
+
+    #[test]
+    fn span_conversion_handles_start_end_cross_line_and_eof_offsets() {
+        let location = Location::new(FileId(0), 0, 8);
+        let range = span_to_range(&location, "first\nsecond");
+        assert_eq!(range.start.line, 0);
+        assert_eq!(range.start.character, 0);
+        assert_eq!(range.end.line, 1);
+        assert_eq!(range.end.character, 2);
+
+        let eof = span_to_range(&Location::new(FileId(0), 100, 100), "short");
+        assert_eq!(eof.start.line, 1);
+        assert_eq!(eof.start.character, 0);
+    }
+
+    #[test]
+    fn non_located_parse_errors_lower_to_plain_text() {
+        let program = Program::<SymFeltRef>::new();
+        let error = psy_parser::Error::InvalidModuleName;
+        assert_eq!(lowering_parse_error(&error, &program), "Invalid module name");
+
+        let error = psy_parser::Error::NoEntryModule(PathBuf::from("missing.psy"));
+        assert_eq!(lowering_parse_error(&error, &program), "missing.psy");
+    }
+
+    #[test]
+    fn interpreter_errors_without_locations_have_stable_messages() {
+        let ctx = TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(Program::new());
+        let cases = [
+            (Error::UndefinedFunction, "undefined function"),
+            (Error::AssertionFailure { message: "failed".into(), location: None }, "Assertion failure: failed"),
+            (Error::DivisionByZero { location: None }, "DivisionByZero: division or remainder by zero"),
+            (Error::ArithmeticOverflow { location: None }, "ArithmeticOverflow: constant arithmetic overflow"),
+            (Error::IndexOutOfBounds { index: 3, length: 2, location: None }, "Index out of bounds: index 3 >= length 2."),
+            (Error::ArrayTooLarge { length: 10, limit: 5, location: None }, "Cannot materialize an array with 10 elements; the interpreter limit is 5."),
+            (Error::ArrayAllocationFailed { length: 10, location: None }, "Cannot reserve storage for 10 array elements."),
+            (Error::UnsupportedRecursion { location: None }, "Recursive calls are unsupported by the symbolic interpreter."),
+        ];
+        for (error, expected) in cases {
+            let rendered = lowering_interpreter_error(error, &ctx).to_string();
+            assert!(rendered.contains(expected), "expected {expected:?} in {rendered:?}");
+        }
+    }
+
+    #[test]
+    fn interpreter_errors_with_locations_render_source_reports() {
+        let mut program = Program::<SymFeltRef>::new();
+        let file_id = program.file_resolver.add_file(PathBuf::from("error.psy"), "fn main() {}\n");
+        let location = Location::new(file_id, 0, 2);
+        let ctx = TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(program);
+        let cases = [
+            (Error::UncertainLoopCondition { loop_location: location }, "UncertainLoopCondition"),
+            (Error::AssertionFailure { message: "failed".into(), location: Some(location) }, "AssertionFailure"),
+            (Error::DivisionByZero { location: Some(location) }, "DivisionByZero"),
+            (Error::ArithmeticOverflow { location: Some(location) }, "ArithmeticOverflow"),
+            (Error::IndexOutOfBounds { index: 3, length: 2, location: Some(location) }, "IndexOutOfBounds"),
+            (Error::ArrayTooLarge { length: 10, limit: 5, location: Some(location) }, "ArrayTooLarge"),
+            (Error::ArrayAllocationFailed { length: 10, location: Some(location) }, "ArrayAllocationFailed"),
+            (Error::UnsupportedRecursion { location: Some(location) }, "UnsupportedRecursion"),
+        ];
+        for (error, code) in cases {
+            let rendered = lowering_interpreter_error(error, &ctx).to_string();
+            assert!(rendered.contains(code), "expected report code {code:?} in {rendered:?}");
+            assert!(rendered.contains("error.psy"), "expected source path in {rendered:?}");
+        }
+    }
+
+    #[test]
+    fn parser_errors_become_diagnostics_with_and_without_locations() {
+        let mut program = Program::<SymFeltRef>::new();
+        let file_id = program.file_resolver.add_file(PathBuf::from("parse.psy"), "fn main() {}\n");
+        let location = Location::new(file_id, 0, 2);
+
+        let eof = parse_error_to_diagnostic(
+            &psy_parser::Error::UnexpectedEof {
+                expected: vec![ExpectedToken::Ident, ExpectedToken::Literal],
+                location,
+            },
+            &program,
+        );
+        assert_eq!(eof.file.unwrap(), PathBuf::from("parse.psy"));
+        assert!(eof.message.contains("identifier or literal"));
+        assert!(eof.text_range.is_some());
+
+        let token = parse_error_to_diagnostic(
+            &psy_parser::Error::UnexpectedToken {
+                found: "}".into(),
+                expected: vec![ExpectedToken::Ident],
+                location,
+            },
+            &program,
+        );
+        assert!(token.message.contains("Unexpected token '}'"));
+        assert!(token.text_range.is_some());
+
+        let unsupported = parse_error_to_diagnostic(
+            &psy_parser::Error::UnsupportedSyntax {
+                feature: "legacy syntax".into(),
+                location,
+            },
+            &program,
+        );
+        assert_eq!(unsupported.message, "Unsupported syntax: legacy syntax");
+
+        let lexical = parse_error_to_diagnostic(&psy_parser::Error::LexicalError { location }, &program);
+        assert_eq!(lexical.message, "Lexical error");
+
+        let plain = parse_error_to_diagnostic(&psy_parser::Error::InvalidModuleName, &program);
+        assert!(plain.file.is_none());
+        assert_eq!(plain.message, "Invalid module name");
+    }
+
+    #[test]
+    fn located_parse_errors_render_source_reports() {
+        let mut program = Program::<SymFeltRef>::new();
+        let file_id = program.file_resolver.add_file(PathBuf::from("parse.psy"), "fn main() {}\n");
+        let location = Location::new(file_id, 0, 2);
+
+        let cases: Vec<(psy_parser::Error, &str)> = vec![
+            (
+                psy_parser::Error::UnexpectedEof {
+                    expected: vec![ExpectedToken::Ident],
+                    location,
+                },
+                "UnexpectedEof",
+            ),
+            (
+                psy_parser::Error::UnexpectedToken {
+                    found: "}".into(),
+                    expected: vec![ExpectedToken::Ident],
+                    location,
+                },
+                "UnexpectedToken",
+            ),
+            (
+                psy_parser::Error::UnsupportedSyntax {
+                    feature: "legacy syntax".into(),
+                    location,
+                },
+                "UnsupportedSyntax",
+            ),
+            (psy_parser::Error::LexicalError { location }, "LexError"),
+        ];
+        for (error, code) in &cases {
+            let rendered = lowering_parse_error(error, &program);
+            assert!(rendered.contains(code), "expected report code {code:?} in {rendered:?}");
+            assert!(rendered.contains("parse.psy"), "expected source path in {rendered:?}");
+        }
+    }
+
+    #[test]
+    fn every_non_located_parse_error_lowers_to_its_display_form() {
+        let program = Program::<SymFeltRef>::new();
+        let cases: Vec<(psy_parser::Error, &str)> = vec![
+            (
+                psy_parser::Error::CommonError(psy_common::Error::Message("common failure".into())),
+                "common failure",
+            ),
+            (psy_parser::Error::IoError(std::io::Error::other("disk full")), "disk full"),
+            (psy_parser::Error::FileUnresolved, "File could not be resolved"),
+            (
+                psy_parser::Error::FileParsedMultipleTimes(PathBuf::from("dup.psy")),
+                // This arm lowers to the bare path, not the Display form.
+                "dup.psy",
+            ),
+            (
+                psy_parser::Error::ExternFnNotInStd,
+                "Extern function can only be defined in std",
+            ),
+            (psy_parser::Error::FunctionBodyMissing, "Missing function body"),
+            (psy_parser::Error::InvalidSelfParameter, "Invalid self parameter"),
+        ];
+        for (error, expected) in &cases {
+            assert_eq!(lowering_parse_error(error, &program), *expected);
+        }
+    }
+
+    fn sema_error_fixture() -> (TypeCheckerVisitorContext<SymFeltRef, QExecContext>, Location, psy_ast::IdentId, TypeId) {
+        let mut program = Program::<SymFeltRef>::new();
+        let file_id = program.file_resolver.add_file(PathBuf::from("sema.psy"), "fn main() {}\n");
+        let location = Location::new(file_id, 0, 2);
+        let mut ctx = TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(program);
+        let ident = ctx.program.interner.intern_ident("counter");
+        ctx.symbols.types.push(Type::Felt);
+        (ctx, location, ident, TypeId::from(0))
+    }
+
+    #[test]
+    fn every_sema_error_renders_a_located_report() {
+        let (mut ctx, location, ident, ty) = sema_error_fixture();
+
+        let cases: Vec<(psy_sema::Error, &str)> = vec![
+            (
+                psy_sema::Error::UnsupportedRecursion {
+                    location,
+                    what: "functions",
+                },
+                "UnsupportedRecursion",
+            ),
+            (
+                psy_sema::Error::TypeMismatch {
+                    location,
+                    expected: vec![ty],
+                    found: ty,
+                },
+                "TypeMismatch",
+            ),
+            (
+                psy_sema::Error::InvalidPathSegment {
+                    location,
+                    segment: "::".into(),
+                },
+                "InvalidPathSegment",
+            ),
+            (
+                psy_sema::Error::UnresolvedType {
+                    location,
+                    resolved_type: ident,
+                },
+                "UnresolvedType",
+            ),
+            (
+                psy_sema::Error::TraitAlreadyImplemented {
+                    location,
+                    trait_ty: ty,
+                    ty,
+                },
+                "TraitAlreadyImplemented",
+            ),
+            (
+                psy_sema::Error::VariableAlreadyDefined {
+                    location,
+                    variable: ident,
+                },
+                "VariableAlreadyDefined",
+            ),
+            (
+                psy_sema::Error::ImmutableVariable {
+                    location,
+                    variable: ident,
+                },
+                "ImmutableVariable",
+            ),
+            (
+                psy_sema::Error::UnresolvedMember {
+                    location,
+                    member_name: ident,
+                },
+                "UnresolvedMember",
+            ),
+            (psy_sema::Error::NotCallable { location, ty }, "NotCallable"),
+            (
+                psy_sema::Error::UnresolvedTraitMethod {
+                    method_location: location,
+                    method_name: ident,
+                    trait_name: ident,
+                },
+                "UnresolvedTraitMethod",
+            ),
+            (
+                psy_sema::Error::InvalidGenericArguments {
+                    location,
+                    expected: "1".into(),
+                    found: "2".into(),
+                },
+                "GenericParameterMismatch",
+            ),
+            (
+                psy_sema::Error::InvalidFunctionArguments {
+                    location,
+                    method_name: ty,
+                    expected: "1".into(),
+                    found: "2".into(),
+                },
+                "InvalidFunctionCall",
+            ),
+            (
+                psy_sema::Error::InvalidReturn {
+                    location,
+                    message: "bad return".into(),
+                },
+                "InvalidReturn",
+            ),
+            (psy_sema::Error::InvalidGenericConstraint { location }, "InvalidGenericConstraint"),
+            (psy_sema::Error::UnreachableExpression { location }, "UnreachableExpression"),
+            (
+                psy_sema::Error::TypeAlreadyDefined {
+                    location,
+                    type_name: ident,
+                },
+                "TypeAlreadyDefined",
+            ),
+            (
+                psy_sema::Error::MemberNotPublic {
+                    location,
+                    ty,
+                    field: ident,
+                },
+                "MemberNotPublic",
+            ),
+            (
+                psy_sema::Error::ModuleNotPublic {
+                    location,
+                    module: ident,
+                },
+                "ModuleNotPublic",
+            ),
+            (psy_sema::Error::TypeNotPublic { location, ty }, "TypeNotPublic"),
+            (
+                psy_sema::Error::IndexOutOfBounds {
+                    location,
+                    index: 3,
+                    length: 2,
+                },
+                "IndexOutOfBounds",
+            ),
+            (
+                psy_sema::Error::InvalidCast {
+                    location,
+                    expected: "Felt".into(),
+                    found: "u32".into(),
+                },
+                "InvalidCast",
+            ),
+            (psy_sema::Error::DuplicateWildcard { location }, "DuplicateWildcard"),
+            (
+                psy_sema::Error::IncompleteMatch {
+                    location,
+                    message: "missing arms".into(),
+                },
+                "IncompleteMatch",
+            ),
+            (psy_sema::Error::NoParentModule { location }, "NoParentModule"),
+            (
+                psy_sema::Error::ModuleNotFound {
+                    location,
+                    module: ident,
+                },
+                "ModuleNotFound",
+            ),
+            (psy_sema::Error::SpecializationNotAllowed { location }, "SpecializationNotAllowed"),
+            (
+                psy_sema::Error::MissingAssociatedType {
+                    location,
+                    trait_name: ident,
+                    type_name: ident,
+                },
+                "MissingAssociatedType",
+            ),
+            (
+                psy_sema::Error::RawIntrinsicOutsideStd {
+                    location,
+                    name: "__raw_intrinsic",
+                },
+                "RawIntrinsicOutsideStd",
+            ),
+            (psy_sema::Error::IfWithoutElse { location }, "IfWithoutElse"),
+            (
+                psy_sema::Error::AmbiguousTraitMethod {
+                    location,
+                    method: ident,
+                    traits: vec![ty],
+                },
+                "AmbiguousTraitMethod",
+            ),
+            (
+                psy_sema::Error::AmbiguousAssociatedType {
+                    location,
+                    member: ident,
+                    traits: vec![ty],
+                },
+                "AmbiguousAssociatedType",
+            ),
+        ];
+        for (error, code) in &cases {
+            let rendered = lowering_sema_error(error, &ctx);
+            assert!(rendered.contains(code), "expected report code {code:?} in {rendered:?}");
+            assert!(rendered.contains("sema.psy"), "expected source path in {rendered:?}");
+        }
+
+        // Wrapper variants lower to the wrapped Display form with no location.
+        let plain_cases: Vec<(psy_sema::Error, &str)> = vec![
+            (psy_sema::Error::AnyhowError(anyhow::anyhow!("sema boom")), "sema boom"),
+            (
+                psy_sema::Error::CommonError(psy_common::Error::Message("common sema failure".into())),
+                "common sema failure",
+            ),
+        ];
+        for (error, needle) in &plain_cases {
+            let rendered = lowering_sema_error(error, &ctx);
+            assert_eq!(rendered, *needle);
+        }
+    }
+
+    #[test]
+    fn sema_errors_become_diagnostics_with_ranges_or_fallback_messages() {
+        let (mut ctx, location, ident, ty) = sema_error_fixture();
+
+        let located_cases: Vec<(psy_sema::Error, &str)> = vec![
+            (
+                psy_sema::Error::TypeMismatch {
+                    location,
+                    expected: vec![ty],
+                    found: ty,
+                },
+                "Type mismatch. Expected",
+            ),
+            (
+                psy_sema::Error::InvalidPathSegment {
+                    location,
+                    segment: "::".into(),
+                },
+                "Invalid path segment: ::",
+            ),
+            (
+                psy_sema::Error::UnresolvedType {
+                    location,
+                    resolved_type: ident,
+                },
+                "Unresolved type: counter",
+            ),
+            (
+                psy_sema::Error::VariableAlreadyDefined {
+                    location,
+                    variable: ident,
+                },
+                "Variable already defined: counter",
+            ),
+            (
+                psy_sema::Error::ImmutableVariable {
+                    location,
+                    variable: ident,
+                },
+                "Variable counter is immutable",
+            ),
+            (
+                psy_sema::Error::InvalidReturn {
+                    location,
+                    message: "bad return".into(),
+                },
+                "Invalid return: bad return",
+            ),
+            (
+                psy_sema::Error::RawIntrinsicOutsideStd {
+                    location,
+                    name: "__raw_intrinsic",
+                },
+                "Raw intrinsic `__raw_intrinsic`",
+            ),
+            (
+                psy_sema::Error::InvalidCast {
+                    location,
+                    expected: "Felt".into(),
+                    found: "u32".into(),
+                },
+                "Invalid cast. Expected Felt, found u32.",
+            ),
+            (psy_sema::Error::NoParentModule { location }, "no parent module"),
+            (psy_sema::Error::UnreachableExpression { location }, "unreachable expression"),
+            (psy_sema::Error::InvalidGenericConstraint { location }, "invalid generic constraint"),
+            (psy_sema::Error::DuplicateWildcard { location }, "unreachable code"),
+            (psy_sema::Error::SpecializationNotAllowed { location }, "Specialization not allowed"),
+        ];
+        for (error, needle) in &located_cases {
+            let diagnostic = typecheck_error_to_diagnostic(error, &ctx);
+            assert!(diagnostic.text_range.is_some(), "expected a range for {needle:?}");
+            assert_eq!(diagnostic.file.as_ref().unwrap(), &PathBuf::from("sema.psy"));
+            assert!(diagnostic.message.contains(needle), "expected {needle:?} in {:?}", diagnostic.message);
+        }
+
+        // Variants without a dedicated diagnostic arm fall back to the Display
+        // form without a range.
+        let fallback = typecheck_error_to_diagnostic(&psy_sema::Error::ModuleNotFound { location, module: ident }, &ctx);
+        assert!(fallback.text_range.is_none());
+        assert!(fallback.file.is_none());
+        assert!(fallback.message.contains("module not found"));
+    }
+
+    #[test]
+    fn passthrough_interpreter_errors_use_their_lowering_paths() {
+        let mut program = Program::<SymFeltRef>::new();
+        let file_id = program.file_resolver.add_file(PathBuf::from("pass.psy"), "fn main() {}\n");
+        let location = Location::new(file_id, 0, 2);
+        let ctx = TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(program);
+
+        let io = lowering_interpreter_error(Error::IoError(std::io::Error::other("disk full")), &ctx).to_string();
+        assert!(io.contains("disk full"), "expected io message in {io:?}");
+
+        let parse = lowering_interpreter_error(Error::ParseError(psy_parser::Error::InvalidModuleName), &ctx).to_string();
+        assert!(parse.contains("Invalid module name"), "expected parse message in {parse:?}");
+
+        let sema = lowering_interpreter_error(Error::SemaError(psy_sema::Error::NoParentModule { location }), &ctx).to_string();
+        assert!(sema.contains("NoParentModule"), "expected sema report in {sema:?}");
+        assert!(sema.contains("pass.psy"), "expected source path in {sema:?}");
+    }
+}

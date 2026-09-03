@@ -41,3 +41,4 @@ is_sync = [
 [dev-dependencies]
 num-traits = { workspace = true }
 insta = { workspace = true }
+serial_test = { workspace = true }

@@ -74,7 +74,13 @@ pub struct CrateName(SmolStr);
 
 impl CrateName {
     fn is_valid_name(name: &str) -> bool {
-        !name.is_empty() && name.chars().all(|n| !CHARACTER_BLACK_LIST.contains(&n))
+        let mut chars = name.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+
+        (first.is_ascii_alphabetic() || first == '_')
+            && chars.all(|character| character.is_ascii_alphanumeric() || character == '_')
     }
 }
 
@@ -96,10 +102,7 @@ impl From<&CrateName> for String {
     }
 }
 
-/// Creates a new CrateName rejecting any crate name that
-/// has a character on the blacklist.
-/// The difference between RA and this implementation is that
-/// characters on the blacklist are never allowed; there is no normalization.
+/// Creates a new CrateName using the ASCII identifier syntax.
 impl FromStr for CrateName {
     type Err = String;
 
@@ -107,12 +110,76 @@ impl FromStr for CrateName {
         if Self::is_valid_name(name) {
             Ok(Self(SmolStr::new(name)))
         } else {
-            Err("Package names must be non-empty and cannot contain hyphens".into())
+            Err("Package names must start with an ASCII letter or '_' and contain only ASCII letters, digits, or '_'".into())
         }
     }
 }
 
-/// List of characters that are not allowed in a crate name
-/// For example, Hyphen(-) is disallowed as it is similar to underscore(_)
-/// and we do not want names that differ by a hyphen
-pub const CHARACTER_BLACK_LIST: [char; 1] = ['-'];
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crate_name_accepts_ascii_identifiers_and_rejects_invalid_names() {
+        assert!(CrateName::from_str("").is_err());
+        assert!(CrateName::from_str("not-valid").is_err());
+        assert_eq!(CrateName::from_str("valid_name42").unwrap().to_string(), "valid_name42");
+        assert_eq!(CrateName::from_str("_private").unwrap().to_string(), "_private");
+        assert!(CrateName::from_str("42package").is_err());
+    }
+
+    #[test]
+    fn crate_name_rejects_whitespace_punctuation_unicode_and_control_characters() {
+        for name in ["a b", "a.b/c:d", "a\tb", "a\nb", "a\"b", "a\\b", "包_42", "a‐b", "a−b"] {
+            assert!(CrateName::from_str(name).is_err(), "accepted invalid name {name:?}");
+        }
+        assert!(CrateName::from_str("a-b").is_err());
+        assert!(CrateName::from_str("-").is_err());
+    }
+
+    #[test]
+    fn crate_name_converts_to_owned_string_from_owned_or_borrowed_value() {
+        let name = CrateName::from_str("package_name").unwrap();
+        let borrowed: String = (&name).into();
+        let owned: String = name.into();
+        assert_eq!(borrowed, "package_name");
+        assert_eq!(owned, "package_name");
+    }
+
+    #[test]
+    fn package_type_and_entry_path_are_consistent() {
+        let mut package = Package {
+            root_dir: PathBuf::from("workspace/pkg"),
+            entry_path: PathBuf::from("src/lib.psy"),
+            name: CrateName::from_str("pkg").unwrap(),
+            ..Package::default()
+        };
+
+        assert!(package.is_library());
+        assert!(!package.is_binary());
+        assert_eq!(package.package_type.to_string(), "lib");
+        assert_eq!(package.entry_canonical_path(), PathBuf::from("workspace/pkg/src/lib.psy"));
+
+        package.package_type = PackageType::Binary;
+        assert!(package.is_binary());
+        assert!(!package.is_library());
+        assert_eq!(package.package_type.to_string(), "bin");
+    }
+
+    #[test]
+    fn dependency_accessors_match_local_and_remote_variants() {
+        let package = Package {
+            name: CrateName::from_str("dep").unwrap(),
+            package_type: PackageType::Binary,
+            ..Package::default()
+        };
+        for dependency in [
+            Dependency::Local { package: package.clone() },
+            Dependency::Remote { package: package.clone() },
+        ] {
+            assert!(dependency.is_binary());
+            assert_eq!(dependency.package_name().to_string(), "dep");
+            assert_eq!(dependency.package().entry_path, PathBuf::new());
+        }
+    }
+}

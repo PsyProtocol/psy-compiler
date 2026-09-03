@@ -122,3 +122,61 @@ impl<F: Clone + From<u32>> Program<F> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use psy_common::FileId;
+
+    use super::*;
+    use crate::{Identifier, Location, Visibility};
+
+    fn module(program: &mut Program<u64>, name: &str) -> ModuleNode {
+        let id = program.interner.intern_ident(name);
+        ModuleNode {
+            name: Identifier::new(id, Location::new(FileId(0), 0, 0)),
+            file_id: FileId(0),
+            modules: Vec::new(),
+            inline_modules: Vec::new(),
+            definitions: Vec::new(),
+            visibility: Visibility::Public,
+            comments: Vec::new(),
+            location: Location::new(FileId(0), 0, 0),
+        }
+    }
+
+    #[test]
+    fn module_lookup_and_parent_relationships_are_consistent() {
+        let mut program = Program::<u64>::new();
+        let root_node = module(&mut program, "root");
+        let child_node = module(&mut program, "child");
+        let root = program.modules.add_node(root_node);
+        let child = program.modules.add_node(child_node);
+        program.add_module_child(Some(root), child);
+
+        let child_name = program.interner.intern_ident("child");
+        assert_eq!(program.find_module_by_name(child_name), Some(child));
+        assert_eq!(program.module_name(child).to_string(), "child");
+        assert_eq!(program.modules[child].parent(), Some(root));
+        let missing = program.interner.intern_ident("missing");
+        assert!(program.find_module_by_name(missing).is_none());
+    }
+
+    #[test]
+    fn standard_module_detection_walks_ancestors_and_handles_unset_root() {
+        let mut program = Program::<u64>::new();
+        let root_node = module(&mut program, "root");
+        let std_node = module(&mut program, "std");
+        let nested_node = module(&mut program, "nested");
+        let root = program.modules.add_node(root_node);
+        let std = program.modules.add_node(std_node);
+        let nested = program.modules.add_node(nested_node);
+        program.add_module_child(Some(root), std);
+        program.add_module_child(Some(std), nested);
+
+        assert!(!program.is_module_std(root));
+        program.std_module_id = Some(std);
+        assert!(program.is_module_std(std));
+        assert!(program.is_module_std(nested));
+        assert!(!program.is_module_std(root));
+    }
+}

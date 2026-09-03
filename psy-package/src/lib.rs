@@ -334,6 +334,13 @@ fn read_toml(toml_path: &Path) -> Result<DargoToml, ManifestError> {
 mod dependency_cycle_tests {
     use super::*;
 
+    fn write_plain_manifest(path: &Path, contents: &str) -> PathBuf {
+        std::fs::create_dir_all(path).unwrap();
+        let manifest = path.join("Dargo.toml");
+        std::fs::write(&manifest, contents).unwrap();
+        manifest
+    }
+
     fn write_manifest(path: &Path, name: &str, dependency: &str) {
         let contents = format!(
             "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\ntype = \"lib\"\n\n[dependencies]\ndep = {{ path = \"{dependency}\" }}\n"
@@ -405,5 +412,150 @@ mod dependency_cycle_tests {
         symlink(&dependency, temp.path().join("dependency-link")).unwrap();
 
         resolve_workspace_from_toml(&root.join("Dargo.toml")).unwrap();
+    }
+
+    #[test]
+    fn config_parses_owned_and_borrowed_toml() {
+        let text = "[package]\nname = \"demo\"\ntype = \"bin\"";
+        assert!(Config::try_from(text).is_ok());
+        assert!(Config::try_from(text.to_string()).is_ok());
+        assert!(Config::try_from("not = [valid").is_err());
+    }
+
+    #[test]
+    fn std_path_falls_back_to_workspace_checkout_when_env_missing_or_stale() {
+        let saved = std::env::var("DARGO_STD_PATH").ok();
+
+        // A stale env value must not shadow the workspace checkout.
+        unsafe { std::env::set_var("DARGO_STD_PATH", "/definitely/not/a/real/std/path") };
+        let stale = resolve_std_path().expect("fallback lookup must succeed past a stale env value");
+        assert!(stale.is_file());
+
+        // Without the env var, the CARGO_MANIFEST_DIR candidates resolve.
+        unsafe { std::env::remove_var("DARGO_STD_PATH") };
+        let resolved = resolve_std_path().expect("workspace checkout contains psy-std");
+        assert!(resolved.is_file());
+
+        // Manifest resolution seeds the env var from the same fallback.
+        let temp = tempfile::tempdir().unwrap();
+        let manifest = write_plain_manifest(temp.path(), "[package]\nname = \"root\"\ntype = \"lib\"\n");
+        resolve_workspace_from_toml(&manifest).expect("manifest resolves without the env var");
+
+        match saved {
+            Some(value) => unsafe { std::env::set_var("DARGO_STD_PATH", value) },
+            None => unsafe { std::env::remove_var("DARGO_STD_PATH") },
+        }
+    }
+
+    #[test]
+    fn standard_library_path_resolves_to_an_existing_file() {
+        let path = resolve_std_path().expect("workspace checkout contains psy-std");
+        assert!(path.is_file());
+        assert_eq!(path.file_name().and_then(|name| name.to_str()), Some("std.psy"));
+    }
+
+    #[test]
+    fn workspace_resolves_defaults_custom_entries_and_local_dependencies() {
+        let temp = tempfile::tempdir().unwrap();
+        let dependency = temp.path().join("dependency");
+        let dependency_manifest = write_plain_manifest(
+            &dependency,
+            "[package]\nname = \"dependency\"\nversion = \"1.2.3-beta+build\"\ntype = \"lib\"\nentry = \"custom.psy\"",
+        );
+        let root = temp.path().join("root");
+        let root_manifest = write_plain_manifest(
+            &root,
+            "[package]\nname = \"root\"\ntype = \"bin\"\n[dependencies]\ndependency = { path = \"../dependency\" }",
+        );
+
+        let workspace = resolve_workspace_from_toml(&root_manifest).unwrap();
+        assert_eq!(workspace.root_dir, root.canonicalize().unwrap());
+        assert_eq!(workspace.target_dir, workspace.root_dir.join("target"));
+        assert_eq!(workspace.package.entry_path, workspace.root_dir.join("src/main.psy"));
+        let dependency = workspace
+            .package
+            .dependencies
+            .get(&"dependency".parse().unwrap())
+            .unwrap()
+            .package();
+        assert_eq!(
+            dependency.entry_path,
+            dependency_manifest.parent().unwrap().canonicalize().unwrap().join("custom.psy")
+        );
+        assert_eq!(dependency.version.as_deref(), Some("1.2.3-beta+build"));
+    }
+
+    #[test]
+    fn workspace_reports_missing_and_invalid_package_fields() {
+        let cases = [
+            (
+                "[package]\ntype = \"lib\"",
+                "missing-name",
+            ),
+            (
+                "[package]\nname = \"bad-name\"\ntype = \"lib\"",
+                "invalid-name",
+            ),
+            (
+                "[package]\nname = \"valid\"",
+                "missing-type",
+            ),
+            (
+                "[package]\nname = \"valid\"\ntype = \"plugin\"",
+                "invalid-type",
+            ),
+            (
+                "[package]\nname = \"valid\"\ntype = \"lib\"\nversion = \"broken\"",
+                "invalid-version",
+            ),
+        ];
+
+        for (contents, expected) in cases {
+            let temp = tempfile::tempdir().unwrap();
+            let manifest = write_plain_manifest(temp.path(), contents);
+            let error = resolve_workspace_from_toml(&manifest).unwrap_err();
+            match expected {
+                "missing-name" => assert!(matches!(error, ManifestError::MissingNameField { .. })),
+                "invalid-name" => assert!(matches!(error, ManifestError::InvalidPackageName { .. })),
+                "missing-type" => assert!(matches!(error, ManifestError::MissingPackageType(_))),
+                "invalid-type" => assert!(matches!(error, ManifestError::InvalidPackageType(_, ref ty) if ty == "plugin")),
+                "invalid-version" => assert!(matches!(error, ManifestError::SemverError(_))),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[test]
+    fn workspace_reports_manifest_io_parse_and_dependency_name_errors() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("missing.toml");
+        assert!(matches!(
+            resolve_workspace_from_toml(&missing).unwrap_err(),
+            ManifestError::ReadFailed(path) if path == missing
+        ));
+
+        let malformed = write_plain_manifest(temp.path(), "[package");
+        assert!(matches!(
+            resolve_workspace_from_toml(&malformed).unwrap_err(),
+            ManifestError::MalformedFile(_)
+        ));
+
+        let invalid_dependency = write_plain_manifest(
+            temp.path(),
+            "[package]\nname = \"root\"\ntype = \"lib\"\n[dependencies]\n\"bad-name\" = { path = \"dep\" }",
+        );
+        assert!(matches!(
+            resolve_workspace_from_toml(&invalid_dependency).unwrap_err(),
+            ManifestError::InvalidDependencyName { .. }
+        ));
+
+        let missing_dependency = write_plain_manifest(
+            temp.path(),
+            "[package]\nname = \"root\"\ntype = \"lib\"\n[dependencies]\ndep = { path = \"missing\" }",
+        );
+        assert!(matches!(
+            resolve_workspace_from_toml(&missing_dependency).unwrap_err(),
+            ManifestError::ReadFailed(path) if path.ends_with("missing/Dargo.toml")
+        ));
     }
 }

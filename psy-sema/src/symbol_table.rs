@@ -523,3 +523,182 @@ impl<F: Clone + From<u32> + ContextFelt> SymbolTable<F> {
             && self.module_stack.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{CheckedArrayNode, CheckedConstNode, CheckedStructNode};
+    use psy_vm::dpn::ops::sym_felt::SymFeltRef;
+
+    #[test]
+    fn frame_scopes_shadow_and_restore_values() {
+        let root = ScopeId(0);
+        let child = ScopeId(1);
+        let key = IdentId::TYPE_FELT;
+        let mut frame = Frame::new(root);
+        frame.set_value(root, key, 1u32);
+        assert_eq!(frame.get_value(root, key), Some(&1));
+        frame.push_scope(child);
+        assert_eq!(frame.get_value(child, key), None);
+        frame.set_value(child, key, 2u32);
+        assert_eq!(frame.get_value(child, key), Some(&2));
+        frame.pop_scope();
+        assert_eq!(frame.get_value(root, key), Some(&1));
+        frame.set_value(ScopeId(99), key, 3u32);
+        assert_eq!(frame.get_value(root, key), Some(&1));
+    }
+
+    #[test]
+    fn scope_type_operations_find_duplicates_and_reuse_existing_types() {
+        let mut table = SymbolTable::<SymFeltRef>::new();
+        assert!(table.is_empty());
+        table.scopes.push(Scope::new(ScopeKind::Module, None));
+        table.enter_scope(ScopeId::root());
+
+        let name = IdentId::TYPE_FELT;
+        let first = table.add_type(None, name, Type::Felt).unwrap();
+        assert_eq!(table.get_type_id(None, name), Some(first));
+        assert!(table.add_type(None, name, Type::Bool).is_err());
+        assert_eq!(table.get_or_add_type(None, name, Type::Bool).unwrap(), first);
+        table.modify_type(first, |ty| {
+            *ty = Type::Bool;
+            Ok(())
+        })
+        .unwrap();
+        assert!(matches!(table[first], Type::Bool));
+        assert!(!table.is_empty());
+        table.exit_scope();
+    }
+
+    fn ident(id: usize) -> Identifier {
+        Identifier::new(IdentId(id), Location::default())
+    }
+
+    #[test]
+    fn frame_get_value_misses_unknown_scopes() {
+        let frame = Frame::<u32>::new(ScopeId(0));
+        assert_eq!(frame.get_value(ScopeId(7), IdentId::TYPE_FELT), None);
+    }
+
+    #[test]
+    fn module_construction_and_accessors_round_trip() {
+        let mut table = SymbolTable::<SymFeltRef>::new();
+        assert_eq!(table.current_module_id(), None);
+
+        let module = Module::new(
+            ident(1),
+            ModuleId(0),
+            ScopeId(0),
+            FileId(0),
+            None,
+            Visibility::Private,
+            Location::default(),
+        );
+        assert_eq!(module.id, ModuleId(0));
+        assert!(matches!(module.kind, ModuleKind::File { .. }));
+        table.modules.push(module);
+
+        table.scopes.push(Scope::new(ScopeKind::Module, None));
+        table.enter_module(ModuleId(0));
+        assert_eq!(table.current_module_id(), Some(ModuleId(0)));
+        assert_eq!(table.current_scope_id(), Some(ScopeId(0)));
+
+        table.start_function();
+        assert_eq!(table.current_scope_id(), Some(ScopeId(1)));
+        table.end_function();
+        assert_eq!(table.current_scope_id(), Some(ScopeId(0)));
+
+        assert_eq!(table.modules().len(), 1);
+        assert!(table.types().is_empty());
+        table.exit_module();
+    }
+
+    #[test]
+    fn module_visibility_requires_public_or_family_relation() {
+        let mut table = SymbolTable::<SymFeltRef>::new();
+        let mk = |id: usize, parent: Option<ModuleId>, visibility: Visibility| {
+            Module::new(ident(id), ModuleId(id), ScopeId(id), FileId(0), parent, visibility, Location::default())
+        };
+        // 0: private root, 1: private child of 0, 2: private child of 0,
+        // 3: private root unrelated to 0, 4: public root.
+        for (id, parent, vis) in [
+            (0, None, Visibility::Private),
+            (1, Some(ModuleId(0)), Visibility::Private),
+            (2, Some(ModuleId(0)), Visibility::Private),
+            (3, None, Visibility::Private),
+            (4, None, Visibility::Public),
+        ] {
+            table.modules.push(mk(id, parent, vis));
+            table.scopes.push(Scope::new(ScopeKind::Module, None));
+        }
+
+        assert!(table.is_module_visible(ModuleId(4)), "public modules are always visible");
+        table.enter_module(ModuleId(1));
+        assert!(table.is_module_visible(ModuleId(2)), "siblings sharing a parent are visible");
+        assert!(table.is_module_visible(ModuleId(1)), "a module sees itself via the shared-parent arm");
+        assert!(
+            !table.is_module_visible(ModuleId(3)),
+            "a private module unrelated to the current one is invisible"
+        );
+        table.exit_module();
+    }
+
+    #[test]
+    fn symbol_table_display_renders_scopes_types_and_modules() {
+        let mut table = SymbolTable::<SymFeltRef>::new();
+        table.scopes.push(Scope::new(ScopeKind::Module, None));
+        table.enter_scope(ScopeId::root());
+        table[ScopeId::root()].types.insert(TypeKey::from(IdentId(4)), TypeId(0));
+        table[ScopeId::root()].variables.insert(IdentId(5), VarId(0));
+
+        let felt = table.create_type(Type::Felt).unwrap();
+        for ty in [
+            Type::Bool,
+            Type::U32,
+            Type::Unknown,
+            Type::Tuple(vec![felt]),
+            Type::Array(CheckedArrayNode { inner_ty: felt, size_ty: felt, scope_id: ScopeId::root() }),
+            Type::Const(CheckedConstNode {
+                name: None,
+                ty: felt,
+                value: ConstId(0),
+                visibility: Visibility::Private,
+                scope_id: ScopeId::root(),
+            }),
+            Type::Struct(CheckedStructNode {
+                name: ident(6),
+                generic_parameters: vec![],
+                fields: IndexMap::new(),
+                scope_id: ScopeId::root(),
+                attrs: vec![],
+                visibility: Visibility::Private,
+                comments: vec![],
+                location: Location::default(),
+                type_id: TypeId(0),
+            }),
+            Type::TypeVariable(CheckedGenericParameter::new(IdentId(9), vec![], ScopeId::root(), Location::default())),
+        ] {
+            table.create_type(ty).unwrap();
+        }
+        table.modules.push(Module::new(
+            ident(1),
+            ModuleId(0),
+            ScopeId::root(),
+            FileId(0),
+            None,
+            Visibility::Private,
+            Location::default(),
+        ));
+
+        let rendered = table.to_string();
+        assert!(rendered.contains("ScopeId(0)"), "{rendered}");
+        assert!(rendered.contains("variables:"), "{rendered}");
+        assert!(rendered.contains("Array("), "{rendered}");
+        assert!(rendered.contains("Struct("), "{rendered}");
+        assert!(rendered.contains("TypeVariable("), "{rendered}");
+        assert!(rendered.contains("Tuple("), "{rendered}");
+        assert!(rendered.contains("Const("), "{rendered}");
+        assert!(rendered.contains("unknown"), "{rendered}");
+        assert!(rendered.contains("ModuleId(0)"), "{rendered}");
+    }
+}

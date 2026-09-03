@@ -2631,3 +2631,1033 @@ impl<'a, F: Clone + From<u32> + ContextFelt + 'static, C> AstVisitor<F, C> for S
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use indexmap::IndexMap;
+    use psy_ast::*;
+    use psy_vm::dpn::ops::sym_felt::SymFeltRef;
+
+    use super::*;
+
+    type TestCtx<'a> = DefaultVisitorContext<'a, SymFeltRef, ()>;
+
+    fn loc() -> Location {
+        Location::default()
+    }
+
+    fn idn(ctx: &mut TestCtx, name: &str) -> Identifier {
+        Identifier::new(ctx.intern(name), loc())
+    }
+
+    fn attr(ctx: &mut TestCtx, name: &str, properties: &[&str]) -> AttrNode {
+        let attr_name = idn(ctx, name);
+        let props = properties.iter().map(|p| idn(ctx, p)).collect();
+        AttrNode {
+            path: vec![],
+            name: attr_name,
+            properties: props,
+            location: loc(),
+        }
+    }
+
+    fn derive_attr(ctx: &mut TestCtx, property: &str) -> AttrNode {
+        attr(ctx, "derive", &[property])
+    }
+
+    fn ref_attr(ctx: &mut TestCtx) -> AttrNode {
+        attr(ctx, "ref", &[])
+    }
+
+    // Type constructors. Each takes only names/sizes so call sites never nest
+    // `&mut ctx` borrows inside one expression.
+    fn ty_basic(ctx: &mut TestCtx, name: &str) -> UncheckedType {
+        UncheckedType::Basic(idn(ctx, name))
+    }
+
+    fn ty_const(ctx: &mut TestCtx, value: u32) -> UncheckedType {
+        UncheckedType::Const(ConstValue::U32(value), loc())
+    }
+
+    fn ty_generic(ctx: &mut TestCtx, name: &str, params: Vec<UncheckedType>) -> UncheckedType {
+        let ident = idn(ctx, name);
+        UncheckedType::Generic(ident, params, loc())
+    }
+
+    fn ty_map(ctx: &mut TestCtx) -> UncheckedType {
+        let felt = ty_basic(ctx, "Felt");
+        let size = ty_const(ctx, 4);
+        ty_generic(ctx, "Map", vec![felt.clone(), felt, size])
+    }
+
+    fn ty_map_ref(ctx: &mut TestCtx) -> UncheckedType {
+        let felt = ty_basic(ctx, "Felt");
+        let size = ty_const(ctx, 4);
+        ty_generic(ctx, "MapRef", vec![felt.clone(), felt, size])
+    }
+
+    fn ty_storage_ref(ctx: &mut TestCtx, inner: &str) -> UncheckedType {
+        let param = ty_basic(ctx, inner);
+        ty_generic(ctx, "StorageRef", vec![param])
+    }
+
+    fn ty_array(ctx: &mut TestCtx, elem: &str, size: u32) -> UncheckedType {
+        let elem_ty = ty_basic(ctx, elem);
+        UncheckedType::Array(Box::new(elem_ty), ConstValue::U32(size), loc())
+    }
+
+    fn ty_array_ref(ctx: &mut TestCtx, elem: &str, size: u32) -> UncheckedType {
+        let elem_ty = ty_basic(ctx, elem);
+        let size_ty = ty_const(ctx, size);
+        ty_generic(ctx, "ArrayRef", vec![elem_ty, size_ty])
+    }
+
+    fn field_of(ctx: &mut TestCtx, ty: UncheckedType, attrs: Vec<AttrNode>) -> StructField {
+        StructField {
+            ty,
+            attrs,
+            visibility: Visibility::Public,
+            comments: vec![],
+            location: loc(),
+        }
+    }
+
+    /// Build a struct whose fields all take plain (attr-free) types.
+    fn strukt(ctx: &mut TestCtx, name: &str, fields: Vec<(&str, UncheckedType)>, attrs: Vec<AttrNode>) -> StructNode {
+        let struct_name = idn(ctx, name);
+        let mut field_map = IndexMap::new();
+        for (field_name, ty) in fields {
+            let ident = idn(ctx, field_name);
+            let field = field_of(ctx, ty, vec![]);
+            field_map.insert(ident, field);
+        }
+        StructNode {
+            name: struct_name,
+            generic_parameters: vec![],
+            fields: field_map,
+            attrs,
+            visibility: Visibility::Public,
+            comments: vec![],
+            location: loc(),
+            is_generated: false,
+        }
+    }
+
+    /// Build a struct whose first listed field carries a `#[ref]` annotation.
+    fn strukt_with_ref_field(
+        ctx: &mut TestCtx,
+        name: &str,
+        ref_field: (&str, UncheckedType),
+        fields: Vec<(&str, UncheckedType)>,
+        attrs: Vec<AttrNode>,
+    ) -> StructNode {
+        let struct_name = idn(ctx, name);
+        let ref_ident = idn(ctx, ref_field.0);
+        let annotation = ref_attr(ctx);
+        let mut field_map = IndexMap::new();
+        field_map.insert(ref_ident, field_of(ctx, ref_field.1, vec![annotation]));
+        for (field_name, ty) in fields {
+            let ident = idn(ctx, field_name);
+            let field = field_of(ctx, ty, vec![]);
+            field_map.insert(ident, field);
+        }
+        StructNode {
+            name: struct_name,
+            generic_parameters: vec![],
+            fields: field_map,
+            attrs,
+            visibility: Visibility::Public,
+            comments: vec![],
+            location: loc(),
+            is_generated: false,
+        }
+    }
+
+    fn felt_zero(ctx: &mut TestCtx) -> ExprId {
+        ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(SymFeltRef(0), loc())))
+    }
+
+    fn panics_with(message: &str, f: impl FnOnce(&mut TestCtx)) {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&mut ctx)));
+        let error = result.unwrap_err();
+        let text = error
+            .downcast_ref::<String>()
+            .map(|s| s.as_str())
+            .or_else(|| error.downcast_ref::<&str>().copied())
+            .unwrap_or("<non-string panic>");
+        assert!(text.contains(message), "panic {text:?} did not contain {message:?}");
+    }
+
+    #[test]
+    fn map_counting_walks_generics_arrays_structs_and_cycles() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+
+        let inner_felt = ty_basic(&mut ctx, "Felt");
+        let inner = strukt(&mut ctx, "Inner", vec![("x", inner_felt)], vec![]);
+        let map = ty_map(&mut ctx);
+        let nested_map = ty_generic(&mut ctx, "StorageRef", vec![map.clone()]);
+        let inner2 = ty_basic(&mut ctx, "Inner");
+        let plain_felt = ty_basic(&mut ctx, "Felt");
+        let holder = strukt(
+            &mut ctx,
+            "Holder",
+            vec![
+                ("m", map),
+                ("g", nested_map),
+                ("arr", UncheckedType::Array(Box::new(inner2), ConstValue::U32(2), loc())),
+                ("plain", plain_felt),
+            ],
+            vec![],
+        );
+        ctx.alloc_definition(DefinitionNode::Struct(inner));
+        ctx.alloc_definition(DefinitionNode::Struct(holder.clone()));
+
+        // m -> 1, Map nested inside a non-Map generic -> 1, array of structs -> 0.
+        assert_eq!(processor.count_maps_in_struct(&holder, &mut ctx), 2);
+
+        // A struct cycle terminates through the visiting guard.
+        let cyc_b = ty_basic(&mut ctx, "CycB");
+        let cyc_a = strukt(&mut ctx, "CycA", vec![("b", cyc_b)], vec![]);
+        let cyc_a_ty = ty_basic(&mut ctx, "CycA");
+        let cyc_b_node = strukt(&mut ctx, "CycB", vec![("a", cyc_a_ty)], vec![]);
+        ctx.alloc_definition(DefinitionNode::Struct(cyc_a.clone()));
+        ctx.alloc_definition(DefinitionNode::Struct(cyc_b_node));
+        assert_eq!(processor.count_maps_in_struct(&cyc_a, &mut ctx), 0);
+    }
+
+    #[test]
+    fn ref_helpers_classify_field_types() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+
+        let map_ref = ty_map_ref(&mut ctx);
+        assert!(processor.is_map_ref_type(&map_ref, &mut ctx));
+        let one_param = ty_basic(&mut ctx, "Felt");
+        assert!(!processor.is_map_ref_type(&ty_generic(&mut ctx, "MapRef", vec![one_param]), &mut ctx));
+        assert!(!processor.is_map_ref_type(&ty_basic(&mut ctx, "MapRef"), &mut ctx));
+
+        let felt = ty_basic(&mut ctx, "Felt");
+        let with_map = strukt(&mut ctx, "WithMap", vec![("m", map_ref)], vec![]);
+        let plain = strukt(&mut ctx, "Plain", vec![("p", felt)], vec![]);
+        assert!(processor.struct_has_map_ref_fields(&with_map, &mut ctx));
+        assert!(!processor.struct_has_map_ref_fields(&plain, &mut ctx));
+
+        let inner_ty = ty_basic(&mut ctx, "Inner");
+        let annotation = ref_attr(&mut ctx);
+        let ref_field = field_of(&mut ctx, inner_ty, vec![annotation]);
+        assert!(processor.has_ref_type_attr(&ref_field.attrs, &mut ctx));
+        assert!(!processor.has_ref_type_attr(&plain.fields[0].attrs, &mut ctx));
+
+        ctx.alloc_definition(DefinitionNode::Struct(plain.clone()));
+        assert_eq!(
+            processor.find_struct_definition(plain.name.id, &mut ctx).map(|s| s.name.id),
+            Some(plain.name.id)
+        );
+        let missing = idn(&mut ctx, "Missing").id;
+        assert!(processor.find_struct_definition(missing, &mut ctx).is_none());
+    }
+
+    #[test]
+    fn transform_struct_to_storage_ref_maps_every_field_shape() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+
+        let derive = derive_attr(&mut ctx, "Storage");
+        let contract = attr(&mut ctx, "contract", &[]);
+        let inner_ty = ty_basic(&mut ctx, "Inner");
+        let map = ty_map(&mut ctx);
+        let grid = ty_array(&mut ctx, "Felt", 2);
+        let note = ty_basic(&mut ctx, "Felt");
+        let source = strukt_with_ref_field(
+            &mut ctx,
+            "Wallet",
+            ("inner", inner_ty),
+            vec![("balances", map), ("grid", grid), ("note", note)],
+            vec![derive.clone(), contract],
+        );
+        let ref_struct = processor.transform_struct_to_storage_ref(&source, &derive, &mut ctx, Some("Ref"));
+        assert_eq!(ctx.ident(ref_struct.name.id).0, "WalletRef");
+        // The Storage derive is dropped on the generated Ref struct.
+        assert!(!ref_struct.attrs.iter().any(|a| a.is_derive()));
+
+        let name_of = |ctx: &mut TestCtx, ty: &UncheckedType| -> String {
+            match ty {
+                UncheckedType::Basic(ident) => ctx.ident(ident.id).0.to_string(),
+                UncheckedType::Generic(ident, _, _) => ctx.ident(ident.id).0.to_string(),
+                other => format!("{other:?}"),
+            }
+        };
+        let inner_field = ref_struct.fields[&idn(&mut ctx, "inner")].ty.clone();
+        assert_eq!(name_of(&mut ctx, &inner_field), "InnerRef");
+        let balances = ref_struct.fields[&idn(&mut ctx, "balances")].ty.clone();
+        assert_eq!(name_of(&mut ctx, &balances), "MapRef");
+        let grid_field = ref_struct.fields[&idn(&mut ctx, "grid")].ty.clone();
+        assert_eq!(name_of(&mut ctx, &grid_field), "ArrayRef");
+        let note_field = ref_struct.fields[&idn(&mut ctx, "note")].ty.clone();
+        assert_eq!(name_of(&mut ctx, &note_field), "StorageRef");
+
+        // Without a suffix the name and attrs are preserved.
+        let untouched = processor.transform_struct_to_storage_ref(&source, &derive, &mut ctx, None);
+        assert_eq!(untouched.name.id, source.name.id);
+        assert_eq!(untouched.attrs.len(), source.attrs.len());
+    }
+
+    #[test]
+    fn transform_rejects_malformed_ref_annotations() {
+        let processor = StorageProcessor::new();
+        panics_with("only supported on basic struct types", |ctx| {
+            let grid = ty_array(ctx, "Felt", 1);
+            let node = strukt_with_ref_field(ctx, "Bad", ("x", grid), vec![], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.transform_struct_to_storage_ref(&node, &derive, ctx, Some("Ref"));
+        });
+        panics_with("exactly three generic parameters", |ctx| {
+            let felt = ty_basic(ctx, "Felt");
+            let bad_map = ty_generic(ctx, "Map", vec![felt]);
+            let node = strukt(ctx, "Bad", vec![("x", bad_map)], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.transform_struct_to_storage_ref(&node, &derive, ctx, Some("Ref"));
+        });
+    }
+
+    #[test]
+    fn storage_at_impl_synthesizes_read_and_write_only_for_arrays() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+        let derive = derive_attr(&mut ctx, "Storage");
+
+        let array = ty_array(&mut ctx, "Felt", 4);
+        let impl_node = processor
+            .generate_storage_at_impl(&array, &derive, &mut ctx)
+            .expect("array fields must generate a StorageAt impl");
+        assert_eq!(impl_node.body.len(), 2);
+        match &impl_node.ty {
+            UncheckedType::Generic(ident, params, _) => {
+                assert_eq!(ctx.ident(ident.id).0, "ArrayRef");
+                assert_eq!(params.len(), 2);
+            }
+            other => panic!("impl type should be ArrayRef<...>, got {other:?}"),
+        }
+
+        let felt = ty_basic(&mut ctx, "Felt");
+        assert!(processor.generate_storage_at_impl(&felt, &derive, &mut ctx).is_none());
+        let map = ty_map(&mut ctx);
+        assert!(processor.generate_storage_at_impl(&map, &derive, &mut ctx).is_none());
+    }
+
+    #[test]
+    fn new_method_handles_every_ref_field_kind() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+        let derive = derive_attr(&mut ctx, "Storage");
+
+        let inner_ty = ty_basic(&mut ctx, "Inner");
+        let map = ty_map(&mut ctx);
+        let grid = ty_array(&mut ctx, "Felt", 2);
+        let note = ty_basic(&mut ctx, "Felt");
+        let source = strukt_with_ref_field(
+            &mut ctx,
+            "Wallet",
+            ("inner", inner_ty),
+            vec![("balances", map), ("grid", grid), ("note", note)],
+            vec![derive.clone()],
+        );
+        let ref_struct = processor.transform_struct_to_storage_ref(&source, &derive, &mut ctx, Some("Ref"));
+
+        for include_offset in [true, false] {
+            let def_id = processor.generate_new_method(&ref_struct, &derive, &mut ctx, include_offset);
+            match ctx.definition(def_id) {
+                DefinitionNode::Function(node) => {
+                    assert_eq!(ctx.ident(node.name.id).0, "new");
+                    assert_eq!(node.parameters.len() + usize::from(!include_offset), 2);
+                }
+                other => panic!("new method should be a function definition, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn new_method_rejects_malformed_ref_types() {
+        let processor = StorageProcessor::new();
+        panics_with("exactly one generic parameter", |ctx| {
+            let felt_a = ty_basic(ctx, "Felt");
+            let felt_b = ty_basic(ctx, "Felt");
+            let bad = ty_generic(ctx, "StorageRef", vec![felt_a, felt_b]);
+            let node = strukt(ctx, "Bad", vec![("x", bad)], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_new_method(&node, &derive, ctx, true);
+        });
+        panics_with("exactly two generic parameters", |ctx| {
+            let felt = ty_basic(ctx, "Felt");
+            let bad = ty_generic(ctx, "ArrayRef", vec![felt]);
+            let node = strukt(ctx, "Bad", vec![("x", bad)], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_new_method(&node, &derive, ctx, true);
+        });
+        panics_with("numeric const", |ctx| {
+            let felt = ty_basic(ctx, "Felt");
+            let n = ty_basic(ctx, "N");
+            let bad = ty_generic(ctx, "ArrayRef", vec![felt, n]);
+            let node = strukt(ctx, "Bad", vec![("x", bad)], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_new_method(&node, &derive, ctx, true);
+        });
+        panics_with("only supported on basic struct types", |ctx| {
+            let grid = ty_array(ctx, "Felt", 1);
+            let node = strukt_with_ref_field(ctx, "Bad", ("x", grid), vec![], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_new_method(&node, &derive, ctx, true);
+        });
+        panics_with("must end with Ref", |ctx| {
+            let inner = ty_basic(ctx, "Inner");
+            let node = strukt_with_ref_field(ctx, "Bad", ("x", inner), vec![], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_new_method(&node, &derive, ctx, true);
+        });
+    }
+
+    #[test]
+    fn accessor_impl_generates_for_ref_and_plain_structs() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+        let derive = derive_attr(&mut ctx, "Storage");
+
+        // A Ref struct without Map fields gets whole-struct get/set plus the
+        // ref-aware per-field bookkeeping.
+        let inner_ref = ty_basic(&mut ctx, "InnerRef");
+        let grid_ref = ty_array_ref(&mut ctx, "Felt", 2);
+        let storage_ref = ty_storage_ref(&mut ctx, "Felt");
+        let ref_source = strukt_with_ref_field(
+            &mut ctx,
+            "WalletRef",
+            ("inner", inner_ref),
+            vec![("grid", grid_ref), ("note", storage_ref)],
+            vec![derive.clone()],
+        );
+        let ref_impl = processor.generate_accessor_impl(&ref_source, &derive, &mut ctx, true);
+        assert!(ref_impl.body.len() >= 2);
+
+        // A plain #[storage] struct with an array field gets per-field get/set
+        // and indexed get_at/set_at accessors.
+        let plain_grid = ty_array(&mut ctx, "Felt", 2);
+        let plain_note = ty_basic(&mut ctx, "Felt");
+        let plain = strukt(&mut ctx, "Ledger", vec![("grid", plain_grid), ("note", plain_note)], vec![derive.clone()]);
+        let plain_impl = processor.generate_accessor_impl(&plain, &derive, &mut ctx, false);
+        assert!(plain_impl.body.len() >= 4);
+
+        // A Ref struct that contains a MapRef field skips whole-struct get/set.
+        let map_ref = ty_map_ref(&mut ctx);
+        let with_map = strukt(&mut ctx, "BankRef", vec![("m", map_ref)], vec![derive.clone()]);
+        let map_impl = processor.generate_accessor_impl(&with_map, &derive, &mut ctx, true);
+        assert!(map_impl.body.is_empty());
+    }
+
+    #[test]
+    fn accessor_impl_rejects_malformed_ref_types() {
+        let processor = StorageProcessor::new();
+        panics_with("exactly one generic parameter", |ctx| {
+            let felt_a = ty_basic(ctx, "Felt");
+            let felt_b = ty_basic(ctx, "Felt");
+            let bad = ty_generic(ctx, "StorageRef", vec![felt_a, felt_b]);
+            let node = strukt(ctx, "Bad", vec![("x", bad)], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_accessor_impl(&node, &derive, ctx, true);
+        });
+        panics_with("exactly two generic parameters", |ctx| {
+            let felt = ty_basic(ctx, "Felt");
+            let bad = ty_generic(ctx, "ArrayRef", vec![felt]);
+            let node = strukt(ctx, "Bad", vec![("x", bad)], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_accessor_impl(&node, &derive, ctx, true);
+        });
+        panics_with("numeric const", |ctx| {
+            let felt = ty_basic(ctx, "Felt");
+            let n = ty_basic(ctx, "N");
+            let bad = ty_generic(ctx, "ArrayRef", vec![felt, n]);
+            let node = strukt(ctx, "Bad", vec![("x", bad)], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_accessor_impl(&node, &derive, ctx, true);
+        });
+        panics_with("only supported on basic struct types", |ctx| {
+            let grid = ty_array(ctx, "Felt", 1);
+            let node = strukt_with_ref_field(ctx, "Bad", ("x", grid), vec![], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_accessor_impl(&node, &derive, ctx, true);
+        });
+    }
+
+    #[test]
+    fn eq_support_covers_primitives_ref_names_and_arrays() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+
+        let named_ref = ty_basic(&mut ctx, "InnerRef");
+        assert!(processor.supports_generated_eq_field(&named_ref, &mut ctx));
+        let felt = ty_basic(&mut ctx, "Felt");
+        assert!(!processor.supports_generated_eq_field(&felt, &mut ctx));
+        let storage_ref_felt = ty_storage_ref(&mut ctx, "Felt");
+        assert!(processor.supports_generated_eq_field(&storage_ref_felt, &mut ctx));
+        let storage_ref_struct = ty_storage_ref(&mut ctx, "Inner");
+        assert!(!processor.supports_generated_eq_field(&storage_ref_struct, &mut ctx));
+        let array_ref_felt = ty_array_ref(&mut ctx, "Felt", 2);
+        assert!(processor.supports_generated_eq_field(&array_ref_felt, &mut ctx));
+        let array_ref_bool = ty_array_ref(&mut ctx, "bool", 2);
+        assert!(!processor.supports_generated_eq_field(&array_ref_bool, &mut ctx));
+        let map = ty_map(&mut ctx);
+        assert!(!processor.supports_generated_eq_field(&map, &mut ctx));
+        let tuple = UncheckedType::Tuple(vec![], loc());
+        assert!(!processor.supports_generated_eq_field(&tuple, &mut ctx));
+    }
+
+    #[test]
+    fn field_size_generators_cover_all_type_shapes() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+        let derive = derive_attr(&mut ctx, "Storage");
+
+        let felt = ty_basic(&mut ctx, "Felt");
+        let storage_ref = ty_storage_ref(&mut ctx, "Felt");
+        let array_ref = ty_array_ref(&mut ctx, "Felt", 3);
+        for ty in [felt, storage_ref, array_ref] {
+            let size = processor.generate_field_size(&derive, &ty, &mut ctx);
+            assert!(matches!(ctx.expression(size), ExprNode::Call(_)));
+        }
+
+        let inner_ref = ty_basic(&mut ctx, "InnerRef");
+        let annotation = ref_attr(&mut ctx);
+        let ref_field = field_of(&mut ctx, inner_ref, vec![annotation]);
+        let sized = processor.generate_struct_field_size(&derive, &ref_field, &mut ctx);
+        assert!(matches!(ctx.expression(sized), ExprNode::Call(_)));
+        let plain_felt = ty_basic(&mut ctx, "Felt");
+        let plain_field = field_of(&mut ctx, plain_felt, vec![]);
+        let sized_plain = processor.generate_struct_field_size(&derive, &plain_field, &mut ctx);
+        assert!(matches!(ctx.expression(sized_plain), ExprNode::Call(_)));
+    }
+
+    #[test]
+    fn field_size_generators_reject_malformed_ref_types() {
+        let processor = StorageProcessor::new();
+        panics_with("exactly one generic parameter", |ctx| {
+            let felt_a = ty_basic(ctx, "Felt");
+            let felt_b = ty_basic(ctx, "Felt");
+            let bad = ty_generic(ctx, "StorageRef", vec![felt_a, felt_b]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_field_size(&derive, &bad, ctx);
+        });
+        panics_with("exactly two generic parameters", |ctx| {
+            let felt = ty_basic(ctx, "Felt");
+            let bad = ty_generic(ctx, "ArrayRef", vec![felt]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_field_size(&derive, &bad, ctx);
+        });
+        panics_with("numeric const", |ctx| {
+            let felt = ty_basic(ctx, "Felt");
+            let n = ty_basic(ctx, "N");
+            let bad = ty_generic(ctx, "ArrayRef", vec![felt, n]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_field_size(&derive, &bad, ctx);
+        });
+        panics_with("only supported on basic struct types", |ctx| {
+            let grid = ty_array(ctx, "Felt", 1);
+            let annotation = ref_attr(ctx);
+            let ref_field = field_of(ctx, grid, vec![annotation]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_struct_field_size(&derive, &ref_field, ctx);
+        });
+        panics_with("must use its generated Ref type", |ctx| {
+            let inner = ty_basic(ctx, "Inner");
+            let annotation = ref_attr(ctx);
+            let ref_field = field_of(ctx, inner, vec![annotation]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_struct_field_size(&derive, &ref_field, ctx);
+        });
+    }
+
+    #[test]
+    fn struct_getter_and_setter_strip_ref_names_and_size_fields() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+        let derive = derive_attr(&mut ctx, "Storage");
+
+        let inner_ref = ty_basic(&mut ctx, "InnerRef");
+        let bare_ref = ty_basic(&mut ctx, "FooRef");
+        let grid_ref = ty_array_ref(&mut ctx, "Felt", 2);
+        let storage_ref = ty_storage_ref(&mut ctx, "Felt");
+        let ref_struct = strukt_with_ref_field(
+            &mut ctx,
+            "WalletRef",
+            ("inner", inner_ref),
+            vec![("bare", bare_ref), ("grid", grid_ref), ("note", storage_ref)],
+            vec![derive.clone()],
+        );
+        let getter = processor.generate_struct_getter(&ref_struct, &derive, &mut ctx);
+        let setter = processor.generate_struct_setter(&ref_struct, &derive, &mut ctx);
+        assert!(matches!(ctx.definition(getter), DefinitionNode::Function(_)));
+        assert!(matches!(ctx.definition(setter), DefinitionNode::Function(_)));
+
+        // Structs whose name does not end in Ref keep it as the base name.
+        let plain_ref = ty_storage_ref(&mut ctx, "Felt");
+        let named = strukt(&mut ctx, "Vault", vec![("note", plain_ref)], vec![derive.clone()]);
+        let named_getter = processor.generate_struct_getter(&named, &derive, &mut ctx);
+        let named_setter = processor.generate_struct_setter(&named, &derive, &mut ctx);
+        assert!(matches!(ctx.definition(named_getter), DefinitionNode::Function(_)));
+        assert!(matches!(ctx.definition(named_setter), DefinitionNode::Function(_)));
+    }
+
+    #[test]
+    fn struct_getter_and_setter_reject_malformed_ref_types() {
+        let processor = StorageProcessor::new();
+        panics_with("exactly one generic parameter", |ctx| {
+            let felt_a = ty_basic(ctx, "Felt");
+            let felt_b = ty_basic(ctx, "Felt");
+            let bad = ty_generic(ctx, "StorageRef", vec![felt_a, felt_b]);
+            let node = strukt(ctx, "BadRef", vec![("x", bad)], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_struct_getter(&node, &derive, ctx);
+        });
+        panics_with("exactly two generic parameters", |ctx| {
+            let felt = ty_basic(ctx, "Felt");
+            let bad = ty_generic(ctx, "ArrayRef", vec![felt]);
+            let node = strukt(ctx, "BadRef", vec![("x", bad)], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_struct_setter(&node, &derive, ctx);
+        });
+        panics_with("numeric const", |ctx| {
+            let felt = ty_basic(ctx, "Felt");
+            let n = ty_basic(ctx, "N");
+            let bad = ty_generic(ctx, "ArrayRef", vec![felt, n]);
+            let node = strukt(ctx, "BadRef", vec![("x", bad)], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_struct_getter(&node, &derive, ctx);
+        });
+        panics_with("only supported on basic struct types", |ctx| {
+            let grid = ty_array(ctx, "Felt", 1);
+            let node = strukt_with_ref_field(ctx, "BadRef", ("x", grid), vec![], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_struct_setter(&node, &derive, ctx);
+        });
+        panics_with("must end with Ref", |ctx| {
+            let inner = ty_basic(ctx, "Inner");
+            let node = strukt_with_ref_field(ctx, "BadRef", ("x", inner), vec![], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_struct_getter(&node, &derive, ctx);
+        });
+    }
+
+    #[test]
+    fn getter_at_and_setter_at_accept_refs_and_plain_arrays() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+        let derive = derive_attr(&mut ctx, "Storage");
+        let field_ident = idn(&mut ctx, "grid");
+        let offset = felt_zero(&mut ctx);
+
+        let shapes = vec![
+            ty_storage_ref(&mut ctx, "Felt"),
+            ty_array_ref(&mut ctx, "Felt", 2),
+            ty_array(&mut ctx, "Felt", 2),
+        ];
+        for shape in shapes {
+            let getter = processor.generate_getter_at(&derive, &field_ident.id, &shape, offset, &mut ctx);
+            let setter = processor.generate_setter_at(&derive, &field_ident.id, &shape, offset, &mut ctx);
+            assert!(matches!(ctx.definition(getter), DefinitionNode::Function(_)));
+            assert!(matches!(ctx.definition(setter), DefinitionNode::Function(_)));
+        }
+    }
+
+    #[test]
+    fn getter_at_and_setter_at_reject_non_indexable_types() {
+        let processor = StorageProcessor::new();
+        panics_with("Expected StorageRef<T> or ArrayRef<T, N>", |ctx| {
+            let map = ty_map(ctx);
+            let field_ident = idn(ctx, "m");
+            let derive = derive_attr(ctx, "Storage");
+            let offset = felt_zero(ctx);
+            processor.generate_getter_at(&derive, &field_ident.id, &map, offset, ctx);
+        });
+        panics_with("generate_setter_at called on non-StorageRef", |ctx| {
+            let felt = ty_basic(ctx, "Felt");
+            let field_ident = idn(ctx, "x");
+            let derive = derive_attr(ctx, "Storage");
+            let offset = felt_zero(ctx);
+            processor.generate_setter_at(&derive, &field_ident.id, &felt, offset, ctx);
+        });
+    }
+
+    #[test]
+    fn storage_impl_chooses_ref_type_from_derives() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+        let derive = derive_attr(&mut ctx, "Storage");
+
+        // With a Storage derive the RefType points at the generated XRef type.
+        let felt = ty_basic(&mut ctx, "Felt");
+        let derived = strukt(&mut ctx, "Wallet", vec![("note", felt)], vec![derive.clone()]);
+        let impl_node = processor.generate_storage_impl(&derived, &derive, &mut ctx);
+        let ref_key = idn(&mut ctx, "RefType");
+        match &impl_node.associated_types[&ref_key].ty {
+            UncheckedType::Basic(ident) => assert_eq!(ctx.ident(ident.id).0, "WalletRef"),
+            other => panic!("derived RefType should be WalletRef, got {other:?}"),
+        }
+
+        // Without Storage/StorageRef derives it falls back to StorageRef<X>.
+        let plain_felt = ty_basic(&mut ctx, "Felt");
+        let contract_attr = attr(&mut ctx, "contract", &[]);
+        let undecorated = strukt(&mut ctx, "Vault", vec![("note", plain_felt)], vec![contract_attr]);
+        let plain_impl = processor.generate_storage_impl(&undecorated, &derive, &mut ctx);
+        match &plain_impl.associated_types[&ref_key].ty {
+            UncheckedType::Generic(ident, params, _) => {
+                assert_eq!(ctx.ident(ident.id).0, "StorageRef");
+                assert_eq!(params.len(), 1);
+            }
+            other => panic!("undecorated RefType should be StorageRef<Vault>, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn storage_read_and_write_methods_walk_ref_fields() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+        let derive = derive_attr(&mut ctx, "Storage");
+
+        let storage_ref = ty_storage_ref(&mut ctx, "Felt");
+        let array_ref = ty_array_ref(&mut ctx, "Felt", 2);
+        let plain = ty_basic(&mut ctx, "Felt");
+        let ref_struct = strukt(
+            &mut ctx,
+            "WalletRef",
+            vec![("note", storage_ref), ("grid", array_ref), ("other", plain)],
+            vec![derive.clone()],
+        );
+        let read = processor.generate_storage_read_method(&ref_struct, &derive, &mut ctx);
+        let write = processor.generate_storage_write_method(&ref_struct, &derive, &mut ctx);
+        assert!(matches!(ctx.definition(read), DefinitionNode::Function(_)));
+        assert!(matches!(ctx.definition(write), DefinitionNode::Function(_)));
+    }
+
+    #[test]
+    fn storage_read_and_write_methods_reject_malformed_ref_types() {
+        let processor = StorageProcessor::new();
+        panics_with("exactly one generic parameter", |ctx| {
+            let felt_a = ty_basic(ctx, "Felt");
+            let felt_b = ty_basic(ctx, "Felt");
+            let bad = ty_generic(ctx, "StorageRef", vec![felt_a, felt_b]);
+            let node = strukt(ctx, "BadRef", vec![("x", bad)], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_storage_read_method(&node, &derive, ctx);
+        });
+        panics_with("exactly two generic parameters", |ctx| {
+            let felt = ty_basic(ctx, "Felt");
+            let bad = ty_generic(ctx, "ArrayRef", vec![felt]);
+            let node = strukt(ctx, "BadRef", vec![("x", bad)], vec![]);
+            let derive = derive_attr(ctx, "Storage");
+            processor.generate_storage_write_method(&node, &derive, ctx);
+        });
+    }
+
+    #[test]
+    fn event_impl_is_generated_with_the_event_trait() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+        let derive = derive_attr(&mut ctx, "Event");
+
+        let felt = ty_basic(&mut ctx, "Felt");
+        let node = strukt(&mut ctx, "Transferred", vec![("amount", felt)], vec![derive.clone()]);
+        let impl_node = processor.generate_event_impl(&node, &derive, &mut ctx);
+        match &impl_node.trait_ty {
+            UncheckedType::Basic(ident) => assert_eq!(ctx.ident(ident.id).0, "Event"),
+            other => panic!("event impl should implement Event, got {other:?}"),
+        }
+        assert!(impl_node.body.is_empty());
+        assert!(impl_node.is_generated);
+    }
+
+    // The StorageProcessor only descends into definitions, so its expression
+    // and statement visitors are exercised here by dispatching one node of
+    // every kind through the default `visit_expr`/`visit_stmt`/`visit_definition`.
+    #[test]
+    fn visitor_noops_accept_every_node_kind() {
+        let mut program = Program::<SymFeltRef>::new();
+        let module_name = Identifier::new(program.interner.intern_ident("crate"), loc());
+        let module_id = program.modules.add_node(ModuleNode {
+            name: module_name,
+            file_id: psy_common::FileId(0),
+            modules: vec![],
+            inline_modules: vec![],
+            definitions: vec![],
+            visibility: Visibility::Public,
+            comments: vec![],
+            location: loc(),
+        });
+        let mut ctx = TestCtx::new(&mut program);
+        let mut processor: StorageProcessor = StorageProcessor::new();
+
+        let felt = felt_zero(&mut ctx);
+        let target = ty_basic(&mut ctx, "x");
+        let path = ctx.alloc_expression(ExprNode::Path(PathNode {
+            root: None,
+            segments: vec![],
+            target,
+            is_ty: false,
+            location: loc(),
+        }));
+        let block = ctx.alloc_expression(ExprNode::BlockExpr(BlockExprNode {
+            stmts: vec![],
+            expr: None,
+            expr_comments: vec![],
+            location: loc(),
+        }));
+        let binary = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
+            lhs: felt,
+            operator: BinaryOperator::Add,
+            rhs: felt,
+            location: loc(),
+        }));
+        let unary = ctx.alloc_expression(ExprNode::Unary(UnaryNode {
+            operator: UnaryOperator::Not,
+            rhs: felt,
+            location: loc(),
+        }));
+        let call = ctx.alloc_expression(ExprNode::Call(CallNode {
+            callee: path,
+            generic_parameters: vec![],
+            args: vec![],
+            location: loc(),
+        }));
+        let member_call = ctx.alloc_expression(ExprNode::MemberCall(MemberCallNode {
+            callee: path,
+            receiver: felt,
+            generic_parameters: vec![],
+            args: vec![],
+            location: loc(),
+        }));
+        let cast_target = ty_basic(&mut ctx, "Felt");
+        let cast = ctx.alloc_expression(ExprNode::Cast(CastNode {
+            value: felt,
+            target_type: cast_target,
+            location: loc(),
+        }));
+        let index_access = ctx.alloc_expression(ExprNode::IndexAccess(IndexAccessNode {
+            target: felt,
+            index: felt,
+            location: loc(),
+        }));
+        let field_ident = idn(&mut ctx, "f");
+        let member_access = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
+            target: felt,
+            field: field_ident,
+            generic_parameters: vec![],
+            location: loc(),
+        }));
+        let intrinsic = ctx.alloc_expression(ExprNode::Intrinsic(IntrinsicExprNode::GetUserId { location: loc() }));
+        let lambda = ctx.alloc_expression(ExprNode::LambdaFunction(LambdaFunctionNode {
+            parameters: vec![],
+            body: felt,
+            return_type: None,
+            location: loc(),
+        }));
+        let if_expr = ctx.alloc_expression(ExprNode::IfExpr(IfExprNode {
+            if_branch: Case::new(felt, block, loc()),
+            elseif_branches: vec![],
+            else_branch: None,
+            location: loc(),
+        }));
+        let tuple = ctx.alloc_expression(ExprNode::Tuple(TupleExprNode { elements: vec![], location: loc() }));
+        let tuple_access = ctx.alloc_expression(ExprNode::TupleAccess(TupleAccessNode {
+            target: felt,
+            index: 0,
+            location: loc(),
+        }));
+        let match_expr = ctx.alloc_expression(ExprNode::Match(MatchNode {
+            scrutinee: felt,
+            arms: vec![MatchArm {
+                pattern: MatchPattern::PlaceHolder(loc()),
+                body: felt,
+                location: loc(),
+            }],
+            location: loc(),
+        }));
+        let parentheses = ctx.alloc_expression(ExprNode::Parentheses(felt));
+        for expr_id in [path, felt, binary, unary, call, member_call, cast, index_access, member_access, intrinsic, lambda, block, if_expr, tuple, tuple_access, match_expr, parentheses] {
+            processor.visit_expr(expr_id, &mut ctx).unwrap();
+        }
+
+        let use_kind = idn(&mut ctx, "std");
+        let use_def = ctx.alloc_definition(DefinitionNode::Use(UseNode {
+            visibility: Visibility::Private,
+            kind: use_kind,
+            segments: vec![],
+            target: None,
+            comments: vec![],
+            location: loc(),
+        }));
+        let while_stmt = ctx.alloc_statement(StmtNode::While(WhileNode {
+            predicate: felt,
+            body: block,
+            comments: vec![],
+            location: loc(),
+        }));
+        let loop_var = idn(&mut ctx, "i");
+        let for_stmt = ctx.alloc_statement(StmtNode::For(ForNode {
+            variable: loop_var,
+            start: felt,
+            end: felt,
+            body: block,
+            comments: vec![],
+            location: loc(),
+        }));
+        let assignment = ctx.alloc_statement(StmtNode::Assignment(AssignmentNode {
+            target: path,
+            operator: AssignmentOperator::Eq,
+            value: felt,
+            comments: vec![],
+            location: loc(),
+        }));
+        let var_name = idn(&mut ctx, "x");
+        let var_ty = ty_basic(&mut ctx, "Felt");
+        let variable = ctx.alloc_statement(StmtNode::Variable(VariableNode {
+            name: var_name,
+            ty: var_ty,
+            qualifier: TypeQualifier::new(false, loc()),
+            value: felt,
+            comments: vec![],
+            location: loc(),
+        }));
+        let def_stmt = ctx.alloc_statement(StmtNode::Definition(use_def));
+        let expr_stmt = ctx.alloc_statement(StmtNode::Expression(felt));
+        let ret = ctx.alloc_statement(StmtNode::Return(ReturnNode {
+            expr_id: Some(felt),
+            comments: vec![],
+            location: loc(),
+        }));
+        let assert_stmt = ctx.alloc_statement(StmtNode::Intrinsic(IntrinsicStmtNode::Assert {
+            left: felt,
+            message: None,
+            comments: vec![],
+            location: loc(),
+        }));
+        for stmt_id in [while_stmt, for_stmt, assignment, variable, def_stmt, expr_stmt, ret, assert_stmt] {
+            processor.visit_stmt(stmt_id, &mut ctx).unwrap();
+        }
+
+        // Definitions of every kind dispatch through visit_definition; the
+        // storage struct needs a module ancestor for its insertions.
+        ctx.push_node_id(NodeId::Module(module_id));
+
+        let storage_derive = derive_attr(&mut ctx, "Storage");
+        let contract = attr(&mut ctx, "contract", &[]);
+        let grid = ty_array(&mut ctx, "Felt", 2);
+        let note = ty_basic(&mut ctx, "Felt");
+        let storage = strukt(&mut ctx, "Wallet", vec![("grid", grid), ("note", note)], vec![storage_derive, contract]);
+        let enum_name = idn(&mut ctx, "Kind");
+        let variant = idn(&mut ctx, "A");
+        let enum_def = ctx.alloc_definition(DefinitionNode::Enum(EnumNode {
+            name: enum_name,
+            generic_parameters: vec![],
+            variants: vec![EnumVariant::Basic(variant)],
+            visibility: Visibility::Public,
+            comments: vec![],
+            location: loc(),
+        }));
+        let wallet_ty = ty_basic(&mut ctx, "Wallet");
+        let impl_def = ctx.alloc_definition(DefinitionNode::Impl(ImplNode {
+            generic_parameters: vec![],
+            associated_types: IndexMap::new(),
+            ty: wallet_ty.clone(),
+            body: vec![],
+            attrs: vec![],
+            comments: vec![],
+            location: loc(),
+            is_generated: false,
+        }));
+        let storage_ty = ty_basic(&mut ctx, "Storage");
+        let trait_impl_def = ctx.alloc_definition(DefinitionNode::TraitImpl(TraitImplNode {
+            generic_parameters: vec![],
+            associated_types: IndexMap::new(),
+            trait_ty: storage_ty,
+            ty: wallet_ty,
+            body: vec![],
+            attrs: vec![],
+            comments: vec![],
+            location: loc(),
+            is_generated: false,
+        }));
+        let trait_name = idn(&mut ctx, "Store");
+        let trait_def = ctx.alloc_definition(DefinitionNode::Trait(TraitNode {
+            name: trait_name,
+            associated_types: IndexMap::new(),
+            generic_parameters: vec![],
+            body: vec![],
+            visibility: Visibility::Public,
+            comments: vec![],
+            location: loc(),
+        }));
+        let alias_name = idn(&mut ctx, "Amount");
+        let alias_ty = ty_basic(&mut ctx, "Felt");
+        let alias_def = ctx.alloc_definition(DefinitionNode::TypeAlias(TypeAliasNode {
+            name: alias_name,
+            ty: alias_ty,
+            visibility: Visibility::Public,
+            comments: vec![],
+            location: loc(),
+        }));
+        let const_name = idn(&mut ctx, "MAX");
+        let const_ty = ty_basic(&mut ctx, "Felt");
+        let const_def = ctx.alloc_definition(DefinitionNode::Const(ConstNode {
+            name: const_name,
+            ty: const_ty,
+            value: felt,
+            visibility: Visibility::Public,
+            comments: vec![],
+            location: loc(),
+        }));
+        let fn_name = idn(&mut ctx, "read");
+        let fn_ret = ty_basic(&mut ctx, "Felt");
+        let function_def = ctx.alloc_definition(DefinitionNode::Function(FunctionNode {
+            name: fn_name,
+            parameters: vec![],
+            generic_parameters: vec![],
+            body: Some(block),
+            return_type: Some(fn_ret),
+            qualifier: Qualifier {
+                is_extern: false,
+                is_const: false,
+                location: loc(),
+            },
+            visibility: Visibility::Public,
+            attrs: vec![],
+            comments: vec![],
+            location: loc(),
+        }));
+        let storage_def = ctx.alloc_definition(DefinitionNode::Struct(storage));
+
+        for def_id in [use_def, enum_def, impl_def, trait_impl_def, trait_def, alias_def, const_def, function_def, storage_def] {
+            processor.visit_definition(def_id, &mut ctx).unwrap();
+        }
+
+        // visit_impl descends into the impl body definitions.
+        ctx.push_node_id(NodeId::Def(impl_def));
+        processor.visit_impl(impl_def, &mut ctx).unwrap();
+        ctx.pop_node_id();
+
+        // The storage struct generated Ref definitions into its module.
+        let generated = program.modules[module_id].data().definitions.len();
+        assert!(generated > 0, "visit_struct must insert generated definitions");
+    }
+}

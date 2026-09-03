@@ -500,4 +500,211 @@ mod tests {
             .dependency_packages
             .contains_key(&"dep".parse::<CrateName>().unwrap()));
     }
+
+    fn package_sources(manifest: &str, files: &[(&str, &str)]) -> PackageSources {
+        PackageSources {
+            manifest: Arc::from(manifest),
+            files: files
+                .iter()
+                .map(|(path, text)| (RelativeFilePath::new(*path), Arc::from(*text)))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn source_map_updates_existing_files_and_snapshots_in_id_order() {
+        let mut map = SourceMap::new();
+        let path = VfsPath::virtual_path("workspace/root/src/main.psy");
+        let id = map.insert(path.clone(), Arc::from("old"));
+        assert_eq!(map.insert(path.clone(), Arc::from("new")), id);
+        assert_eq!(map.file_id(&path), Some(id));
+        assert_eq!(map.path(id), Some(&path));
+        assert_eq!(map.text(id), Some("new"));
+        assert_eq!(map.path(FileId(9)), None);
+        assert_eq!(map.text(FileId(9)), None);
+
+        let snapshot = map.snapshot();
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0].0, id);
+        assert_eq!(snapshot[0].1, path);
+        assert_eq!(&*snapshot[0].2, "new");
+        assert_eq!(
+            map.resolve_path(AnchoredPath {
+                anchor: FileId(99),
+                relative: "missing.psy",
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn vfs_path_handles_roots_real_paths_and_parent_traversal() {
+        let root = VfsPath::virtual_path("/");
+        assert_eq!(root.parent(), None);
+        assert_eq!(root.join("child.psy"), None);
+
+        let virtual_file = VfsPath::virtual_path("//workspace/./root/src/../main.psy/");
+        assert_eq!(virtual_file, VfsPath::Virtual("/workspace/root/main.psy".into()));
+        assert_eq!(virtual_file.parent(), Some(VfsPath::Virtual("/workspace/root".into())));
+        assert_eq!(virtual_file.join("../lib.psy"), Some(VfsPath::Virtual("/workspace/lib.psy".into())));
+
+        let real_file = VfsPath::Real(PathBuf::from("/tmp/pkg/src/main.psy"));
+        assert_eq!(real_file.parent(), Some(VfsPath::Real(PathBuf::from("/tmp/pkg/src"))));
+        assert_eq!(real_file.join("sibling.psy"), Some(VfsPath::Real(PathBuf::from("/tmp/pkg/src/main.psy/sibling.psy"))));
+    }
+
+    #[test]
+    fn virtual_path_helpers_handle_empty_relative_and_root_inputs() {
+        assert_eq!(normalize_virtual_path(String::new()), "/");
+        assert_eq!(parent_virtual_path("relative"), None);
+        assert_eq!(join_virtual_path("/", "child.psy"), "/child.psy");
+        assert_eq!(join_virtual_path("/base", "child.psy"), "/base/child.psy");
+    }
+
+    #[test]
+    fn memory_resolver_reports_missing_real_and_virtual_packages() {
+        let resolver = MemoryResolver::default();
+        let real = resolver.package_sources(&PackageId::Real(PathBuf::from("/missing"))).unwrap_err();
+        assert!(matches!(real, ManifestError::ReadFailed(path) if path == PathBuf::from("/missing/Dargo.toml")));
+
+        let virtual_error = resolver.package_sources(&PackageId::Virtual("missing".into())).unwrap_err();
+        assert!(matches!(virtual_error, ManifestError::ReadFailed(path) if path == PathBuf::from("virtual://missing/Dargo.toml")));
+
+        let dependency = resolver
+            .resolve_dependency(&PackageId::Virtual("root".into()), "dep")
+            .unwrap_err();
+        assert!(matches!(dependency, ManifestError::ReadFailed(path) if path == PathBuf::from("virtual://dep/Dargo.toml")));
+    }
+
+    #[test]
+    fn source_workspace_validates_manifest_and_entry_errors() {
+        let cases = [
+            (
+                "[package]\nname = \"bad-name\"\ntype = \"lib\"",
+                "src/lib.psy",
+                "invalid-name",
+            ),
+            (
+                "[package]\nname = \"valid\"\ntype = \"plugin\"",
+                "src/lib.psy",
+                "invalid-type",
+            ),
+            (
+                "[package]\nname = \"valid\"\ntype = \"bin\"\nentry = \"custom/start.psy\"",
+                "src/main.psy",
+                "missing-entry",
+            ),
+        ];
+
+        for (manifest, file, expected) in cases {
+            let root = PackageId::Virtual(expected.into());
+            let mut resolver = MemoryResolver::default();
+            resolver.insert_package(root.clone(), package_sources(manifest, &[(file, "")]));
+            let error = resolve_source_workspace(root, &resolver).unwrap_err();
+            match expected {
+                "invalid-name" => assert!(matches!(error, ManifestError::InvalidPackageName { .. })),
+                "invalid-type" => assert!(matches!(error, ManifestError::InvalidPackageType(_, ref value) if value == "plugin")),
+                "missing-entry" => assert!(matches!(error, ManifestError::MissingFile(path) if path == PathBuf::from("virtual://missing-entry/custom/start.psy"))),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[test]
+    fn source_workspace_rejects_invalid_and_unresolved_dependencies() {
+        let root = PackageId::Virtual("root".into());
+        let manifest = "[package]\nname = \"root\"\ntype = \"lib\"\n[dependencies]\n\"bad-name\" = {}";
+        let mut resolver = MemoryResolver::default();
+        resolver.insert_package(root.clone(), package_sources(manifest, &[("src/lib.psy", "")]));
+        assert!(matches!(
+            resolve_source_workspace(root.clone(), &resolver).unwrap_err(),
+            ManifestError::InvalidDependencyName { .. }
+        ));
+
+        let manifest = "[package]\nname = \"root\"\ntype = \"lib\"\n[dependencies]\ndep = {}";
+        resolver.insert_package(root.clone(), package_sources(manifest, &[("src/lib.psy", "")]));
+        assert!(matches!(
+            resolve_source_workspace(root, &resolver).unwrap_err(),
+            ManifestError::ReadFailed(path) if path == PathBuf::from("virtual://dep/Dargo.toml")
+        ));
+    }
+
+    #[test]
+    fn source_workspace_detects_cycles_and_reuses_shared_dependencies() {
+        let root = PackageId::Virtual("root".into());
+        let dep = PackageId::Virtual("dep".into());
+        let manifest = |name: &str, dependency: &str| {
+            format!("[package]\nname = \"{name}\"\ntype = \"lib\"\n[dependencies]\n{dependency} = {{}}")
+        };
+        let mut resolver = MemoryResolver::default();
+        resolver.insert_package(root.clone(), package_sources(&manifest("root", "dep"), &[("src/lib.psy", "")]));
+        resolver.insert_package(dep.clone(), package_sources(&manifest("dep", "root"), &[("src/lib.psy", "")]));
+        resolver.insert_dependency(root.clone(), "dep", dep.clone());
+        resolver.insert_dependency(dep, "root", root.clone());
+
+        let error = resolve_source_workspace(root, &resolver).unwrap_err();
+        assert!(matches!(error, ManifestError::CyclicDependency { cycle } if cycle == "virtual://root -> virtual://dep -> virtual://root"));
+    }
+
+    #[test]
+    fn source_workspace_resolves_shared_dependency_only_once() {
+        let root = PackageId::Virtual("root".into());
+        let left = PackageId::Virtual("left".into());
+        let right = PackageId::Virtual("right".into());
+        let shared = PackageId::Virtual("shared".into());
+        let manifest = |name: &str, dependencies: &str| {
+            format!("[package]\nname = \"{name}\"\ntype = \"lib\"\n[dependencies]\n{dependencies}")
+        };
+        let mut resolver = MemoryResolver::default();
+        resolver.insert_package(root.clone(), package_sources(&manifest("root", "left = {}\nright = {}"), &[("src/lib.psy", "")]));
+        resolver.insert_package(left.clone(), package_sources(&manifest("left", "shared = {}"), &[("src/lib.psy", "")]));
+        resolver.insert_package(right.clone(), package_sources(&manifest("right", "shared = {}"), &[("src/lib.psy", "")]));
+        resolver.insert_package(shared.clone(), package_sources(&manifest("shared", ""), &[("src/lib.psy", "")]));
+        resolver.insert_dependency(root.clone(), "left", left.clone());
+        resolver.insert_dependency(root.clone(), "right", right.clone());
+        resolver.insert_dependency(left, "shared", shared.clone());
+        resolver.insert_dependency(right, "shared", shared);
+
+        let workspace = resolve_source_workspace(root, &resolver).unwrap();
+        assert_eq!(workspace.packages.len(), 4);
+    }
+
+    #[test]
+    fn source_workspace_reports_real_paths_in_cycle() {
+        let root = PackageId::Real(PathBuf::from("/virtual-root"));
+        let dep = PackageId::Real(PathBuf::from("/virtual-dep"));
+        let mut resolver = MemoryResolver::default();
+        resolver.insert_package(
+            root.clone(),
+            package_sources(
+                "[package]\nname = \"root\"\ntype = \"lib\"\n[dependencies]\ndep = {}",
+                &[("src/lib.psy", "")],
+            ),
+        );
+        resolver.insert_package(
+            dep.clone(),
+            package_sources(
+                "[package]\nname = \"dep\"\ntype = \"lib\"\n[dependencies]\nroot = {}",
+                &[("src/lib.psy", "")],
+            ),
+        );
+        resolver.insert_dependency(root.clone(), "dep", dep.clone());
+        resolver.insert_dependency(dep, "root", root.clone());
+
+        assert!(matches!(
+            resolve_source_workspace(root, &resolver).unwrap_err(),
+            ManifestError::CyclicDependency { cycle }
+                if cycle == "/virtual-root -> /virtual-dep -> /virtual-root"
+        ));
+    }
+
+    #[test]
+    fn package_path_mapping_supports_real_packages_and_string_conversion() {
+        let relative = RelativeFilePath::from(String::from("src\\nested\\..\\lib.psy"));
+        assert_eq!(relative.as_str(), "src/lib.psy");
+        assert_eq!(
+            package_file_to_vfs_path(&PackageId::Real(PathBuf::from("/pkg")), &relative),
+            VfsPath::Real(PathBuf::from("/pkg/src/lib.psy"))
+        );
+    }
 }

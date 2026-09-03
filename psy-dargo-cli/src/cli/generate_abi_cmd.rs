@@ -93,3 +93,114 @@ pub(crate) fn run(args: GenerateAbiCommand, workspace: Workspace) -> Result<()> 
     println!("Generate ABI file successfully: {}", abi_path.display());
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+
+    use psy_package::{resolve_workspace_from_toml, Workspace};
+
+    use super::{run, GenerateAbiCommand};
+
+    #[test]
+    fn generate_abi_rejects_path_like_output_name_before_compilation() {
+        let error = run(
+            GenerateAbiCommand {
+                contract_name: "Contract".to_string(),
+                entry_path: None,
+                output_dir: None,
+                abi_name: Some("../escape".to_string()),
+                pretty: true,
+                method_names: None,
+            },
+            Workspace::default(),
+        )
+        .expect_err("path-like ABI names must be rejected before compilation");
+        assert!(error.to_string().contains("Invalid artifact name"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn generate_abi_compiles_a_contract_and_writes_the_abi_file() {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_nanos();
+        let dir = std::env::temp_dir().join(format!("psy_dargo_genabi_{nanos}"));
+        fs::create_dir_all(dir.join("src")).expect("create src");
+        fs::write(
+            dir.join("src").join("app.psy"),
+            "#[contract]\npub struct Demo {}\n#[contract::write_method]\nfn main() { assert_eq(1, 1, \"ok\"); }\n",
+        )
+        .expect("write app.psy");
+        fs::write(
+            dir.join("Dargo.toml"),
+            "[package]\nname = \"genabidemo\"\ntype = \"bin\"\nentry = \"src/app.psy\"\nauthors = [\"\"]\n\n[dependencies]\n",
+        )
+        .expect("write Dargo.toml");
+        let workspace = resolve_workspace_from_toml(&dir.join("Dargo.toml")).expect("resolve workspace");
+
+        let output_dir = dir.join("target");
+        run(
+            GenerateAbiCommand {
+                contract_name: "Demo".to_string(),
+                entry_path: None,
+                output_dir: Some(output_dir.clone()),
+                abi_name: Some("demo_abi".to_string()),
+                pretty: true,
+                method_names: Some(vec!["main".to_string()]),
+            },
+            workspace,
+        )
+        .expect("generate-abi must compile the contract and write the ABI file");
+
+        let abi = fs::read_to_string(output_dir.join("demo_abi.abi.json")).expect("ABI file must exist");
+        assert!(abi.contains("\"main\""), "ABI must list the compiled method: {abi}");
+
+        #[allow(static_mut_refs)]
+        unsafe {
+            psy_sema::STD_PRIMITIVE_SCOPE_ID.take();
+        }
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn generate_abi_defaults_the_stem_to_the_contract_and_the_output_to_the_target_dir() {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_nanos();
+        let dir = std::env::temp_dir().join(format!("psy_dargo_genabi_default_{nanos}"));
+        fs::create_dir_all(dir.join("src")).expect("create src");
+        fs::write(
+            dir.join("src").join("app.psy"),
+            "#[contract]\npub struct Demo {}\n#[contract::write_method]\nfn main() { assert_eq(1, 1, \"ok\"); }\n",
+        )
+        .expect("write app.psy");
+        fs::write(
+            dir.join("Dargo.toml"),
+            "[package]\nname = \"genabidefault\"\ntype = \"bin\"\nentry = \"src/app.psy\"\nauthors = [\"\"]\n\n[dependencies]\n",
+        )
+        .expect("write Dargo.toml");
+        let workspace = resolve_workspace_from_toml(&dir.join("Dargo.toml")).expect("resolve workspace");
+        let target_dir = workspace.target_dir.clone();
+
+        run(
+            GenerateAbiCommand {
+                contract_name: "Demo".to_string(),
+                entry_path: None,
+                output_dir: None,
+                abi_name: None,
+                pretty: true,
+                method_names: Some(vec!["main".to_string()]),
+            },
+            workspace,
+        )
+        .expect("generate-abi must fall back to the contract-named output in the target dir");
+
+        let abi = fs::read_to_string(target_dir.join("Demo.abi.json"))
+            .expect("the default ABI file must land in the workspace target dir");
+        assert!(abi.contains("\"main\""), "ABI must list the compiled method: {abi}");
+
+        #[allow(static_mut_refs)]
+        unsafe {
+            psy_sema::STD_PRIMITIVE_SCOPE_ID.take();
+        }
+        fs::remove_dir_all(dir).ok();
+    }
+}
