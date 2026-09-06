@@ -208,6 +208,7 @@ impl PsyWithdrawalTreeContractRef {
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
         let mut node = 256 + chain_index;
         c.agg_tree[node] = Self::hash_to_u32x8(chain_root);
+        let mut zero: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
 
         for i in 0u32..8u32 {
             let _level = i as Felt;
@@ -215,10 +216,20 @@ impl PsyWithdrawalTreeContractRef {
             let left = if is_right == 0 { node } else { node - 1 };
             let right = left + 1;
             let parent = node >> 1;
-            let left_hash = c.agg_tree[left].get();
-            let right_hash = c.agg_tree[right].get();
+            let mut left_hash = c.agg_tree[left].get();
+            let mut right_hash = c.agg_tree[right].get();
+            // Unwritten aggregate-tree slots are storage zeroes. Interpret them
+            // as the canonical empty subtree for this level so the root follows
+            // the same standard Merkle semantics as the L1 verifier.
+            if Self::is_zero_u32x8(left_hash) {
+                left_hash = zero;
+            };
+            if Self::is_zero_u32x8(right_hash) {
+                right_hash = zero;
+            };
             let parent_hash = Self::keccak_two_to_one(left_hash, right_hash);
             c.agg_tree[parent] = parent_hash;
+            zero = Self::keccak_two_to_one(zero, zero);
             node = parent;
         }
 
