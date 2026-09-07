@@ -3246,4 +3246,35 @@ mod tests {
             result.error
         );
     }
+
+    /// Regression: monomorphized function references (`id::<Felt>` and
+    /// `mod::g::<Felt>` used as values) used to panic the compiler with
+    /// `unreachable!()` in sema's generic-type arm; they must surface as a
+    /// clean diagnostic instead.
+    #[test]
+    #[serial]
+    fn turbofish_function_references_are_rejected_with_a_diagnostic() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        let result = parse_result(&compile_source(
+            "fn id(x: Felt) -> Felt { return x; }\nfn main() -> Felt {\n    let f = id::<Felt>;\n    return f(1);\n}\n",
+        ));
+        assert!(!result.success, "fn-ref turbofish must be rejected, not panic");
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("generic arguments"),
+            "unexpected error: {:?}",
+            result.error
+        );
+
+        let result = parse_result(&compile_source(
+            "pub mod m { pub fn g<T>(x: T) -> Felt { return 1; } }\nfn main() -> Felt {\n    let v = m::g::<Felt>;\n    return v(2);\n}\n",
+        ));
+        assert!(!result.success, "mod fn-ref turbofish must be rejected, not panic");
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("generic arguments"),
+            "unexpected error: {:?}",
+            result.error
+        );
+    }
 }

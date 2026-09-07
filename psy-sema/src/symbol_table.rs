@@ -51,7 +51,9 @@ impl Default for PrimitiveScopeId {
     }
 }
 
-// Compatibility export for downstream users. Compiler state is now stored in SymbolTable.
+// Compatibility export for downstream users. Compiler state is stored in
+// SymbolTable, but this is initialized as well while Type::scope_id() remains
+// part of the public API.
 pub static STD_PRIMITIVE_SCOPE_ID: PrimitiveScopeId = PrimitiveScopeId::new();
 
 impl ScopeId {
@@ -314,6 +316,10 @@ impl<F: Clone + From<u32> + ContextFelt> SymbolTable<F> {
 
     pub fn set_primitive_scope_id(&mut self, scope_id: ScopeId) {
         self.primitive_scope_id = Some(scope_id);
+        // Type::scope_id() cannot consult a SymbolTable, so keep its legacy
+        // process-wide backing value initialized until that API is migrated.
+        // The table-local value remains authoritative for compiler internals.
+        let _ = STD_PRIMITIVE_SCOPE_ID.set(scope_id);
     }
 
     pub fn primitive_scope_id(&self) -> ScopeId {
@@ -725,6 +731,18 @@ mod tests {
         assert_eq!(second.primitive_scope_id(), ScopeId(17));
         assert_eq!(first.type_scope_id(first_felt), ScopeId(3));
         assert_eq!(second.type_scope_id(second_felt), ScopeId(17));
+    }
+
+    #[test]
+    fn setting_primitive_scope_keeps_public_type_accessor_initialized() {
+        let mut table = SymbolTable::<SymFeltRef>::new();
+        table.set_primitive_scope_id(ScopeId(3));
+
+        assert!(STD_PRIMITIVE_SCOPE_ID.get().is_some());
+        assert_eq!(Type::Felt.scope_id(), STD_PRIMITIVE_SCOPE_ID.get().unwrap());
+        assert_eq!(Type::Bool.scope_id(), STD_PRIMITIVE_SCOPE_ID.get().unwrap());
+        assert_eq!(Type::U32.scope_id(), STD_PRIMITIVE_SCOPE_ID.get().unwrap());
+        assert_eq!(Type::Tuple(vec![]).scope_id(), STD_PRIMITIVE_SCOPE_ID.get().unwrap());
     }
 
     #[test]

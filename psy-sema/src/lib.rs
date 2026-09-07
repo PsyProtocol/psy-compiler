@@ -3571,7 +3571,16 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                         self.substitute_all(underlying_type_id, ctx)?
                     }
 
-                    _ => unreachable!(),
+                    // e.g. a monomorphized function reference `id::<Felt>` used
+                    // as a value: parseable, but generic arguments only apply
+                    // to structs, arrays, and traits.
+                    _ => {
+                        return Err(Error::InvalidGenericArguments {
+                            location: location.clone(),
+                            expected: "generic arguments on a struct, array, or trait".to_string(),
+                            found: format!("a {:?}", ctx.symbols[underlying_type_id].kind()),
+                        });
+                    }
                 }
             }
             UncheckedType::Array(inner_ty, size, location) => {
