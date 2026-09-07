@@ -632,6 +632,49 @@ mod tests {
         assert_eq!(range.end.character, 1);
     }
 
+    #[test]
+    fn client_accessor_returns_the_lsp_client_handle() {
+        let (service, _socket) = LspService::new(QLspSimple::new);
+        let _client: &tower_lsp::Client = service.inner().client();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn drained_backend_runs_the_socket_draining_task() {
+        let service = drained_backend();
+        // Give the spawned drain task a chance to poll the socket once.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        drop(service);
+    }
+
+    #[test]
+    #[serial]
+    fn collect_diagnostics_sync_fails_without_a_manifest() {
+        let (service, _) = quiet_backend();
+        let server = service.inner();
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let root = dir.path().canonicalize().expect("canonicalize root");
+        let err = match server.collect_diagnostics_sync(&root) {
+            Ok(_) => panic!("a manifest-less directory must fail diagnostics collection"),
+            Err(err) => err,
+        };
+        assert!(format!("{err:?}").contains("manifest root"), "unexpected error: {err:?}");
+    }
+
+    #[test]
+    #[serial]
+    fn collect_diagnostics_sync_fails_on_an_unparseable_manifest() {
+        let (service, _) = quiet_backend();
+        let server = service.inner();
+        let dir = tempfile::tempdir().expect("create temp dir");
+        std::fs::write(dir.path().join("Dargo.toml"), "[package\nthis is not toml").expect("write broken manifest");
+        let root = dir.path().canonicalize().expect("canonicalize root");
+        let err = match server.collect_diagnostics_sync(&root) {
+            Ok(_) => panic!("a broken manifest must fail diagnostics collection"),
+            Err(err) => err,
+        };
+        assert!(format!("{err:?}").contains("resolve workspace"), "unexpected error: {err:?}");
+    }
+
     /// Builds a backend without spawning the client-socket drain task. Only
     /// suitable for tests that never trigger client notifications.
     fn quiet_backend() -> (LspService<QLspSimple>, ()) {
@@ -1317,5 +1360,36 @@ fn main(q: Felt) -> Felt {
         assert!(references.iter().all(|location| location.uri == uri));
 
         drop(dir);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn non_file_format_uris_are_errors() {
+        let service = drained_backend();
+        let server = service.inner();
+        let (dir, root, file) = write_psy_workspace(VALID_MAIN);
+        server.set_crate_path_graph_cache(root.clone(), entry_graph(&file));
+        server.collect_diagnostics_sync(&root).expect("initial diagnostics");
+        assert!(server.is_ready());
+
+        // A non-file URI cannot be formatted because it has no path.
+        let https = Url::parse("https://example.com/main.psy").unwrap();
+        assert!(server
+            .formatting(DocumentFormattingParams {
+                text_document: text_document(&https),
+                options: FormattingOptions::default(),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+            })
+            .await
+            .is_err());
+
+        drop(dir);
+    }
+
+    #[test]
+    #[should_panic(expected = "missing")]
+    fn position_at_panics_on_missing_line_or_needle() {
+        let _ = position_at(VALID_MAIN, 0, 'Z');
+        let _ = position_at(VALID_MAIN, 99, 'q');
     }
 }

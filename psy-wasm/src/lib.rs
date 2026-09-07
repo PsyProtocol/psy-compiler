@@ -3029,4 +3029,125 @@ mod tests {
             "deploy without a compile must be rejected: {result}"
         );
     }
+
+    #[test]
+    fn serialize_result_adds_backward_compatible_aliases() {
+        let result = serialize_result(JsCompileResult {
+            success: true,
+            error: None,
+            error_offset: None,
+            entry_path: Some("main.psy".to_string()),
+            compile_results: Some(serde_json::json!([{ "name": "main" }])),
+            contract_code: Some(serde_json::json!({ "state_tree_height": 12 })),
+            abi: None,
+        });
+        let value: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(value["circuit_definitions"], serde_json::json!([{ "name": "main" }]));
+        assert_eq!(value["circuitDefinitions"], serde_json::json!([{ "name": "main" }]));
+        assert_eq!(value["method_count"], 1);
+        assert_eq!(value["methodCount"], 1);
+        assert_eq!(value["state_tree_height"], 12);
+        assert_eq!(value["stateTreeHeight"], 12);
+    }
+
+    #[test]
+    #[serial]
+    fn call_contract_reports_unknown_callers_and_runtime_failures() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        let compiled = parse_result(&compile_source(
+            r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct GuardContract {
+                pub value: Felt,
+            }
+
+            #[contract::write_method]
+            pub fn set_if_zero(value: Felt) {
+                assert(value == 0, "value must be zero");
+                let c = GuardContractRef::new(ContractMetadata::current());
+                c.value = value;
+            }
+            "#,
+        ));
+        assert!(compiled.success, "fixture must compile, got {:?}", compiled.error);
+
+        let alice: serde_json::Value = serde_json::from_str(&create_account("Alice")).unwrap();
+        let alice_id = alice["user_id"].as_u64().unwrap();
+        let result: serde_json::Value = serde_json::from_str(&deploy_contract(alice_id)).unwrap();
+        assert_eq!(result["success"], true, "{result}");
+        let contract_id = result["contract_id"].as_u64().unwrap();
+
+        // A caller without an account falls back to a synthesized name and the
+        // call still succeeds.
+        let result: serde_json::Value =
+            serde_json::from_str(&call_contract(999, contract_id, "set_if_zero", "[0]")).unwrap();
+        assert_eq!(result["success"], true, "zero input must pass the guard: {result}");
+
+        // A runtime assertion failure records a failure message instead of an error.
+        let result: serde_json::Value =
+            serde_json::from_str(&call_contract(alice_id, contract_id, "set_if_zero", "[5]")).unwrap();
+        assert_eq!(result["success"], false, "guard must reject five: {result}");
+        assert!(
+            result["failure_message"].as_str().is_some_and(|msg| msg.contains("value must be zero")),
+            "runtime failure must carry the assert message: {result}"
+        );
+
+        let log: serde_json::Value = serde_json::from_str(&get_transaction_log()).unwrap();
+        let log = log.as_array().expect("transaction log must be an array");
+        assert_eq!(log.len(), 2, "expected one record per call: {log:?}");
+        assert_eq!(log[0]["caller_name"].as_str(), Some("User 999"));
+        assert_eq!(log[0]["success"], true);
+        assert!(
+            log[1]["failure_message"]
+                .as_str()
+                .is_some_and(|msg| msg.contains("value must be zero")),
+            "log must record the runtime failure: {log:?}"
+        );
+        assert_eq!(log[1]["success"], false);
+    }
+
+    #[test]
+    #[serial]
+    fn read_imt_state_lists_entries_written_by_contract_calls() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        let compiled = parse_result(&compile_source(
+            r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct RegistryContract {
+                pub padding: Felt,
+            }
+
+            #[contract::write_method]
+            pub fn register(key: Felt) {
+                let k: Hash = [key, 0, 0, 0];
+                let v: Hash = [key, 1, 2, 3];
+                let offset: Felt = 0;
+                let capacity: Felt = 128;
+                imt_set(k, v, offset, capacity);
+            }
+            "#,
+        ));
+        assert!(compiled.success, "fixture must compile, got {:?}", compiled.error);
+
+        let alice: serde_json::Value = serde_json::from_str(&create_account("Alice")).unwrap();
+        let alice_id = alice["user_id"].as_u64().unwrap();
+        let result: serde_json::Value = serde_json::from_str(&deploy_contract(alice_id)).unwrap();
+        assert_eq!(result["success"], true, "{result}");
+        let contract_id = result["contract_id"].as_u64().unwrap();
+
+        let result: serde_json::Value =
+            serde_json::from_str(&call_contract(alice_id, contract_id, "register", "[7001]")).unwrap();
+        assert_eq!(result["success"], true, "register must execute: {result}");
+
+        let imt: serde_json::Value = serde_json::from_str(&read_imt_state(contract_id as u32, alice_id as u32)).unwrap();
+        let entries = imt.as_array().expect("imt entries must be an array");
+        assert!(!entries.is_empty(), "imt write must be observable: {imt}");
+        assert_eq!(entries[0]["key"].as_array().and_then(|k| k.first()).and_then(serde_json::Value::as_u64), Some(7001));
+    }
 }

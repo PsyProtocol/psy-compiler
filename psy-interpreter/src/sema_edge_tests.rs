@@ -1581,3 +1581,105 @@ fn main() -> Felt {{ return 0; }}"
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
+
+#[test]
+fn lambda_return_type_guard_resolves_path_types() {
+    let source = format!(
+        "{PRELUDE}{STRUCT_P}
+fn main() -> Felt {{
+    let lam = |a: Felt| -> P {{ return P::new(a); }};
+    let p: P = lam(1);
+    return p.x;
+}}"
+    );
+    accepts("lambda with a path return type", &source);
+}
+
+#[test]
+fn generic_function_bodies_bare_call_free_functions() {
+    // A bare call inside a generic body forces the rewriter to re-resolve the
+    // callee by expected signature during monomorphization.
+    let source = format!(
+        "{PRELUDE}
+pub fn dbl(x: Felt) -> Felt {{
+    return x * 2;
+}}
+
+pub fn apply<T: Felt>(v: T) -> Felt {{
+    return dbl(v);
+}}
+
+fn main() -> Felt {{
+    return apply(21);
+}}"
+    );
+    accepts("generic body bare-calling a free function", &source);
+}
+
+
+#[test]
+fn associated_types_resolve_through_generic_impl_instantiations() {
+    // `Container<Felt>::Ref` resolves on the instantiated `impl<T: Felt>`
+    // rather than an exact-parameter impl match.
+    let source = format!(
+        "{PRELUDE}
+pub struct Container<T> {{
+    pub value: T,
+}}
+
+pub trait HasRef {{
+    pub type Ref;
+}}
+
+impl<T: Felt> HasRef for Container<T> {{
+    pub type Ref = Container<T>;
+}}
+
+fn main() -> Felt {{
+    let c: Container<Felt> = Container {{ value: 7 }};
+    let r: <Container<Felt>>::Ref = c;
+    return r.value;
+}}"
+    );
+    accepts("associated type through a generic impl instantiation", &source);
+}
+
+#[test]
+fn non_callable_operator_members_from_constraints_reject() {
+    // Constraint traits that expose an associated type named like an operator
+    // method surface as non-callable members in the desugared calls.
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            "eq associated type",
+            "pub trait Bad { pub type eq; }
+             pub fn cmp<T: Bad>(a: T, b: T) -> bool { return a == b; }
+             fn main() {}",
+            "unresolved member",
+        ),
+        (
+            "index associated type",
+            "pub trait BadIdx { pub type index; }
+             pub fn first<T: BadIdx>(t: T) -> Felt { return t[0]; }
+             fn main() {}",
+            "unresolved member",
+        ),
+        (
+            "assert_eq associated type",
+            "pub trait BadEq { pub type eq; }
+             pub fn check<T: BadEq>(a: T, b: T) { assert_eq(a, b, \"cmp\"); }
+             fn main() {}",
+            "unresolved member",
+        ),
+        (
+            "add_assign associated type",
+            "pub trait BadAdd { pub type add_assign; }
+             pub trait Other {}
+             pub fn bump<T: BadAdd, U: Other>(t: T, u: U) { t += u; }
+             fn main() {}",
+            "unresolved member",
+        ),
+    ];
+    for (label, body, needle) in cases {
+        rejects(label, &format!("{PRELUDE}{body}"), needle);
+    }
+}

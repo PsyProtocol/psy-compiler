@@ -497,6 +497,15 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "not yet implemented")]
+    fn checked_value_ref_from_felts_is_unimplemented() {
+        // A function pointer keeps the stub from being inlined into the caller.
+        let from_felts: fn(&[SymFeltRef]) -> CheckedValueRef<SymFeltRef> =
+            <CheckedValueRef<SymFeltRef> as ToFelts<SymFeltRef>>::from_felts;
+        let _ = from_felts(&[]);
+    }
+
+    #[test]
     fn scalar_conversions_round_trip_through_their_typed_accessors() {
         let felt = felt_value(7);
         let boolean = bool_value(true);

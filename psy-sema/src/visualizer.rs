@@ -782,4 +782,30 @@ mod tests {
         formatter.write("x");
         assert_eq!(formatter.finish(), "        x");
     }
+
+    #[test]
+    fn debug_expr_renders_path_segments() {
+        use psy_ast::{ExprNode, Identifier, Location, PathNode, Program, UncheckedType};
+        use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
+
+        use crate::{AstVisualizer, TypeCheckerVisitorContext};
+
+        let mut program = Program::<SymFeltRef>::new();
+        let location = Location::default();
+        let segment = UncheckedType::Basic(Identifier::new(program.interner.intern_ident("foo"), location));
+        let target = UncheckedType::Basic(Identifier::new(program.interner.intern_ident("bar"), location));
+        let path = PathNode {
+            root: None,
+            segments: vec![segment],
+            target,
+            is_ty: false,
+            location,
+        };
+        let expr_id = program.exprs.alloc_item(ExprNode::Path(path));
+
+        let ctx = TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(program);
+        let rendered = AstVisualizer::debug_expr(&ctx, expr_id);
+        assert!(rendered.contains("Segments"), "{rendered}");
+        assert!(rendered.contains("Root"), "{rendered}");
+    }
 }

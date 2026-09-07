@@ -579,6 +579,27 @@ mod tests {
     use psy_vm::dpn::ops::sym_felt::SymFeltRef;
 
     #[test]
+    fn primitive_scope_id_lifecycle() {
+        // Function pointers keep these tiny accessors from being inlined into
+        // the caller so their own bodies execute out-of-line.
+        let new_fn: fn() -> PrimitiveScopeId = PrimitiveScopeId::new;
+        let id = new_fn();
+        assert_eq!(id.get(), None);
+
+        id.set(ScopeId::root()).unwrap();
+        assert_eq!(id.get(), Some(ScopeId::root()));
+        assert_eq!(id.set(ScopeId(7)), Err(ScopeId(7)));
+
+        let take_fn: fn(&PrimitiveScopeId) -> Option<ScopeId> = PrimitiveScopeId::take;
+        assert_eq!(take_fn(&id), Some(ScopeId::root()));
+        assert_eq!(take_fn(&id), None);
+        assert_eq!(id.get(), None);
+
+        let default_fn: fn() -> PrimitiveScopeId = PrimitiveScopeId::default;
+        assert_eq!(default_fn().get(), None);
+    }
+
+    #[test]
     fn frame_scopes_shadow_and_restore_values() {
         let root = ScopeId(0);
         let child = ScopeId(1);

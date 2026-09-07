@@ -27,7 +27,11 @@ pub enum Error {
     #[error("ArithmeticOverflow: constant arithmetic overflow")]
     ArithmeticOverflow { location: Option<Location> },
     #[error("IndexOutOfBounds: index {index} >= length {length}")]
-    IndexOutOfBounds { index: usize, length: usize, location: Option<Location> },
+    IndexOutOfBounds {
+        index: usize,
+        length: usize,
+        location: Option<Location>,
+    },
     #[error("ArrayTooLarge: cannot materialize an array with {length} elements (limit: {limit})")]
     ArrayTooLarge { length: u64, limit: u64, location: Option<Location> },
     #[error("ArrayAllocationFailed: cannot reserve storage for {length} array elements")]
@@ -68,6 +72,12 @@ fn build_report<F: Clone + From<u32> + ContextFelt>(
     Ok(String::from_utf8(output).unwrap())
 }
 
+/// Render a report, falling back to a plain message if report building fails
+/// (e.g. the source file cannot be resolved from the report cache).
+fn report_or_fallback(result: Result<String>) -> String {
+    result.unwrap_or_else(|e| format!("Failed to build report: {}", e))
+}
+
 pub fn lowering_parse_error<F: Clone + From<u32> + ContextFelt>(error: &psy_parser::Error, program: &Program<F>) -> String {
     match error {
         ParseError::CommonError(error) => format!("{}", error),
@@ -75,30 +85,25 @@ pub fn lowering_parse_error<F: Clone + From<u32> + ContextFelt>(error: &psy_pars
         ParseError::FileUnresolved => format!("{}", error),
         ParseError::FileParsedMultipleTimes(path) => format!("{}", path.display()),
         ParseError::NoEntryModule(path) => format!("{}", path.display()),
-        ParseError::InvalidModuleName
-        | ParseError::ExternFnNotInStd
-        | ParseError::FunctionBodyMissing
-        | ParseError::InvalidSelfParameter => format!("{}", error),
-        ParseError::UnexpectedEof { expected, location } => {
-            build_report(*location, "UnexpectedEof", format!("Expected {:?}.", expected), program)
-                .unwrap_or_else(|e| format!("Failed to build report: {}", e))
+        ParseError::InvalidModuleName | ParseError::ExternFnNotInStd | ParseError::FunctionBodyMissing | ParseError::InvalidSelfParameter => {
+            format!("{}", error)
         }
-        ParseError::UnexpectedToken { found, expected, location } => build_report(
+        ParseError::UnexpectedEof { expected, location } => {
+            report_or_fallback(build_report(*location, "UnexpectedEof", format!("Expected {:?}.", expected), program))
+        }
+        ParseError::UnexpectedToken { found, expected, location } => report_or_fallback(build_report(
             *location,
             "UnexpectedToken",
             format!("Found unexpected token {}, expected {:?}.", found, expected),
             program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        ParseError::UnsupportedSyntax { feature, location } => build_report(
+        )),
+        ParseError::UnsupportedSyntax { feature, location } => report_or_fallback(build_report(
             *location,
             "UnsupportedSyntax",
             format!("Unsupported syntax: {}.", feature),
             program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        ParseError::LexicalError { location } => build_report(*location, "LexError", "Lexical error.", program)
-            .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
+        )),
+        ParseError::LexicalError { location } => report_or_fallback(build_report(*location, "LexError", "Lexical error.", program)),
     }
 }
 
@@ -135,10 +140,7 @@ pub fn parse_error_to_diagnostic<F: Clone + From<u32> + ContextFelt>(error: &Par
     use ParseError::*;
 
     let located = match error {
-        UnexpectedEof { expected, location } => Some((
-            location,
-            format!("Unexpected EOF. Expected one of: {}", format_expected_pretty(expected)),
-        )),
+        UnexpectedEof { expected, location } => Some((location, format!("Unexpected EOF. Expected one of: {}", format_expected_pretty(expected)))),
         UnexpectedToken { found, expected, location } => Some((
             location,
             format!("Unexpected token '{}', expected one of: {}", found, format_expected_pretty(expected)),
@@ -180,14 +182,13 @@ pub fn lowering_sema_error<F: Clone + From<u32> + ContextFelt, C>(error: &psy_se
     match error {
         SemaError::AnyhowError(error) => format!("{}", error),
         SemaError::CommonError(error) => format!("{}", error),
-        SemaError::UnsupportedRecursion { location, what } => build_report(
+        SemaError::UnsupportedRecursion { location, what } => report_or_fallback(build_report(
             location.clone(),
             "UnsupportedRecursion",
             format!("Unsupported recursion: {what}."),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::TypeMismatch { location, expected, found } => build_report(
+        )),
+        SemaError::TypeMismatch { location, expected, found } => report_or_fallback(build_report(
             location.clone(),
             "TypeMismatch",
             format!(
@@ -196,23 +197,20 @@ pub fn lowering_sema_error<F: Clone + From<u32> + ContextFelt, C>(error: &psy_se
                 ctx.debug_type(found.clone())
             ),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::InvalidPathSegment { location, segment } => build_report(
+        )),
+        SemaError::InvalidPathSegment { location, segment } => report_or_fallback(build_report(
             location.clone(),
             "InvalidPathSegment",
             format!("Invalid path segment {}.", segment),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::UnresolvedType { location, resolved_type } => build_report(
+        )),
+        SemaError::UnresolvedType { location, resolved_type } => report_or_fallback(build_report(
             location.clone(),
             "UnresolvedType",
             format!("Unresolved type {}.", ctx.ident(resolved_type.clone())),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::TraitAlreadyImplemented { location, trait_ty, ty } => build_report(
+        )),
+        SemaError::TraitAlreadyImplemented { location, trait_ty, ty } => report_or_fallback(build_report(
             location.clone(),
             "TraitAlreadyImplemented",
             format!(
@@ -221,41 +219,36 @@ pub fn lowering_sema_error<F: Clone + From<u32> + ContextFelt, C>(error: &psy_se
                 ctx.debug_type(ty.clone())
             ),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::VariableAlreadyDefined { location, variable } => build_report(
+        )),
+        SemaError::VariableAlreadyDefined { location, variable } => report_or_fallback(build_report(
             location.clone(),
             "VariableAlreadyDefined",
             format!("Variable {} already defined.", ctx.ident(variable.clone())),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::ImmutableVariable { location, variable } => build_report(
+        )),
+        SemaError::ImmutableVariable { location, variable } => report_or_fallback(build_report(
             location.clone(),
             "ImmutableVariable",
             format!("Variable {} is immutable.", ctx.ident(variable.clone())),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::UnresolvedMember { location, member_name } => build_report(
+        )),
+        SemaError::UnresolvedMember { location, member_name } => report_or_fallback(build_report(
             location.clone(),
             "UnresolvedMember",
             format!("Unresolved member {}.", ctx.ident(member_name.clone())),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::NotCallable { location, ty } => build_report(
+        )),
+        SemaError::NotCallable { location, ty } => report_or_fallback(build_report(
             location.clone(),
             "NotCallable",
             format!("Type {} is not callable.", ctx.debug_type(ty.clone())),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
+        )),
         SemaError::UnresolvedTraitMethod {
             method_location,
             method_name,
             trait_name,
-        } => build_report(
+        } => report_or_fallback(build_report(
             method_location.clone(),
             "UnresolvedTraitMethod",
             format!(
@@ -264,106 +257,99 @@ pub fn lowering_sema_error<F: Clone + From<u32> + ContextFelt, C>(error: &psy_se
                 ctx.ident(trait_name.clone())
             ),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::InvalidGenericArguments { location, expected, found } => build_report(
+        )),
+        SemaError::InvalidGenericArguments { location, expected, found } => report_or_fallback(build_report(
             location.clone(),
             "GenericParameterMismatch",
             format!("Expected {}, but found {}.", expected, found),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
+        )),
         SemaError::InvalidFunctionArguments {
             location,
             method_name: _method_name,
             expected,
             found,
-        } => build_report(
+        } => report_or_fallback(build_report(
             location.clone(),
             "InvalidFunctionCall",
             format!("Expected {} parameters, but found {}.", expected, found),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::InvalidReturn { location, message } => {
-            build_report(location.clone(), "InvalidReturn", message, &ctx.program).unwrap_or_else(|e| format!("Failed to build report: {}", e))
-        }
-        SemaError::InvalidGenericConstraint { location } => build_report(
+        )),
+        SemaError::InvalidReturn { location, message } => report_or_fallback(build_report(location.clone(), "InvalidReturn", message, &ctx.program)),
+        SemaError::InvalidGenericConstraint { location } => report_or_fallback(build_report(
             location.clone(),
             "InvalidGenericConstraint",
             "Generic constraint should either be a concrete type or a list of trait requirements",
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::UnreachableExpression { location } => {
-            build_report(location.clone(), "UnreachableExpression", "Unreachable Expression.", &ctx.program)
-                .unwrap_or_else(|e| format!("Failed to build report: {}", e))
-        }
-        SemaError::TypeAlreadyDefined { location, type_name } => build_report(
+        )),
+        SemaError::UnreachableExpression { location } => report_or_fallback(build_report(
+            location.clone(),
+            "UnreachableExpression",
+            "Unreachable Expression.",
+            &ctx.program,
+        )),
+        SemaError::TypeAlreadyDefined { location, type_name } => report_or_fallback(build_report(
             location.clone(),
             "TypeAlreadyDefined",
             format!("Type {} already defined.", ctx.ident(type_name.clone())),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::MemberNotPublic { location, ty, field } => build_report(
+        )),
+        SemaError::MemberNotPublic { location, ty, field } => report_or_fallback(build_report(
             location.clone(),
             "MemberNotPublic",
             format!("{} not a public member of {}.", ctx.ident(field.clone()), ctx.debug_type(ty.clone())),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::ModuleNotPublic { location, module } => build_report(
+        )),
+        SemaError::ModuleNotPublic { location, module } => report_or_fallback(build_report(
             location.clone(),
             "ModuleNotPublic",
             format!("{} not a public module.", ctx.ident(module.clone())),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::TypeNotPublic { location, ty } => build_report(
+        )),
+        SemaError::TypeNotPublic { location, ty } => report_or_fallback(build_report(
             location.clone(),
             "TypeNotPublic",
             format!("{} not public.", ctx.debug_type(ty.clone())),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::IndexOutOfBounds { location, index, length } => build_report(
+        )),
+        SemaError::IndexOutOfBounds { location, index, length } => report_or_fallback(build_report(
             location.clone(),
             "IndexOutOfBounds",
             format!("Index {} Out Of Bounds {}.", index, length),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::InvalidCast { location, expected, found } => build_report(
+        )),
+        SemaError::InvalidCast { location, expected, found } => report_or_fallback(build_report(
             location.clone(),
             "InvalidCast",
             format!("Expected {}, but found {}.", expected, found),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::DuplicateWildcard { location } => build_report(location.clone(), "DuplicateWildcard", "Duplicate Wildcard.", &ctx.program)
-            .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::IncompleteMatch { location, message } => {
-            build_report(location.clone(), "IncompleteMatch", message, &ctx.program).unwrap_or_else(|e| format!("Failed to build report: {}", e))
+        )),
+        SemaError::DuplicateWildcard { location } => {
+            report_or_fallback(build_report(location.clone(), "DuplicateWildcard", "Duplicate Wildcard.", &ctx.program))
         }
-        SemaError::NoParentModule { location } => build_report(location.clone(), "NoParentModule", "No parent module.", &ctx.program)
-            .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::ModuleNotFound { location, module } => build_report(
+        SemaError::IncompleteMatch { location, message } => {
+            report_or_fallback(build_report(location.clone(), "IncompleteMatch", message, &ctx.program))
+        }
+        SemaError::NoParentModule { location } => {
+            report_or_fallback(build_report(location.clone(), "NoParentModule", "No parent module.", &ctx.program))
+        }
+        SemaError::ModuleNotFound { location, module } => report_or_fallback(build_report(
             location.clone(),
             "ModuleNotFound",
             format!("Module {} not found.", ctx.ident(module.clone())),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::SpecializationNotAllowed { location } => {
-            build_report(location.clone(), "SpecializationNotAllowed", "Specialization not allowed.", &ctx.program)
-                .unwrap_or_else(|e| format!("Failed to build report: {}", e))
-        }
+        )),
+        SemaError::SpecializationNotAllowed { location } => report_or_fallback(build_report(
+            location.clone(),
+            "SpecializationNotAllowed",
+            "Specialization not allowed.",
+            &ctx.program,
+        )),
         SemaError::MissingAssociatedType {
             location,
             trait_name,
             type_name,
-        } => build_report(
+        } => report_or_fallback(build_report(
             location.clone(),
             "MissingAssociatedType",
             format!(
@@ -372,23 +358,20 @@ pub fn lowering_sema_error<F: Clone + From<u32> + ContextFelt, C>(error: &psy_se
                 ctx.ident(trait_name.clone())
             ),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::RawIntrinsicOutsideStd { location, name } => build_report(
+        )),
+        SemaError::RawIntrinsicOutsideStd { location, name } => report_or_fallback(build_report(
             *location,
             "RawIntrinsicOutsideStd",
             format!("Raw intrinsic `{name}` is only available inside the std module tree; use a public std API instead."),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::IfWithoutElse { location } => build_report(
+        )),
+        SemaError::IfWithoutElse { location } => report_or_fallback(build_report(
             *location,
             "IfWithoutElse",
             "if expression without else branch cannot be used as a value: the result is undefined when the condition is false.",
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::AmbiguousTraitMethod { location, method, traits } => build_report(
+        )),
+        SemaError::AmbiguousTraitMethod { location, method, traits } => report_or_fallback(build_report(
             *location,
             "AmbiguousTraitMethod",
             format!(
@@ -397,9 +380,8 @@ pub fn lowering_sema_error<F: Clone + From<u32> + ContextFelt, C>(error: &psy_se
                 traits.iter().map(|ty| ctx.debug_type(ty.clone())).collect::<Vec<_>>().join(", ")
             ),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
-        SemaError::AmbiguousAssociatedType { location, member, traits } => build_report(
+        )),
+        SemaError::AmbiguousAssociatedType { location, member, traits } => report_or_fallback(build_report(
             *location,
             "AmbiguousAssociatedType",
             format!(
@@ -408,8 +390,7 @@ pub fn lowering_sema_error<F: Clone + From<u32> + ContextFelt, C>(error: &psy_se
                 traits.iter().map(|ty| ctx.debug_type(*ty)).collect::<Vec<_>>().join(", ")
             ),
             &ctx.program,
-        )
-        .unwrap_or_else(|e| format!("Failed to build report: {}", e)),
+        )),
     }
 }
 pub fn typecheck_error_to_diagnostic<F: Clone + From<u32> + ContextFelt, C>(
@@ -530,29 +511,34 @@ pub fn lowering_interpreter_error<F: Clone + From<u32> + ContextFelt, C>(error: 
         Error::IoError(error) => format!("{}", error),
         Error::SemaError(error) => lowering_sema_error(error, ctx),
         Error::UndefinedFunction => format!("{}", error),
-        Error::UncertainLoopCondition { loop_location } => {
-            build_report(loop_location.clone(), "UncertainLoopCondition", "Uncertain Loop Condition", &ctx.program)
-                .unwrap_or_else(|e| format!("Failed to build report: {}", e))
-        }
+        Error::UncertainLoopCondition { loop_location } => report_or_fallback(build_report(
+            loop_location.clone(),
+            "UncertainLoopCondition",
+            "Uncertain Loop Condition",
+            &ctx.program,
+        )),
         Error::AssertionFailure { message, location } => {
             if let Some(location) = location {
-                build_report(location.clone(), "AssertionFailure", message, &ctx.program).unwrap_or_else(|e| format!("Failed to build report: {}", e))
+                report_or_fallback(build_report(location.clone(), "AssertionFailure", message, &ctx.program))
             } else {
                 format!("Assertion failure: {}", message)
             }
         }
         Error::DivisionByZero { location } => {
             if let Some(location) = location {
-                build_report(location.clone(), "DivisionByZero", "Division or remainder by zero.", &ctx.program)
-                    .unwrap_or_else(|e| format!("Failed to build report: {}", e))
+                report_or_fallback(build_report(
+                    location.clone(),
+                    "DivisionByZero",
+                    "Division or remainder by zero.",
+                    &ctx.program,
+                ))
             } else {
                 format!("{}", error)
             }
         }
         Error::ArithmeticOverflow { location } => {
             if let Some(location) = location {
-                build_report(location.clone(), "ArithmeticOverflow", "Arithmetic overflow.", &ctx.program)
-                    .unwrap_or_else(|e| format!("Failed to build report: {}", e))
+                report_or_fallback(build_report(location.clone(), "ArithmeticOverflow", "Arithmetic overflow.", &ctx.program))
             } else {
                 format!("{}", error)
             }
@@ -560,16 +546,18 @@ pub fn lowering_interpreter_error<F: Clone + From<u32> + ContextFelt, C>(error: 
         Error::IndexOutOfBounds { index, length, location } => {
             let msg = format!("Index out of bounds: index {} >= length {}.", index, length);
             if let Some(location) = location {
-                build_report(location.clone(), "IndexOutOfBounds", msg, &ctx.program)
-                    .unwrap_or_else(|e| format!("Failed to build report: {}", e))
+                report_or_fallback(build_report(location.clone(), "IndexOutOfBounds", msg, &ctx.program))
             } else {
                 msg
             }
         }
         Error::ArrayTooLarge { length, limit, location } => {
-            let msg = format!("Cannot materialize an array with {} elements; the interpreter limit is {}.", length, limit);
+            let msg = format!(
+                "Cannot materialize an array with {} elements; the interpreter limit is {}.",
+                length, limit
+            );
             if let Some(location) = location {
-                build_report(*location, "ArrayTooLarge", msg, &ctx.program).unwrap_or_else(|e| format!("Failed to build report: {}", e))
+                report_or_fallback(build_report(*location, "ArrayTooLarge", msg, &ctx.program))
             } else {
                 msg
             }
@@ -577,7 +565,7 @@ pub fn lowering_interpreter_error<F: Clone + From<u32> + ContextFelt, C>(error: 
         Error::ArrayAllocationFailed { length, location } => {
             let msg = format!("Cannot reserve storage for {} array elements.", length);
             if let Some(location) = location {
-                build_report(*location, "ArrayAllocationFailed", msg, &ctx.program).unwrap_or_else(|e| format!("Failed to build report: {}", e))
+                report_or_fallback(build_report(*location, "ArrayAllocationFailed", msg, &ctx.program))
             } else {
                 msg
             }
@@ -585,8 +573,7 @@ pub fn lowering_interpreter_error<F: Clone + From<u32> + ContextFelt, C>(error: 
         Error::UnsupportedRecursion { location } => {
             let msg = "Recursive calls are unsupported by the symbolic interpreter.";
             if let Some(location) = location {
-                build_report(*location, "UnsupportedRecursion", msg, &ctx.program)
-                    .unwrap_or_else(|e| format!("Failed to build report: {}", e))
+                report_or_fallback(build_report(*location, "UnsupportedRecursion", msg, &ctx.program))
             } else {
                 msg.to_string()
             }
@@ -603,12 +590,11 @@ mod tests {
     use psy_ast::{Location, Program};
     use psy_common::FileId;
     use psy_parser::error::ExpectedToken;
-    use psy_vm::dpn::ops::sym_felt::SymFeltRef;
     use psy_sema::{Type, TypeCheckerVisitorContext, TypeId};
-    use psy_vm::dpn::ops::exec_context::QExecContext;
+    use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
 
     use super::{
-        format_expected_pretty, lowering_interpreter_error, lowering_parse_error, lowering_sema_error, parse_error_to_diagnostic,
+        format_expected_pretty, lowering_interpreter_error, lowering_parse_error, lowering_sema_error, parse_error_to_diagnostic, report_or_fallback,
         span_to_range, typecheck_error_to_diagnostic, Error,
     };
 
@@ -616,7 +602,10 @@ mod tests {
     fn expected_token_formatting_handles_all_list_lengths() {
         assert_eq!(format_expected_pretty(&[]), "(no expected tokens)");
         assert_eq!(format_expected_pretty(&[ExpectedToken::Ident]), "identifier");
-        assert_eq!(format_expected_pretty(&[ExpectedToken::Ident, ExpectedToken::Literal]), "identifier or literal");
+        assert_eq!(
+            format_expected_pretty(&[ExpectedToken::Ident, ExpectedToken::Literal]),
+            "identifier or literal"
+        );
         assert_eq!(
             format_expected_pretty(&[ExpectedToken::Ident, ExpectedToken::Literal, ExpectedToken::Eof]),
             "identifier, literal or end of file"
@@ -652,13 +641,42 @@ mod tests {
         let ctx = TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(Program::new());
         let cases = [
             (Error::UndefinedFunction, "undefined function"),
-            (Error::AssertionFailure { message: "failed".into(), location: None }, "Assertion failure: failed"),
+            (
+                Error::AssertionFailure {
+                    message: "failed".into(),
+                    location: None,
+                },
+                "Assertion failure: failed",
+            ),
             (Error::DivisionByZero { location: None }, "DivisionByZero: division or remainder by zero"),
-            (Error::ArithmeticOverflow { location: None }, "ArithmeticOverflow: constant arithmetic overflow"),
-            (Error::IndexOutOfBounds { index: 3, length: 2, location: None }, "Index out of bounds: index 3 >= length 2."),
-            (Error::ArrayTooLarge { length: 10, limit: 5, location: None }, "Cannot materialize an array with 10 elements; the interpreter limit is 5."),
-            (Error::ArrayAllocationFailed { length: 10, location: None }, "Cannot reserve storage for 10 array elements."),
-            (Error::UnsupportedRecursion { location: None }, "Recursive calls are unsupported by the symbolic interpreter."),
+            (
+                Error::ArithmeticOverflow { location: None },
+                "ArithmeticOverflow: constant arithmetic overflow",
+            ),
+            (
+                Error::IndexOutOfBounds {
+                    index: 3,
+                    length: 2,
+                    location: None,
+                },
+                "Index out of bounds: index 3 >= length 2.",
+            ),
+            (
+                Error::ArrayTooLarge {
+                    length: 10,
+                    limit: 5,
+                    location: None,
+                },
+                "Cannot materialize an array with 10 elements; the interpreter limit is 5.",
+            ),
+            (
+                Error::ArrayAllocationFailed { length: 10, location: None },
+                "Cannot reserve storage for 10 array elements.",
+            ),
+            (
+                Error::UnsupportedRecursion { location: None },
+                "Recursive calls are unsupported by the symbolic interpreter.",
+            ),
         ];
         for (error, expected) in cases {
             let rendered = lowering_interpreter_error(error, &ctx).to_string();
@@ -674,12 +692,38 @@ mod tests {
         let ctx = TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(program);
         let cases = [
             (Error::UncertainLoopCondition { loop_location: location }, "UncertainLoopCondition"),
-            (Error::AssertionFailure { message: "failed".into(), location: Some(location) }, "AssertionFailure"),
+            (
+                Error::AssertionFailure {
+                    message: "failed".into(),
+                    location: Some(location),
+                },
+                "AssertionFailure",
+            ),
             (Error::DivisionByZero { location: Some(location) }, "DivisionByZero"),
             (Error::ArithmeticOverflow { location: Some(location) }, "ArithmeticOverflow"),
-            (Error::IndexOutOfBounds { index: 3, length: 2, location: Some(location) }, "IndexOutOfBounds"),
-            (Error::ArrayTooLarge { length: 10, limit: 5, location: Some(location) }, "ArrayTooLarge"),
-            (Error::ArrayAllocationFailed { length: 10, location: Some(location) }, "ArrayAllocationFailed"),
+            (
+                Error::IndexOutOfBounds {
+                    index: 3,
+                    length: 2,
+                    location: Some(location),
+                },
+                "IndexOutOfBounds",
+            ),
+            (
+                Error::ArrayTooLarge {
+                    length: 10,
+                    limit: 5,
+                    location: Some(location),
+                },
+                "ArrayTooLarge",
+            ),
+            (
+                Error::ArrayAllocationFailed {
+                    length: 10,
+                    location: Some(location),
+                },
+                "ArrayAllocationFailed",
+            ),
             (Error::UnsupportedRecursion { location: Some(location) }, "UnsupportedRecursion"),
         ];
         for (error, code) in cases {
@@ -787,10 +831,7 @@ mod tests {
                 // This arm lowers to the bare path, not the Display form.
                 "dup.psy",
             ),
-            (
-                psy_parser::Error::ExternFnNotInStd,
-                "Extern function can only be defined in std",
-            ),
+            (psy_parser::Error::ExternFnNotInStd, "Extern function can only be defined in std"),
             (psy_parser::Error::FunctionBodyMissing, "Missing function body"),
             (psy_parser::Error::InvalidSelfParameter, "Invalid self parameter"),
         ];
@@ -815,10 +856,7 @@ mod tests {
 
         let cases: Vec<(psy_sema::Error, &str)> = vec![
             (
-                psy_sema::Error::UnsupportedRecursion {
-                    location,
-                    what: "functions",
-                },
+                psy_sema::Error::UnsupportedRecursion { location, what: "functions" },
                 "UnsupportedRecursion",
             ),
             (
@@ -844,27 +882,14 @@ mod tests {
                 "UnresolvedType",
             ),
             (
-                psy_sema::Error::TraitAlreadyImplemented {
-                    location,
-                    trait_ty: ty,
-                    ty,
-                },
+                psy_sema::Error::TraitAlreadyImplemented { location, trait_ty: ty, ty },
                 "TraitAlreadyImplemented",
             ),
             (
-                psy_sema::Error::VariableAlreadyDefined {
-                    location,
-                    variable: ident,
-                },
+                psy_sema::Error::VariableAlreadyDefined { location, variable: ident },
                 "VariableAlreadyDefined",
             ),
-            (
-                psy_sema::Error::ImmutableVariable {
-                    location,
-                    variable: ident,
-                },
-                "ImmutableVariable",
-            ),
+            (psy_sema::Error::ImmutableVariable { location, variable: ident }, "ImmutableVariable"),
             (
                 psy_sema::Error::UnresolvedMember {
                     location,
@@ -907,28 +932,9 @@ mod tests {
             ),
             (psy_sema::Error::InvalidGenericConstraint { location }, "InvalidGenericConstraint"),
             (psy_sema::Error::UnreachableExpression { location }, "UnreachableExpression"),
-            (
-                psy_sema::Error::TypeAlreadyDefined {
-                    location,
-                    type_name: ident,
-                },
-                "TypeAlreadyDefined",
-            ),
-            (
-                psy_sema::Error::MemberNotPublic {
-                    location,
-                    ty,
-                    field: ident,
-                },
-                "MemberNotPublic",
-            ),
-            (
-                psy_sema::Error::ModuleNotPublic {
-                    location,
-                    module: ident,
-                },
-                "ModuleNotPublic",
-            ),
+            (psy_sema::Error::TypeAlreadyDefined { location, type_name: ident }, "TypeAlreadyDefined"),
+            (psy_sema::Error::MemberNotPublic { location, ty, field: ident }, "MemberNotPublic"),
+            (psy_sema::Error::ModuleNotPublic { location, module: ident }, "ModuleNotPublic"),
             (psy_sema::Error::TypeNotPublic { location, ty }, "TypeNotPublic"),
             (
                 psy_sema::Error::IndexOutOfBounds {
@@ -955,13 +961,7 @@ mod tests {
                 "IncompleteMatch",
             ),
             (psy_sema::Error::NoParentModule { location }, "NoParentModule"),
-            (
-                psy_sema::Error::ModuleNotFound {
-                    location,
-                    module: ident,
-                },
-                "ModuleNotFound",
-            ),
+            (psy_sema::Error::ModuleNotFound { location, module: ident }, "ModuleNotFound"),
             (psy_sema::Error::SpecializationNotAllowed { location }, "SpecializationNotAllowed"),
             (
                 psy_sema::Error::MissingAssociatedType {
@@ -1044,17 +1044,11 @@ mod tests {
                 "Unresolved type: counter",
             ),
             (
-                psy_sema::Error::VariableAlreadyDefined {
-                    location,
-                    variable: ident,
-                },
+                psy_sema::Error::VariableAlreadyDefined { location, variable: ident },
                 "Variable already defined: counter",
             ),
             (
-                psy_sema::Error::ImmutableVariable {
-                    location,
-                    variable: ident,
-                },
+                psy_sema::Error::ImmutableVariable { location, variable: ident },
                 "Variable counter is immutable",
             ),
             (
@@ -1116,5 +1110,44 @@ mod tests {
         let sema = lowering_interpreter_error(Error::SemaError(psy_sema::Error::NoParentModule { location }), &ctx).to_string();
         assert!(sema.contains("NoParentModule"), "expected sema report in {sema:?}");
         assert!(sema.contains("pass.psy"), "expected source path in {sema:?}");
+    }
+
+    /// A file registered under a non-UTF-8 path cannot be found again from the
+    /// lossy path string embedded in the ariadne report, so the report cache
+    /// lookup misses and ariadne renders the report without source context.
+    #[cfg(unix)]
+    fn unresolvable_source_program() -> (Program<SymFeltRef>, Location) {
+        use std::os::unix::ffi::OsStrExt;
+
+        let mut program = Program::<SymFeltRef>::new();
+        let file_id = program
+            .file_resolver
+            .add_file(PathBuf::from(std::ffi::OsStr::from_bytes(b"unresolvable_\xff.psy")), "fn main() {}\n");
+        (program, Location::new(file_id, 0, 2))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn located_errors_still_render_when_the_report_cache_misses_the_source() {
+        let (program, location) = unresolvable_source_program();
+
+        let rendered = lowering_parse_error(&psy_parser::Error::LexicalError { location }, &program);
+        assert!(rendered.contains("LexError"), "expected report code in {rendered:?}");
+
+        let ctx = TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(program);
+        let rendered = lowering_interpreter_error(Error::DivisionByZero { location: Some(location) }, &ctx).to_string();
+        assert!(rendered.contains("DivisionByZero"), "expected report code in {rendered:?}");
+
+        let rendered = lowering_sema_error(&psy_sema::Error::NoParentModule { location }, &ctx);
+        assert!(rendered.contains("NoParentModule"), "expected report code in {rendered:?}");
+    }
+
+    #[test]
+    fn report_or_fallback_renders_the_error_when_report_building_fails() {
+        let rendered = report_or_fallback(Err(Error::UndefinedFunction));
+        assert_eq!(rendered, "Failed to build report: undefined function");
+
+        let rendered = report_or_fallback(Ok("report".to_string()));
+        assert_eq!(rendered, "report");
     }
 }

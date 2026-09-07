@@ -1355,3 +1355,257 @@ fn generic_bodies_with_hash_mem_and_event_intrinsics_instantiate() {
         "#,
     );
 }
+
+#[test]
+fn tuple_parameters_and_returns_flow_through_interpretation() {
+    expect_exec(
+        "tuple_param_return",
+        r#"
+        fn make_pair(x: Felt) -> (Felt, Felt) {
+            return (x + 1, x + 2);
+        }
+
+        fn main(q: Felt) -> Felt {
+            let pair: (Felt, Felt) = make_pair(q);
+            return pair.0 + pair.1;
+        }
+        "#,
+    );
+}
+
+#[test]
+fn calculate_type_size_sums_tuple_element_sizes() {
+    let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+    let mut ctx = TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(Program::new());
+    let felt = ctx.symbols.create_type(psy_sema::Type::Felt).unwrap();
+    let tuple = ctx.symbols.create_type(psy_sema::Type::Tuple(vec![felt, felt, felt])).unwrap();
+    assert_eq!(interpreter.calculate_type_size(tuple, &ctx), 3);
+}
+
+#[test]
+fn if_else_if_expression_chains_execute() {
+    expect_exec(
+        "else_if_chain",
+        r#"
+        fn main(x: Felt) -> Felt {
+            let y: Felt = if x == 0 {
+                1
+            } else if x == 1 {
+                2
+            } else {
+                3
+            };
+            return y;
+        }
+        "#,
+    );
+}
+
+#[test]
+fn first_class_function_arguments_match_expected_signatures() {
+    expect_exec(
+        "first_class_fn_arg",
+        r#"
+        fn apply(f: fn(Felt, Felt) -> Felt, x: Felt, y: Felt) -> Felt {
+            return f(x, y);
+        }
+
+        fn add(a: Felt, b: Felt) -> Felt {
+            return a + b;
+        }
+
+        fn main(q: Felt) -> Felt {
+            return apply(add, q, 1);
+        }
+        "#,
+    );
+}
+
+#[test]
+fn type_checker_visit_module_is_unreachable_by_design() {
+    let path = temp_psy_path("visit_module");
+    fs::write(&path, "fn main() {}\n").unwrap();
+
+    let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+    let (mut typechecker, mut ctx) = interpreter.typecheck_single(path.clone()).expect("typecheck a trivial module");
+    let _ = fs::remove_file(&path);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = psy_ast::AstVisitor::visit_module(&mut typechecker, psy_ast::ModuleId(0), &mut ctx);
+    }));
+    assert!(result.is_err(), "TypeChecker::visit_module must hit unreachable!()");
+}
+
+#[test]
+fn equality_uses_an_inherent_generic_eq_method_when_present() {
+    expect_exec(
+        "generic_eq_method",
+        r#"
+        pub struct P {
+            pub v: Felt,
+        }
+
+        impl P {
+            pub fn eq<T>(self: Self, rhs: P) -> bool {
+                return self.v == rhs.v;
+            }
+        }
+
+        fn main(q: Felt) -> Felt {
+            let a = P { v: q };
+            let b = P { v: q + 1 };
+            return (a == b) as Felt;
+        }
+        "#,
+    );
+}
+
+#[test]
+fn indexing_uses_an_inherent_generic_index_method_when_present() {
+    expect_exec(
+        "generic_index_method",
+        r#"
+        pub struct I {
+            pub v: [Felt; 4],
+        }
+
+        impl I {
+            pub fn index<T>(self: Self, idx: Felt) -> Felt {
+                return self.v[idx];
+            }
+        }
+
+        fn main(q: Felt) -> Felt {
+            let i = I { v: [1, 2, 3, 4] };
+            return i[q];
+        }
+        "#,
+    );
+}
+
+#[test]
+fn compound_assignment_uses_an_inherent_generic_add_assign_method_when_present() {
+    expect_exec(
+        "generic_add_assign_method",
+        r#"
+        pub struct A {
+            pub v: Felt,
+        }
+
+        impl A {
+            pub fn add_assign<T>(mut self: Self, rhs: Felt) {
+                self.v = self.v + rhs;
+            }
+        }
+
+        fn main(q: Felt) -> Felt {
+            let mut a = A { v: q };
+            a += 1;
+            return a.v;
+        }
+        "#,
+    );
+}
+
+#[test]
+fn assert_eq_uses_an_inherent_generic_eq_method_when_present() {
+    expect_exec(
+        "generic_eq_method_assert",
+        r#"
+        pub struct Q {
+            pub v: Felt,
+        }
+
+        impl Q {
+            pub fn eq<T>(self: Self, rhs: Q) -> bool {
+                return self.v == rhs.v;
+            }
+        }
+
+        fn main(q: Felt) {
+            let a = Q { v: q };
+            let b = Q { v: q };
+            assert_eq(a, b, "custom eq");
+        }
+        "#,
+    );
+}
+
+#[test]
+fn passing_an_unknown_function_value_is_a_clean_error() {
+    expect_failure(
+        "unknown_function_value",
+        r#"
+        fn apply(f: fn(Felt, Felt) -> Felt, x: Felt, y: Felt) -> Felt {
+            return f(x, y);
+        }
+
+        fn main(q: Felt) -> Felt {
+            return apply(nope, q, 1);
+        }
+        "#,
+        "unresolved type",
+    );
+}
+
+#[test]
+fn passing_a_function_with_a_mismatched_signature_is_a_clean_error() {
+    expect_failure(
+        "wrong_arity_function_value",
+        r#"
+        fn apply(f: fn(Felt, Felt) -> Felt, x: Felt, y: Felt) -> Felt {
+            return f(x, y);
+        }
+
+        fn add3(a: Felt, b: Felt, c: Felt) -> Felt {
+            return a + b + c;
+        }
+
+        fn main(q: Felt) -> Felt {
+            return apply(add3, q, 1);
+        }
+        "#,
+        "type mismatch",
+    );
+}
+
+#[test]
+fn lambdas_with_named_return_types_execute() {
+    expect_exec(
+        "lambda_named_return_type",
+        r#"
+        pub struct P {
+            pub v: Felt,
+        }
+
+        fn main(q: Felt) -> Felt {
+            let make = |x: Felt| -> P {
+                return P { v: x };
+            };
+            return make(q).v;
+        }
+        "#,
+    );
+}
+
+#[test]
+fn associated_functions_on_types_execute() {
+    expect_exec(
+        "associated_fn_call",
+        r#"
+        pub struct P {
+            pub v: Felt,
+        }
+
+        impl P {
+            pub fn create(x: Felt) -> P {
+                return P { v: x };
+            }
+        }
+
+        fn main(q: Felt) -> Felt {
+            return P::create(q).v;
+        }
+        "#,
+    );
+}

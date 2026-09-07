@@ -123,7 +123,6 @@ impl<'a> StorageProcessor<'a> {
         }
     }
 
-
     fn generate_storage_impl<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
         &self,
         struct_node: &StructNode,
@@ -480,7 +479,10 @@ impl<'a> StorageProcessor<'a> {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
                         let base_name = type_name.strip_suffix("Ref").expect("generated ref type must end with Ref");
-                        (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), ConstValue::Felt(1))
+                        (
+                            UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)),
+                            ConstValue::Felt(1),
+                        )
                     }
                     _ => panic!("#[ref] attribute only supported on basic struct types"),
                 }
@@ -515,9 +517,7 @@ impl<'a> StorageProcessor<'a> {
             }
 
             // A one-element array still has a valid index (zero).
-            if !is_ref_struct
-                && matches!(&field.ty, UncheckedType::Array(_, array_size, _) if array_size.as_u64().unwrap_or(0) > 0)
-            {
+            if !is_ref_struct && matches!(&field.ty, UncheckedType::Array(_, array_size, _) if array_size.as_u64().unwrap_or(0) > 0) {
                 methods.push(self.generate_getter_at(attr, &field_name.id, &field.ty, offset, ctx));
                 methods.push(self.generate_setter_at(attr, &field_name.id, &field.ty, offset, ctx));
             }
@@ -869,9 +869,7 @@ impl<'a> StorageProcessor<'a> {
             match &field.ty {
                 UncheckedType::Basic(ident) => {
                     let type_name = ctx.ident(ident.id).0.to_string();
-                    let base_name = type_name
-                        .strip_suffix("Ref")
-                        .expect("#[ref] field type must use its generated Ref type");
+                    let base_name = type_name.strip_suffix("Ref").expect("#[ref] field type must use its generated Ref type");
                     UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location))
                 }
                 _ => panic!("#[ref] attribute only supported on basic struct types"),
@@ -981,19 +979,19 @@ impl<'a> StorageProcessor<'a> {
         let mut offset = offset_expr;
         for (field_name, field) in &struct_node.fields {
             let inner_ty = match &field.ty {
-                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
-                        if params.len() != 1 {
-                            panic!("StorageRef must have exactly one generic parameter");
-                        }
-                        params[0].clone()
+                UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
+                    if params.len() != 1 {
+                        panic!("StorageRef must have exactly one generic parameter");
                     }
-                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
-                        if params.len() != 2 {
-                            panic!("ArrayRef must have exactly two generic parameters");
-                        }
-                        params[0].clone()
+                    params[0].clone()
+                }
+                UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
+                    if params.len() != 2 {
+                        panic!("ArrayRef must have exactly two generic parameters");
                     }
-                    _ => field.ty.clone(),
+                    params[0].clone()
+                }
+                _ => field.ty.clone(),
             };
             let (_key, value) = self.generate_field_read(attr, &field_name.id, &inner_ty, offset, csth_expr, user_id_expr, contract_id_expr, ctx);
             field_reads.insert(field_name.clone(), value);
@@ -1093,19 +1091,19 @@ impl<'a> StorageProcessor<'a> {
         let mut offset = offset_expr;
         for (field_name, field) in &struct_node.fields {
             let inner_ty = match &field.ty {
-                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
-                        if params.len() != 1 {
-                            panic!("StorageRef must have exactly one generic parameter");
-                        }
-                        params[0].clone()
+                UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
+                    if params.len() != 1 {
+                        panic!("StorageRef must have exactly one generic parameter");
                     }
-                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
-                        if params.len() != 2 {
-                            panic!("ArrayRef must have exactly two generic parameters");
-                        }
-                        params[0].clone()
+                    params[0].clone()
+                }
+                UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") => {
+                    if params.len() != 2 {
+                        panic!("ArrayRef must have exactly two generic parameters");
                     }
-                    _ => field.ty.clone(),
+                    params[0].clone()
+                }
+                _ => field.ty.clone(),
             };
             let stmt_id = self.generate_field_write(attr, &field_name.id, &inner_ty, offset, ctx);
             field_writes.push(stmt_id);
@@ -1181,7 +1179,10 @@ impl<'a> StorageProcessor<'a> {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
                         let base_name = type_name.strip_suffix("Ref").expect("generated ref type must end with Ref");
-                        (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), ConstValue::Felt(1))
+                        (
+                            UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)),
+                            ConstValue::Felt(1),
+                        )
                     }
                     _ => panic!("#[ref] attribute only supported on basic struct types"),
                 }
@@ -1370,7 +1371,10 @@ impl<'a> StorageProcessor<'a> {
                     UncheckedType::Basic(ident) => {
                         let type_name = ctx.ident(ident.id).0.to_string();
                         let base_name = type_name.strip_suffix("Ref").expect("generated ref type must end with Ref");
-                        (UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)), ConstValue::Felt(1))
+                        (
+                            UncheckedType::Basic(Identifier::new(ctx.intern(base_name), attr.location)),
+                            ConstValue::Felt(1),
+                        )
                     }
                     _ => panic!("#[ref] attribute only supported on basic struct types"),
                 }
@@ -3478,7 +3482,10 @@ mod tests {
             else_branch: None,
             location: loc(),
         }));
-        let tuple = ctx.alloc_expression(ExprNode::Tuple(TupleExprNode { elements: vec![], location: loc() }));
+        let tuple = ctx.alloc_expression(ExprNode::Tuple(TupleExprNode {
+            elements: vec![],
+            location: loc(),
+        }));
         let tuple_access = ctx.alloc_expression(ExprNode::TupleAccess(TupleAccessNode {
             target: felt,
             index: 0,
@@ -3494,7 +3501,25 @@ mod tests {
             location: loc(),
         }));
         let parentheses = ctx.alloc_expression(ExprNode::Parentheses(felt));
-        for expr_id in [path, felt, binary, unary, call, member_call, cast, index_access, member_access, intrinsic, lambda, block, if_expr, tuple, tuple_access, match_expr, parentheses] {
+        for expr_id in [
+            path,
+            felt,
+            binary,
+            unary,
+            call,
+            member_call,
+            cast,
+            index_access,
+            member_access,
+            intrinsic,
+            lambda,
+            block,
+            if_expr,
+            tuple,
+            tuple_access,
+            match_expr,
+            parentheses,
+        ] {
             processor.visit_expr(expr_id, &mut ctx).unwrap();
         }
 
@@ -3647,7 +3672,17 @@ mod tests {
         }));
         let storage_def = ctx.alloc_definition(DefinitionNode::Struct(storage));
 
-        for def_id in [use_def, enum_def, impl_def, trait_impl_def, trait_def, alias_def, const_def, function_def, storage_def] {
+        for def_id in [
+            use_def,
+            enum_def,
+            impl_def,
+            trait_impl_def,
+            trait_def,
+            alias_def,
+            const_def,
+            function_def,
+            storage_def,
+        ] {
             processor.visit_definition(def_id, &mut ctx).unwrap();
         }
 

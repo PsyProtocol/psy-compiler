@@ -5524,6 +5524,7 @@ dependencies = [
  "md5",
  "semver 1.0.28",
  "serde",
+ "serial_test",
  "smol_str",
  "tempfile",
  "thiserror 2.0.18",
