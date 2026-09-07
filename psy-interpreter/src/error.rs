@@ -38,6 +38,8 @@ pub enum Error {
     ArrayAllocationFailed { length: usize, location: Option<Location> },
     #[error("UnsupportedRecursion: recursive function calls cannot be interpreted")]
     UnsupportedRecursion { location: Option<Location> },
+    #[error("UnsupportedEntryPointInput: entry-point parameter of type `{ty}` cannot be materialized: {reason}")]
+    UnsupportedEntryPointInput { ty: String, reason: &'static str, location: Location },
     // #[error("type mismatch")]
     // TypeMismatch,
 }
@@ -577,6 +579,10 @@ pub fn lowering_interpreter_error<F: Clone + From<u32> + ContextFelt, C>(error: 
             } else {
                 msg.to_string()
             }
+        }
+        Error::UnsupportedEntryPointInput { ty, reason, location } => {
+            let msg = format!("Entry-point parameter of type `{ty}` cannot be materialized: {reason}.");
+            report_or_fallback(build_report(*location, "UnsupportedEntryPointInput", msg, &ctx.program))
         }
     };
 
