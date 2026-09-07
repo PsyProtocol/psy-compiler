@@ -174,7 +174,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn doc_flag_delegates_to_run_doc_and_checks_commented_output() {
-        let source = "// input: 41\n// output: 42\nfn main(a: Felt) -> Felt { return a + 1; }\n";
+        // NOTE: file-leading comments become the *module's* comments in the parser
+        // (psy-parser/src/recursive/mod.rs `take_leading_comments` at module start),
+        // so a leading item must precede them for the doc pipeline to attach
+        // `input:`/`output:` to the function itself.
+        let source = "use std::prelude::*;\n// input: 41\n// output: 42\nfn main(a: Felt) -> Felt { return a + 1; }\n";
         let (dir, workspace) = temp_workspace(source, "doc_mode");
         run(
             ExecuteCommand { compile_options: compile_options(), parameters: vec![], doc: true },
@@ -189,7 +193,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn doc_mode_with_debug_flag_prints_function_metadata_and_results() {
-        let source = "// input: 41\n// output: 42\nfn main(a: Felt) -> Felt { return a + 1; }\n";
+        // NOTE: file-leading comments become the *module's* comments in the parser
+        // (psy-parser/src/recursive/mod.rs `take_leading_comments` at module start),
+        // so a leading item must precede them for the doc pipeline to attach
+        // `input:`/`output:` to the function itself.
+        let source = "use std::prelude::*;\n// input: 41\n// output: 42\nfn main(a: Felt) -> Felt { return a + 1; }\n";
         let (dir, workspace) = temp_workspace(source, "doc_debug");
         run(
             ExecuteCommand {

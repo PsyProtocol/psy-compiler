@@ -193,4 +193,42 @@ mod tests {
         assert!(other.as_expression().is_none());
         assert!(other.as_definition().is_none());
     }
+
+    #[test]
+    fn checked_statements_expose_handles_through_trait_objects() {
+        // Dispatch through `dyn NodeInfo` so the small accessors execute
+        // out-of-line instead of being inlined into the caller.
+        let expression: CheckedStmtNode = ExprId(7).into();
+        let info: &dyn NodeInfo = &expression;
+        assert_eq!(info.as_expression(), Some(ExprId(7)));
+        assert!(info.as_definition().is_none());
+
+        let definition: CheckedStmtNode = DefId(3).into();
+        let info: &dyn NodeInfo = &definition;
+        assert_eq!(info.as_definition(), Some(DefId(3)));
+        assert!(info.as_expression().is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "not yet implemented")]
+    fn checked_statement_from_expression_node_is_unimplemented() {
+        let convert: fn(CheckedExprNode<psy_vm::dpn::ops::sym_felt::SymFeltRef>) -> CheckedStmtNode = CheckedStmtNode::from;
+        let _ = convert(CheckedExprNode::Value(crate::CheckedValueNode::Bool(
+            psy_vm::dpn::ops::sym_felt::SymFeltRef(1),
+            Location::default(),
+        )));
+    }
+
+    #[test]
+    #[should_panic(expected = "not yet implemented")]
+    fn checked_statement_from_definition_node_is_unimplemented() {
+        let convert: fn(CheckedDefinitionNode) -> CheckedStmtNode = CheckedStmtNode::from;
+        let _ = convert(CheckedDefinitionNode::Const(crate::CheckedConstNode {
+            name: None,
+            ty: TypeId(0),
+            value: crate::ConstId(0),
+            visibility: psy_ast::Visibility::Private,
+            scope_id: ScopeId(0),
+        }));
+    }
 }

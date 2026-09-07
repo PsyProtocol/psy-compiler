@@ -4,7 +4,12 @@ mod control;
 pub mod error;
 mod preprocess;
 
-use std::{collections::{HashMap, HashSet}, iter::once, path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    iter::once,
+    path::PathBuf,
+    sync::Arc,
+};
 
 use error::{Error, Result};
 use indexmap::IndexMap;
@@ -162,11 +167,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
     /// Number of leaf input values a parameter type materializes.
     fn input_footprint(ty: TypeId, symbols: &SymbolTable<F>) -> u64 {
-        fn visit<F: ContextFelt + From<u32>>(
-            ty: TypeId,
-            symbols: &SymbolTable<F>,
-            active: &mut HashSet<TypeId>,
-        ) -> u64 {
+        fn visit<F: ContextFelt + From<u32>>(ty: TypeId, symbols: &SymbolTable<F>, active: &mut HashSet<TypeId>) -> u64 {
             // Type graphs can be recursive. Treat a cycle conservatively as
             // over-budget instead of imposing a nesting cutoff that lets a
             // deeply nested input count as zero.
@@ -174,29 +175,29 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 return u64::MAX;
             }
             let footprint = match &symbols[ty] {
-            Type::Array(arr) => {
-                let size = match &symbols[arr.size_ty] {
-                    Type::Const(const_node) => {
-                        let const_value_ref = &symbols[const_node.value];
-                        match &*const_value_ref.borrow() {
-                            // Felt and U32 constants carry their payload in
-                            // the felt; ContextFelt::get_u64 reads it without
-                            // needing the interpreter's context handle.
-                            CheckedValue::Felt(f) | CheckedValue::U32(f) => ContextFelt::get_u64(f),
-                            _ => 0,
+                Type::Array(arr) => {
+                    let size = match &symbols[arr.size_ty] {
+                        Type::Const(const_node) => {
+                            let const_value_ref = &symbols[const_node.value];
+                            match &*const_value_ref.borrow() {
+                                // Felt and U32 constants carry their payload in
+                                // the felt; ContextFelt::get_u64 reads it without
+                                // needing the interpreter's context handle.
+                                CheckedValue::Felt(f) | CheckedValue::U32(f) => ContextFelt::get_u64(f),
+                                _ => 0,
+                            }
                         }
-                    }
-                    _ => u64::MAX,
-                };
-                size.saturating_mul(visit(arr.inner_ty, symbols, active))
-            }
-            Type::Tuple(elements) => elements.iter().map(|&e| visit(e, symbols, active)).fold(0, u64::saturating_add),
-            Type::Struct(s) => s
-                .fields
-                .values()
-                .map(|field| visit(field.ty, symbols, active))
-                .fold(0, u64::saturating_add),
-            _ => 1,
+                        _ => u64::MAX,
+                    };
+                    size.saturating_mul(visit(arr.inner_ty, symbols, active))
+                }
+                Type::Tuple(elements) => elements.iter().map(|&e| visit(e, symbols, active)).fold(0, u64::saturating_add),
+                Type::Struct(s) => s
+                    .fields
+                    .values()
+                    .map(|field| visit(field.ty, symbols, active))
+                    .fold(0, u64::saturating_add),
+                _ => 1,
             };
             active.remove(&ty);
             footprint
@@ -221,12 +222,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     /// Create a fresh entry-point input after charging its complete type
     /// footprint. Internal function calls pass existing CheckedValueRefs and
     /// must not use this path.
-    fn materialize_input(
-        &mut self,
-        ty: TypeId,
-        symbols: &SymbolTable<F>,
-        location: Option<Location>,
-    ) -> Result<CheckedValueRef<F>> {
+    fn materialize_input(&mut self, ty: TypeId, symbols: &SymbolTable<F>, location: Option<Location>) -> Result<CheckedValueRef<F>> {
         self.charge_materialized(Self::input_footprint(ty, symbols), location)?;
         Ok(CheckedValueRef::new_rc(self.to_input(ty, symbols)))
     }
@@ -870,8 +866,8 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     let rhs = rhs_value.to_value();
 
                     let both_constant = self.is_constant(lhs.clone()) && self.is_constant(rhs.clone());
-                    let constants_differ = both_constant
-                        && self.context.get_constant_value(lhs.clone()) != self.context.get_constant_value(rhs.clone());
+                    let constants_differ =
+                        both_constant && self.context.get_constant_value(lhs.clone()) != self.context.get_constant_value(rhs.clone());
                     if constants_differ && self.current_branch_definitely_executes() {
                         return Err(Error::AssertionFailure {
                             message: message.clone().unwrap_or_default(),
@@ -1005,10 +1001,11 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         // operands. The VM's constant-folding path panics (assert!/integer div)
         // on these; surface them as clean compile/runtime errors instead.
         match (&*lhs_value.borrow(), &*rhs_value.borrow(), binary_node.operator) {
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), Div | Mod)
-            | (CheckedValue::U32(l), CheckedValue::U32(r), Div | Mod) => {
+            (CheckedValue::Felt(l), CheckedValue::Felt(r), Div | Mod) | (CheckedValue::U32(l), CheckedValue::U32(r), Div | Mod) => {
                 if self.is_constant(*l) && self.is_constant(*r) && self.context.get_constant_value(*r) == 0 {
-                    return Err(Error::DivisionByZero { location: Some(binary_node.location) });
+                    return Err(Error::DivisionByZero {
+                        location: Some(binary_node.location),
+                    });
                 }
             }
             (CheckedValue::U32(l), CheckedValue::U32(r), Add | Sub | Mul | Pow) => {
@@ -1027,7 +1024,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         _ => false,
                     };
                     if overflow {
-                        return Err(Error::ArithmeticOverflow { location: Some(binary_node.location) });
+                        return Err(Error::ArithmeticOverflow {
+                            location: Some(binary_node.location),
+                        });
                     }
                 }
             }
@@ -2453,7 +2452,6 @@ fn main() {}
         let _ = fs::remove_file(path);
     }
 
-
     #[test]
     #[serial]
     fn test_fake_inline_std_does_not_authorize_same_file_sibling() {
@@ -2737,10 +2735,7 @@ fn main() -> Felt {
                 (Err(_), true) => panic!("expected `{name}` to typecheck: {:#}", result.err().unwrap()),
                 (Err(err), false) => format!("{err:#}"),
             };
-            assert!(
-                err_msg.contains(expected_fragment),
-                "unexpected error for `{name}`: {err_msg}"
-            );
+            assert!(err_msg.contains(expected_fragment), "unexpected error for `{name}`: {err_msg}");
 
             let _ = fs::remove_file(path);
         }
@@ -2812,10 +2807,7 @@ fn main() -> Felt {
                 (Err(_), true) => panic!("expected `{name}` to typecheck: {:#}", result.err().unwrap()),
                 (Err(err), false) => format!("{err:#}"),
             };
-            assert!(
-                err_msg.contains(expected_fragment),
-                "unexpected error for `{name}`: {err_msg}"
-            );
+            assert!(err_msg.contains(expected_fragment), "unexpected error for `{name}`: {err_msg}");
 
             let _ = fs::remove_file(path);
         }
@@ -2828,8 +2820,14 @@ fn main() -> Felt {
     #[serial]
     fn test_public_intrinsic_type_mismatch_arms() {
         let cases = [
-            ("hash_two_to_one_bad_first", r#"fn main() { let h = hash_two_to_one(true, [1, 2, 3, 4]); }"#),
-            ("hash_two_to_one_bad_second", r#"fn main() { let h = hash_two_to_one([1, 2, 3, 4], true); }"#),
+            (
+                "hash_two_to_one_bad_first",
+                r#"fn main() { let h = hash_two_to_one(true, [1, 2, 3, 4]); }"#,
+            ),
+            (
+                "hash_two_to_one_bad_second",
+                r#"fn main() { let h = hash_two_to_one([1, 2, 3, 4], true); }"#,
+            ),
             ("split_bits_non_const_length", r#"fn main(x: Felt) { let v = split_bits(15, x); }"#),
         ];
 

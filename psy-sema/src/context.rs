@@ -387,4 +387,47 @@ mod tests {
         let tuple = context.symbols.create_type(Type::Tuple(vec![felt, felt])).unwrap();
         let _ = context.size_of(tuple);
     }
+
+    // The mutation hooks of the type-checker context are deliberately
+    // unimplemented; pin that behavior down with panic tests. Calling through
+    // function pointers keeps the tiny bodies from being inlined away.
+    #[test]
+    #[should_panic(expected = "not implemented")]
+    fn insert_definition_is_unimplemented() {
+        let insert: fn(&mut Ctx, DefinitionNode, psy_ast::InsertPosition) = VisitorContext::insert_definition;
+        let mut context = ctx();
+        insert(&mut context, use_definition(), psy_ast::InsertPosition::End);
+    }
+
+    #[test]
+    #[should_panic(expected = "not implemented")]
+    fn alloc_expression_is_unimplemented() {
+        let alloc: fn(&mut Ctx, ExprNode<SymFeltRef>) -> ExprId = VisitorContext::alloc_expression;
+        let mut context = ctx();
+        let _ = alloc(&mut context, felt_value());
+    }
+
+    #[test]
+    #[should_panic(expected = "not implemented")]
+    fn alloc_statement_is_unimplemented() {
+        let alloc: fn(&mut Ctx, StmtNode) -> StmtId = VisitorContext::alloc_statement;
+        let mut context = ctx();
+        let _ = alloc(&mut context, StmtNode::Expression(ExprId(0)));
+    }
+
+    #[test]
+    #[should_panic(expected = "not implemented")]
+    fn replace_definition_is_unimplemented() {
+        let replace: fn(&mut Ctx, DefId, DefinitionNode) = VisitorContext::replace_definition;
+        let mut context = ctx();
+        replace(&mut context, DefId(0), use_definition());
+    }
+
+    #[test]
+    #[should_panic(expected = "not implemented")]
+    fn replace_statement_is_unimplemented() {
+        let replace: fn(&mut Ctx, StmtId, StmtNode) = VisitorContext::replace_statement;
+        let mut context = ctx();
+        replace(&mut context, StmtId(0), StmtNode::Expression(ExprId(0)));
+    }
 }

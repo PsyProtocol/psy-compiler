@@ -858,3 +858,25 @@ mod tests {
     }
 
 }
+
+#[cfg(test)]
+mod tuple_layout_tests {
+    use psy_ast::{Identifier, Location};
+
+    use super::*;
+
+    #[test]
+    fn felt_size_counts_tuple_elements() {
+        let mut program = Program::<u32>::new();
+        let felt = Identifier::new(program.interner.intern_ident("Felt"), Location::default());
+        let u32_ident = Identifier::new(program.interner.intern_ident("u32"), Location::default());
+        let ctx = DefaultVisitorContext::<u32, ()>::new(&mut program);
+
+        let extractor = AbiExtractor::new("TestContract".to_string());
+        let struct_nodes = BTreeMap::new();
+        let mut layouts = HashMap::new();
+        let tuple = UncheckedType::Tuple(vec![UncheckedType::Basic(felt), UncheckedType::Basic(u32_ident)], Location::default());
+
+        assert_eq!(extractor.felt_size_for_type(&ctx, &tuple, &struct_nodes, &mut layouts), 2);
+    }
+}

@@ -354,3 +354,10 @@ fn moderate_paren_nesting_still_parses() {
     let src = format!("fn f() {{ let x = {}1{}; }}", "(".repeat(depth), ")".repeat(depth));
     parse_module(&src).expect("50-deep parens must still parse");
 }
+
+#[test]
+fn lexical_errors_surface_through_parse_module() {
+    // ` is not a token in the language, so lexing fails before parsing.
+    let err = parse_module("fn main() { let `x` = 1; }").expect_err("invalid tokens must be rejected");
+    assert!(matches!(err, psy_parser::Error::LexicalError { .. }), "unexpected error: {err:?}");
+}

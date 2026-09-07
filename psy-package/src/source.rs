@@ -420,6 +420,11 @@ mod tests {
     }
 
     #[test]
+    fn relative_file_path_from_str_normalizes() {
+        assert_eq!(RelativeFilePath::from("./src/main.psy").as_str(), "src/main.psy");
+    }
+
+    #[test]
     fn source_map_resolves_relative_virtual_paths() {
         let mut map = SourceMap::new();
         let main = map.insert(

@@ -559,3 +559,20 @@ mod dependency_cycle_tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod read_toml_tests {
+    use std::path::Path;
+
+    use super::{read_toml, ManifestError};
+
+    #[test]
+    fn read_toml_reports_missing_files() {
+        let missing = Path::new("/nonexistent-psy-package-probe/Dargo.toml");
+        let err = match read_toml(missing) {
+            Ok(_) => panic!("a missing manifest must fail to load"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, ManifestError::ReadFailed(_)), "unexpected error: {err:?}");
+    }
+}

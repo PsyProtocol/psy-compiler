@@ -294,6 +294,16 @@ mod cli_path_tests {
     }
 
     #[test]
+    fn parse_path_turns_relative_paths_into_absolute_ones() {
+        let relative = super::parse_path("some/relative.psy").expect("relative path must parse");
+        assert!(relative.is_absolute(), "relative input must become absolute: {relative:?}");
+        assert!(relative.ends_with("some/relative.psy"));
+
+        let absolute = super::parse_path("/tmp/already-absolute.psy").expect("absolute path must parse");
+        assert_eq!(absolute, std::path::PathBuf::from("/tmp/already-absolute.psy"));
+    }
+
+    #[test]
     fn with_workspace_resolves_the_manifest_and_applies_the_target_override() {
         use std::time::{SystemTime, UNIX_EPOCH};
 
