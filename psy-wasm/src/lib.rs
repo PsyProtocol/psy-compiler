@@ -3166,5 +3166,24 @@ mod tests {
         assert!(!entries.is_empty(), "imt write must be observable: {imt}");
         assert_eq!(entries[0]["key"].as_array().and_then(|k| k.first()).and_then(serde_json::Value::as_u64), Some(7001));
     }
-}
 
+    /// Regression: a function-typed entry parameter used to panic the compiler
+    /// with "Unsupported type in to_input"; it must surface as a clean
+    /// diagnostic instead.
+    #[test]
+    #[serial]
+    fn fn_typed_entry_input_is_rejected_with_a_diagnostic() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        let result = parse_result(&compile_source(
+            "fn main(f: fn(Felt) -> Felt) -> Felt { return f(1); }",
+        ));
+        assert!(!result.success, "fn-typed entry input must be rejected, got error: {:?}", result.error);
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("UnsupportedEntryPointInput"),
+            "unexpected error: {:?}",
+            result.error
+        );
+    }
+}

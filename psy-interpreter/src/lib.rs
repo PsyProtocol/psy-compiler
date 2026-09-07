@@ -222,9 +222,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     /// Create a fresh entry-point input after charging its complete type
     /// footprint. Internal function calls pass existing CheckedValueRefs and
     /// must not use this path.
-    fn materialize_input(&mut self, ty: TypeId, symbols: &SymbolTable<F>, location: Option<Location>) -> Result<CheckedValueRef<F>> {
-        self.charge_materialized(Self::input_footprint(ty, symbols), location)?;
-        Ok(CheckedValueRef::new_rc(self.to_input(ty, symbols)))
+    fn materialize_input(&mut self, ty: TypeId, symbols: &SymbolTable<F>, location: Location) -> Result<CheckedValueRef<F>> {
+        self.charge_materialized(Self::input_footprint(ty, symbols), Some(location))?;
+        Ok(CheckedValueRef::new_rc(self.to_input(ty, symbols, location)?))
     }
 
     pub fn calculate_type_size(&mut self, type_id: TypeId, ctx: &TypeCheckerVisitorContext<F, C>) -> usize {
@@ -253,15 +253,15 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         }
     }
 
-    pub fn to_input(&mut self, ty: TypeId, symbols: &SymbolTable<F>) -> CheckedValue<F> {
+    pub fn to_input(&mut self, ty: TypeId, symbols: &SymbolTable<F>, location: Location) -> Result<CheckedValue<F>> {
         match symbols[ty].clone() {
-            Type::Felt => CheckedValue::Felt(self.context.add_input()),
-            Type::Bool => CheckedValue::Bool(self.context.add_bool_input()),
-            Type::U32 => CheckedValue::U32(self.context.add_u32_input()),
+            Type::Felt => Ok(CheckedValue::Felt(self.context.add_input())),
+            Type::Bool => Ok(CheckedValue::Bool(self.context.add_bool_input())),
+            Type::U32 => Ok(CheckedValue::U32(self.context.add_u32_input())),
             Type::Tuple(elements) => {
                 let mut result = Vec::new();
                 for element_type in elements {
-                    let value = CheckedValueRef::new_rc(self.to_input(element_type, symbols));
+                    let value = CheckedValueRef::new_rc(self.to_input(element_type, symbols, location)?);
 
                     result.push((element_type, value));
                 }
@@ -269,15 +269,18 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 // table (the process-global fallback is never set in production).
                 let type_id = symbols.get_type_id(Some(symbols.type_scope_id(ty)), symbols[ty].key()).unwrap();
 
-                CheckedValue::Tuple { type_id, elements: result }
+                Ok(CheckedValue::Tuple { type_id, elements: result })
             }
             Type::Struct(s) => {
                 let mut result = IndexMap::new();
                 for (field_name, field) in &s.fields {
-                    result.insert(field_name.clone(), CheckedValueRef::new_rc(self.to_input(field.ty.clone(), symbols)));
+                    result.insert(
+                        field_name.clone(),
+                        CheckedValueRef::new_rc(self.to_input(field.ty.clone(), symbols, location)?),
+                    );
                 }
                 let type_id = symbols.get_type_id(Some(s.scope_id), symbols[ty].key()).unwrap();
-                CheckedValue::Struct(type_id, result)
+                Ok(CheckedValue::Struct(type_id, result))
             }
             Type::Array(arr) => {
                 let size = match &symbols[arr.size_ty] {
@@ -286,22 +289,38 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         match &*const_value_ref.borrow() {
                             CheckedValue::Felt(f) => self.context.get_constant_value(f.clone()) as usize,
                             CheckedValue::U32(f) => self.context.get_constant_value(f.clone()) as usize,
-                            _ => panic!("Array size must be a numeric constant"),
+                            _ => {
+                                return Err(Error::UnsupportedEntryPointInput {
+                                    ty: format!("{:?}", symbols[ty]),
+                                    reason: "array size must be a numeric constant",
+                                    location,
+                                })
+                            }
                         }
                     }
-                    _ => panic!("Array size must be a const type"),
+                    _ => {
+                        return Err(Error::UnsupportedEntryPointInput {
+                            ty: format!("{:?}", symbols[ty]),
+                            reason: "array size must be a constant expression",
+                            location,
+                        })
+                    }
                 };
 
                 let mut elements = Vec::new();
                 for _ in 0..size {
-                    elements.push(CheckedValueRef::new_rc(self.to_input(arr.inner_ty.clone(), symbols)));
+                    elements.push(CheckedValueRef::new_rc(self.to_input(arr.inner_ty.clone(), symbols, location)?));
                 }
 
                 let type_id = symbols.get_type_id(Some(arr.scope_id), symbols[ty].key()).unwrap();
 
-                CheckedValue::Array(type_id, elements)
+                Ok(CheckedValue::Array(type_id, elements))
             }
-            other => panic!("Unsupported type in to_input: {:?}", other),
+            other => Err(Error::UnsupportedEntryPointInput {
+                ty: format!("{:?}", other),
+                reason: "this type cannot be passed as an entry-point input",
+                location,
+            }),
         }
     }
 
@@ -410,7 +429,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 // Bound input materialization by the type's element
                 // footprint BEFORE building it: `main(a: [Felt; 4_000_000])`
                 // previously allocated millions of inputs unchallenged (M4).
-                parameters.push(self.materialize_input(parameter.ty, &ctx.symbols, Some(node.location))?);
+                parameters.push(self.materialize_input(parameter.ty, &ctx.symbols, node.location)?);
             }
             let res = self.__interpret__(&typechecker.program, type_id, parameters, ctx)?;
             let compiled = compile_fn(&self.context, res);

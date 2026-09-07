@@ -147,7 +147,7 @@ fn expect_input_materialization_error(c: &mut Compiled, function_ty: TypeId, lab
     let parameter_ty = function.parameters[0].ty;
     let location = function.location;
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        c.interpreter.materialize_input(parameter_ty, &c.ctx.symbols, Some(location))
+        c.interpreter.materialize_input(parameter_ty, &c.ctx.symbols, location)
     }));
     match run {
         Ok(Err(error)) => assert!(format!("{error:#}").contains("ArrayTooLarge"), "[{label}] unexpected error: {error:#}"),
