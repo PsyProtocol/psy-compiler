@@ -232,3 +232,62 @@ where
     }
 
 }
+
+#[cfg(test)]
+mod tests {
+    use psy_ast::{Identifier, IdentId, Location, Program, StmtNode, Visibility};
+    use psy_common::FileId;
+    use psy_vm::dpn::ops::exec_context::QExecContext;
+    use psy_vm::dpn::ops::sym_felt::SymFeltRef;
+
+    use super::super::{ModuleParser, ParseModuleInput};
+
+    fn parser_for<'src, 'p>(
+        src: &'src str,
+        program: &'p mut Program<SymFeltRef>,
+        ctx: &'p mut QExecContext,
+    ) -> ModuleParser<'src, 'p, SymFeltRef, QExecContext> {
+        ModuleParser::new(
+            ParseModuleInput {
+                source: src,
+                file_id: FileId(0),
+                module_name: Identifier::new(IdentId::STD, Location::default()),
+                visibility: Visibility::Public,
+            },
+            program,
+            ctx,
+        )
+        .expect("construct module parser")
+    }
+
+    fn parse_with(src: &str, f: impl for<'a, 'b> FnOnce(&mut ModuleParser<'a, 'b, SymFeltRef, QExecContext>) -> psy_ast::StmtNode) -> StmtNode {
+        let mut program = Program::new();
+        let mut ctx = QExecContext::new();
+        let mut parser = parser_for(src, &mut program, &mut ctx);
+        f(&mut parser)
+    }
+
+    /// The public statement entry points are not wired through
+    /// `parse_module` (block parsing calls the `_with_comments` variants
+    /// directly), so exercise them here.
+    #[test]
+    fn statement_entry_points_parse_each_statement_shape() {
+        let stmt = parse_with("// lead\nreturn 1;", |p| p.parse_statement().expect("parse_statement"));
+        assert!(matches!(stmt, StmtNode::Return(_)), "got {stmt:?}");
+
+        let stmt = parse_with("x = 2;", |p| {
+            p.parse_assignment_statement(Vec::new()).expect("plain assignment statement")
+        });
+        assert!(matches!(stmt, StmtNode::Assignment(_)), "got {stmt:?}");
+
+        let stmt = parse_with("x += 2;", |p| {
+            p.parse_assignment_statement(Vec::new()).expect("compound assignment statement")
+        });
+        assert!(matches!(stmt, StmtNode::Assignment(_)), "got {stmt:?}");
+
+        let stmt = parse_with("1 + 2;", |p| {
+            p.parse_expression_statement(Vec::new()).expect("expression statement")
+        });
+        assert!(matches!(stmt, StmtNode::Expression(_)), "got {stmt:?}");
+    }
+}

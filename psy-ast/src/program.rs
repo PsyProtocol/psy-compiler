@@ -179,4 +179,34 @@ mod tests {
         assert!(program.is_module_std(nested));
         assert!(!program.is_module_std(root));
     }
+    #[test]
+    fn program_index_and_index_mut_reach_every_arena() {
+        let mut program = Program::<u64>::new();
+        let location = Location::new(FileId(0), 0, 0);
+
+        let expr_id = program.exprs.alloc_item(ExprNode::Value(crate::ValueNode::Felt(1, location)));
+        let replacement = ExprNode::Value(crate::ValueNode::Felt(2, location));
+        assert!(matches!(&program[expr_id], ExprNode::Value(node) if matches!(node, crate::ValueNode::Felt(1, _))));
+        program[expr_id] = replacement;
+        assert!(matches!(&program[expr_id], ExprNode::Value(node) if matches!(node, crate::ValueNode::Felt(2, _))));
+
+        let ident_id = program.interner.intern_ident("indexed");
+        assert_eq!(program[ident_id].to_string(), "indexed");
+    }
+
+    #[test]
+    fn print_module_graph_renders_children_and_dependencies() {
+        let mut program = Program::<u64>::new();
+        let root_node = module(&mut program, "root");
+        let child_node = module(&mut program, "child");
+        let root = program.modules.add_node(root_node);
+        let child = program.modules.add_node(child_node);
+        program.add_module_child(Some(root), child);
+        program.dependency_graph.add_edge(CrateId::from(root), CrateId::from(child));
+
+        // Renders to stdout; the assertions guard the data the printer walks.
+        assert_eq!(program.modules.len(), 2);
+        assert_eq!(program.modules[child].parent(), Some(root));
+        program.print_module_graph();
+    }
 }

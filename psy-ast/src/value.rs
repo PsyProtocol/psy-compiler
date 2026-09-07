@@ -95,3 +95,53 @@ impl<F: Clone + From<u32>> Display for ValueNode<F> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{ExprId, IdentId, Identifier, Location, NodeType};
+
+    use super::*;
+
+    #[test]
+    fn const_value_conversions_and_display_round_trip() {
+        assert_eq!(ConstValue::from(true), ConstValue::Bool(true));
+        assert_eq!(ConstValue::from(7u32), ConstValue::U32(7));
+        assert_eq!(ConstValue::from(9u64), ConstValue::Felt(9));
+
+        assert_eq!(ConstValue::Felt(3).as_u64(), Some(3));
+        assert_eq!(ConstValue::U32(5).as_u64(), Some(5));
+        assert_eq!(ConstValue::Bool(false).as_u64(), None);
+
+        assert_eq!(ConstValue::Felt(12).to_string(), "12");
+        assert_eq!(ConstValue::U32(34).to_string(), "34");
+        assert_eq!(ConstValue::Bool(true).to_string(), "true");
+    }
+
+    #[test]
+    fn value_node_displays_every_variant() {
+        let location = Location::default();
+        assert_eq!(ValueNode::<u64>::Felt(1, location).to_string(), "Felt");
+        assert_eq!(ValueNode::<u64>::Bool(1, location).to_string(), "Bool");
+        assert_eq!(ValueNode::<u64>::U32(1, location).to_string(), "U32");
+
+        let array = ValueNode::<u64>::Array(ConstValue::from(2u32), vec![ExprId(0), ExprId(1)], location);
+        let rendered = array.to_string();
+        assert!(rendered.starts_with("Array("), "array display: {rendered}");
+        assert!(rendered.contains(", "), "array display joins elements: {rendered}");
+        assert!(rendered.ends_with(')'), "array display: {rendered}");
+        let empty = ValueNode::<u64>::Array(ConstValue::from(0u32), vec![], location);
+        assert_eq!(empty.to_string(), "Array()");
+
+        let repeat = ValueNode::<u64>::ArrayRepeat(ExprId(0), ConstValue::from(3u32), location);
+        assert!(repeat.to_string().starts_with("ArrayRepeat("));
+
+        let mut fields = IndexMap::new();
+        fields.insert(Identifier::new(IdentId(0), location), ExprId(0));
+        let structure = ValueNode::<u64>::Struct(ExprId(2), vec![], fields, location);
+        let rendered = structure.to_string();
+        assert!(rendered.starts_with("Struct "), "struct display: {rendered}");
+        assert!(rendered.ends_with(" }"), "struct display: {rendered}");
+
+        assert_eq!(ValueNode::<u64>::Felt(1, location).node_type(), NodeType::ValueExpr);
+    }
+}

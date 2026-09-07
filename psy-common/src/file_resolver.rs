@@ -236,3 +236,47 @@ mod tests {
         assert!(resolver.resolve_content(&initial_id).unwrap().starts_with("content-"));
     }
 }
+
+#[cfg(test)]
+mod resolver_edge_tests {
+    use super::*;
+
+    #[test]
+    fn default_resolver_matches_new_and_resolves_added_files() {
+        let resolver = FileResolver::default();
+        assert!(resolver.files().is_empty());
+
+        let file_id = resolver.add_file(PathBuf::from("default_probe.psy"), "body");
+        assert_eq!(resolver.resolve_content_arc(&file_id).as_deref(), Some("body"));
+        assert_eq!(resolver.resolve_path_content(Path::new("default_probe.psy")).as_deref(), Some("body"));
+        assert_eq!(resolver.resolve_id(Path::new("default_probe.psy")), Some(file_id));
+    }
+
+    #[test]
+    fn resolve_file_reads_real_files_and_deduplicates_by_path() {
+        let path = std::env::temp_dir().join("resolver_real_file_probe.psy");
+        std::fs::write(&path, "fn main() {}").unwrap();
+
+        let resolver = FileResolver::new();
+        let file_id = resolver.resolve_file(path.clone()).expect("resolve real file");
+        let again = resolver.resolve_file(path.clone()).expect("resolve same file again");
+        assert_eq!(file_id, again, "the same path must reuse its file id");
+        assert_eq!(resolver.resolve_content(&file_id).as_deref(), Some("fn main() {}"));
+
+        let missing = resolver.resolve_file(std::env::temp_dir().join("definitely_missing_probe.psy"));
+        assert!(missing.is_err(), "reading a missing file must fail");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn dotted_paths_normalize_to_their_canonical_form() {
+        let resolver = FileResolver::new();
+        let file_id = resolver.add_file(PathBuf::from("probe_dir/./nested/../target.psy"), "content");
+
+        // `./` and `..` components collapse, so the plain path resolves to the
+        // same id even though the dotted original never exists on disk.
+        assert_eq!(resolver.resolve_id(Path::new("probe_dir/target.psy")), Some(file_id));
+        assert_eq!(resolver.resolve_path_content(Path::new("probe_dir/target.psy")).as_deref(), Some("content"));
+    }
+}

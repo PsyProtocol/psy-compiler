@@ -375,3 +375,62 @@ fn debug_renderers_cover_const_fns_attrs_and_expression_statements() {
     // Block-expr comments do not survive checking (the rewriter rebuilds
     // the node without them), so no expr-comments assertion here.
 }
+
+/// A fourth fixture for renderer shapes the others lack: inherent-impl
+/// associated types, function-signature parameters, and definitions nested
+/// inside function bodies.
+const IMPL_SOURCE: &str = r#"
+use std::prelude::*;
+
+// A commented struct so the definition's comments section renders.
+pub struct Holder {
+    pub shape: Felt,
+}
+
+impl Holder {
+    pub type Native = Felt;
+    pub fn nat(self: Self) -> Felt {
+        return 1;
+    }
+}
+
+// A commented function so the function definition's comments render.
+fn trans(x: Felt) -> Felt {
+    return x;
+}
+
+fn apply(op: fn(Felt) -> Felt) -> Felt {
+    return op(2);
+}
+
+fn main() -> Felt {
+    let h = Holder { shape: 1 };
+    return h.nat() + apply(trans);
+}
+"#;
+
+#[test]
+#[serial]
+fn debug_renderers_cover_impl_assoc_types_and_signature_params() {
+    let c = typecheck_virtual(IMPL_SOURCE);
+
+    // The inherent impl renders its associated types block.
+    let mut defs = String::new();
+    for index in 0..c.ctx.program.defs.len() {
+        defs.push_str(&c.ctx.debug_definition(DefId(index)));
+        defs.push('\n');
+    }
+    assert!(defs.contains("Associated Types"), "impl assoc types missing:\n{defs}");
+    assert!(defs.contains("Native"), "assoc type name missing:\n{defs}");
+    assert!(defs.contains("commented struct"), "struct doc comment missing:\n{defs}");
+    assert!(defs.contains("commented function"), "function doc comment missing:\n{defs}");
+
+    // A fn-signature parameter renders through get_type_name's
+    // FunctionSignature arm.
+    let mut types = String::new();
+    for index in 0..c.ctx.symbols.types.len() {
+        types.push_str(&c.ctx.debug_type(TypeId::from(index)));
+        types.push('\n');
+    }
+    assert!(types.contains("FunctionSignature"), "fn-signature type name missing:\n{types}");
+}

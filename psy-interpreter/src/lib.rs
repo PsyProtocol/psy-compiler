@@ -711,6 +711,15 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     where
         F: 'static,
     {
+        // Same rationale as `typecheck_single`: the LSP server typechecks
+        // repeatedly in one process, so clear the process-global primitive
+        // scope handle before repopulating it against this call's symbol
+        // table. Without this, the second typecheck in a session resolves
+        // std names (e.g. `Array` in storage.psy) against a stale scope.
+        #[allow(static_mut_refs)]
+        unsafe {
+            let _ = STD_PRIMITIVE_SCOPE_ID.take();
+        }
         let mut program = Program::new();
 
         let mut parser = Parser::new(&mut program, &mut self.context, crate_path_graph);
