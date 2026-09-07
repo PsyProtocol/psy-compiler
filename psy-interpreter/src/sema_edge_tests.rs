@@ -1080,3 +1080,555 @@ fn main() {{ let p: P::Pair = P::make_pair(); }}"
         ),
     );
 }
+
+#[test]
+#[serial]
+fn deep_associated_type_chains_resolve() {
+    // Two levels past a trait cast (`<P as Outer>::Assoc::Mid::Leaf`) walk the
+    // trait-cast segment loop, and module-rooted chains (`deep::H0::Inner::Leaf`)
+    // walk the module path's member loop.
+    accepts(
+        "trait cast and module chains with two segments",
+        &format!(
+            "{PRELUDE}
+pub struct Lvl0 {{ pub x: Felt }}
+impl Lvl0 {{ pub type Mid = Lvl1; }}
+pub struct Lvl1 {{ pub y: Felt }}
+impl Lvl1 {{ pub type Leaf = Felt; }}
+
+pub trait Outer {{ pub type Assoc; }}
+pub struct P {{ pub x: Felt }}
+impl Outer for P {{ pub type Assoc = Lvl0; }}
+
+pub mod deep {{
+    pub struct H0 {{ pub x: Felt }}
+    impl H0 {{ pub type Inner = H1; }}
+    pub struct H1 {{ pub y: Felt }}
+    impl H1 {{ pub type Leaf = Felt; }}
+}}
+
+fn probe(v: <P as Outer>::Assoc::Mid::Leaf) -> <P as Outer>::Assoc::Mid::Leaf {{
+    return v;
+}}
+
+fn main() {{
+    let a: deep::H0::Inner::Leaf = 4;
+    let b = probe(a);
+    assert_eq(b, 4, \"deep chains\");
+}}"
+        ),
+    );
+    rejects(
+        "trait cast chain through a non-type member",
+        &format!(
+            "{PRELUDE}
+pub struct Lvl0 {{ pub x: Felt }}
+pub trait Outer {{ pub type Assoc; }}
+pub struct P {{ pub x: Felt }}
+impl Outer for P {{ pub type Assoc = Lvl0; }}
+
+fn bad(v: <P as Outer>::Assoc::Mid) -> Felt {{ return 1; }}
+fn main() {{ bad(1); }}"
+        ),
+        "mid",
+    );
+}
+
+#[test]
+#[serial]
+fn generic_instantiation_rewrites_impls_signatures_and_bodies() {
+    // A generic inherent impl with an associated type plus a generic method
+    // drives instantiate_impl (assoc types + per-method signature rewriting).
+    accepts(
+        "generic inherent impl with assoc type and generic method",
+        &format!(
+            "{PRELUDE}
+pub struct Pair<T> {{ pub a: T, pub b: T }}
+
+impl<T> Pair<T> {{
+    pub type Item = T;
+    pub fn first(self: Self) -> T {{ return self.a; }}
+    pub fn pick<S>(self: Pair<T>, other: S) -> S {{ return other; }}
+}}
+
+fn main() {{
+    let p = Pair {{ a: 1, b: 2 }};
+    let f = p.first();
+    let s = p.pick(9);
+    assert_eq(f + s, 10, \"inherent generics\");
+}}"
+        ),
+    );
+    // A generic function whose parameter and return types are rooted type
+    // paths rewrites those paths during instantiation.
+    // NOTE: module-rooted paths (`m::H`) as generic-fn parameter types reach
+    // instantiate_function with a root-less checked path and panic on
+    // `type_path.root.unwrap()` (rewriter.rs:253); type-rooted paths
+    // (`P::Pair`) carry a root and rewrite cleanly.
+    accepts(
+        "generic function with type-rooted path parameter and return",
+        &format!(
+            "{PRELUDE}{STRUCT_P}
+impl P {{
+    pub type Pair = (Felt, Felt);
+}}
+
+fn through<T>(pair: P::Pair, t: T) -> P::Pair {{
+    assert_eq(pair.0, pair.0, \"stable\");
+    return pair;
+}}
+
+fn main() {{
+    let h2 = through((3, 4), 1);
+    assert_eq(h2.0, 3, \"path rewrite\");
+}}"
+        ),
+    );
+}
+
+#[test]
+#[serial]
+fn trait_impl_associated_types_rewrite_through_roots() {
+    // An associated type whose value is itself a rooted path (`Src::Native`)
+    // takes the root-substitution branch when the generic impl is instantiated.
+    accepts(
+        "generic trait impl with a rooted associated type path",
+        &format!(
+            "{PRELUDE}
+pub struct Src {{ pub q: Felt }}
+impl Src {{ pub type Native = Felt; }}
+
+pub trait Wrap {{ pub type Out; pub fn unwrap(self: Self) -> Felt; }}
+pub struct Box2<T> {{ pub v: T }}
+
+impl<T> Wrap for Box2<T> {{
+    pub type Out = Src::Native;
+    pub fn unwrap(self: Self) -> Felt {{ return 1; }}
+}}
+
+fn main() {{
+    let b = Box2 {{ v: 1 }};
+    let o: <Box2<Felt> as Wrap>::Out = 7;
+    let r = b.unwrap();
+    assert_eq(o + r, 8, \"rooted assoc\");
+}}"
+        ),
+    );
+}
+
+#[test]
+#[serial]
+fn impl_search_rejects_conflicting_generic_arguments() {
+    // The concrete `Number<u32>` implementations cannot serve a `Number<Felt>`
+    // receiver, so instantiation unification fails and the call is rejected.
+    rejects(
+        "concrete trait impl for another generic argument",
+        &format!(
+            "{PRELUDE}
+pub trait Mul {{ pub fn mul(self: Self) -> Felt; }}
+pub struct Number<T> {{ pub a: T, pub b: T }}
+
+impl Mul for Number<u32> {{
+    pub fn mul(self: Self) -> Felt {{ return (self.a * self.b) as Felt; }}
+}}
+
+fn main() {{
+    let n = Number<Felt> {{ a: 1, b: 2 }};
+    let r = n.mul();
+    assert_eq(r, 1, \"unused\");
+}}"
+        ),
+        "mul",
+    );
+    rejects(
+        "concrete inherent impl for another generic argument",
+        &format!(
+            "{PRELUDE}
+pub struct Number<T> {{ pub a: T, pub b: T }}
+
+impl Number<u32> {{
+    pub fn get(self: Self) -> Felt {{ return self.a as Felt; }}
+}}
+
+fn main() {{
+    let n = Number<Felt> {{ a: 1, b: 2 }};
+    let g = n.get();
+    assert_eq(g, 1, \"unused\");
+}}"
+        ),
+        "get",
+    );
+}
+
+#[test]
+#[serial]
+fn bare_generic_calls_walk_scopes_for_matching_functions() {
+    accepts(
+        "bare call to a generic function",
+        &format!(
+            "{PRELUDE}
+fn pick<T>(x: T) -> Felt {{ return x as Felt; }}
+
+fn main() {{
+    let r = pick(5);
+    assert_eq(r, 5, \"bare generic call\");
+}}"
+        ),
+    );
+    rejects(
+        "bare call to an unresolved function", "fn main() { missing_fn(1); }", "missing_fn",
+    );
+}
+
+#[test]
+#[serial]
+fn crate_paths_resolve_from_nested_modules() {
+    accepts(
+        "crate root path from inside an inline module",
+        &format!(
+            "{PRELUDE}
+pub mod inner {{
+    pub fn five() -> Felt {{ return 5; }}
+    pub fn call_out() -> Felt {{ return crate::inner::five(); }}
+}}
+
+fn main() {{
+    let v = inner::call_out();
+    assert_eq(v, 5, \"crate path\");
+}}"
+        ),
+    );
+}
+
+#[test]
+#[serial]
+fn generic_bodies_rewrite_definitions_asserts_structs_and_matches() {
+    // Every statement/expression shape inside a generic function body runs
+    // through the rewriter when the function is instantiated: nested
+    // definitions, assert_eq, struct literals, and match patterns.
+    accepts(
+        "generic body with nested definition, assert_eq, struct literal, and match",
+        &format!(
+            "{PRELUDE}
+pub struct Point {{ pub x: Felt }}
+
+fn shapes<T>(v: T) -> Felt {{
+    struct Inner {{ pub v: Felt }}
+    let p = Point {{ x: 1 }};
+    assert_eq(v as Felt, v as Felt, \"same\");
+    let m = match p.x {{ 1 => 10, _ => 20 }};
+    return m + p.x;
+}}
+
+fn main() {{
+    let r = shapes(3);
+    assert_eq(r, 11, \"shapes\");
+}}"
+        ),
+    );
+}
+
+#[test]
+#[serial]
+fn inherent_impls_rewrite_rooted_associated_types_when_generic() {
+    // An associated type whose value is a rooted path (`Src::Native`) inside
+    // a *generic* inherent impl exercises the rewriter's root/target branch
+    // for inherent impls, plus generic-method signature instantiation.
+    accepts(
+        "rooted associated type inside a generic inherent impl",
+        &format!(
+            "{PRELUDE}
+pub struct Src {{ pub v: Felt }}
+impl Src {{ pub type Native = Felt; pub fn nat(self: Self) -> Felt {{ return 1; }} }}
+
+pub struct Box2<T> {{ pub item: T }}
+impl<T> Box2<T> {{
+    pub type Native = Src::Native;
+    pub fn pick<S>(self: Self, other: S) -> S {{ return other; }}
+}}
+
+fn main() {{
+    let b: Box2<Felt> = Box2 {{ item: 2 }};
+    let r = b.pick(9);
+    assert_eq(r, 9, \"rooted assoc type in generic impl\");
+}}"
+        ),
+    );
+}
+
+#[test]
+#[serial]
+fn generic_unification_rejects_conflicting_arguments() {
+    let mut failures = Vec::new();
+    for (label, source, needle) in [
+        (
+            "turbofish argument conflicts with the value argument",
+            &format!(
+                "{PRELUDE}
+fn g<T>(x: T) -> Felt {{ return x as Felt; }}
+
+fn main() {{ let r = g::<u32>(true); }}"
+            ),
+            "mismatch",
+        ),
+        (
+            "method turbofish argument conflicts with the value argument",
+            &format!(
+                "{PRELUDE}
+pub struct P2 {{ pub x: Felt }}
+impl P2 {{ pub fn pick<S>(self: Self, other: S) -> Felt {{ return 1; }} }}
+
+fn main() {{ let r = P2 {{ x: 1 }}.pick::<u32>(true); }}"
+            ),
+            "mismatch",
+        ),
+    ] {
+        match compile(source) {
+            Ok(()) => failures.push(format!("[{label}] expected rejection containing `{needle}`, got success")),
+            Err(message) => {
+                if !message.to_lowercase().contains(&needle.to_lowercase()) {
+                    failures.push(format!("[{label}] expected rejection containing `{needle}`, got:\n{message}"));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+#[test]
+#[serial]
+fn trait_cast_paths_resolve_through_the_trait_segment() {
+    accepts(
+        "fully qualified trait method call",
+        &format!(
+            "{PRELUDE}
+pub struct Number {{ pub a: Felt }}
+pub trait Mul {{ pub fn mul(self: Self) -> Felt; }}
+impl Mul for Number {{ pub fn mul(self: Self) -> Felt {{ return self.a; }} }}
+
+fn main() {{
+    let n = Number {{ a: 2 }};
+    let res = <Number as Mul>::mul(n);
+    assert_eq(res, 2, \"trait cast path\");
+}}"
+        ),
+    );
+}
+
+#[test]
+#[serial]
+fn imports_of_unknown_modules_are_rejected() {
+    rejects(
+        "import from an unresolved module",
+        &format!("{PRELUDE}use nonexistent_module::thing;"),
+        "nonexistent_module",
+    );
+}
+
+#[test]
+#[serial]
+fn member_function_references_and_bare_type_values_rewrite() {
+    // A method may not be referenced without a call (no first-class method
+    // values), while a bare type name in value position is accepted.
+    rejects(
+        "method accessed without a call",
+        &format!(
+            "{PRELUDE}
+pub struct P3 {{ pub x: Felt }}
+impl P3 {{ pub fn nat(self: Self) -> Felt {{ return 1; }} }}
+
+fn wrap<T>(v: T) -> Felt {{
+    let f = P3 {{ x: 1 }}.nat;
+    return 1;
+}}
+
+fn main() {{ let v = wrap(1); }}"
+        ),
+        "unresolvedmember",
+    );
+    accepts(
+        "bare type name in value position inside a generic body",
+        &format!(
+            "{PRELUDE}
+pub struct Marker {{ pub x: Felt }}
+
+fn mark<T>(v: T) -> Felt {{
+    Marker;
+    return 1;
+}}
+
+fn main() {{ let v = mark(1); }}"
+        ),
+    );
+}
+
+#[test]
+#[serial]
+fn index_access_and_member_visibility_guards() {
+    rejects(
+        "array index with a boolean subscript",
+        &format!(
+            "{PRELUDE}
+fn main() -> Felt {{
+    let a: [Felt; 3] = [1, 2, 3];
+    return a[true];
+}}"
+        ),
+        "mismatch",
+    );
+    // A private method is callable from its own module but not across modules.
+    accepts(
+        "private method called from its own module",
+        &format!(
+            "{PRELUDE}
+pub struct S {{ pub x: Felt }}
+impl S {{
+    fn hidden(self: Self) -> Felt {{ return 1; }}
+    pub fn make() -> S {{ return S {{ x: 0 }}; }}
+}}
+
+fn main() -> Felt {{
+    let v = S::make().hidden();
+    return v;
+}}"
+        ),
+    );
+    accepts(
+        "private method stays callable from a sibling module in the crate",
+        &format!(
+            "{PRELUDE}
+pub mod m {{
+    pub struct S {{ pub x: Felt }}
+    impl S {{
+        fn hidden(self: Self) -> Felt {{ return 1; }}
+        pub fn make() -> S {{ return S {{ x: 0 }}; }}
+    }}
+}}
+
+fn main() -> Felt {{
+    let v = m::S::make().hidden();
+    return v;
+}}"
+        ),
+    );
+}
+
+#[test]
+#[serial]
+fn unification_walks_signatures_and_tuples() {
+    // Function values are not first-class: a function name passed for a
+    // fn-signature parameter is rejected, and the diagnostic renders the
+    // substituted signature (FunctionSignature arm of the unifier).
+    rejects(
+        "function value passed for a fn-signature parameter",
+        &format!(
+            "{PRELUDE}
+fn double(v: Felt) -> Felt {{ return v + v; }}
+
+fn call_it<T>(f: fn(T) -> Felt, x: T) -> Felt {{
+    return f(x);
+}}
+
+fn main() -> Felt {{
+    return call_it(double, 3);
+}}"
+        ),
+        "signature",
+    );
+    rejects(
+        "conflicting tuple arguments for one generic parameter",
+        &format!(
+            "{PRELUDE}
+fn two<T>(a: T, b: T) -> Felt {{ return 1; }}
+
+fn main() -> Felt {{
+    return two((1, 2), (1, true));
+}}"
+        ),
+        "mismatch",
+    );
+}
+
+/// Panics inside preprocessing must stay observable as panics (they abort the
+/// compiler), so assert on the message while resetting the primitive scope.
+#[test]
+#[serial]
+fn storage_preprocessing_panics_on_malformed_refs() {
+    let cases = [
+        (
+            "#[ref] on a non-basic field",
+            &format!(
+                "{PRELUDE}
+#[contract]
+#[derive(Storage)]
+pub struct C {{
+    #[ref]
+    pub arr: [Felt; 2],
+}}
+
+fn main() -> Felt {{ return 0; }}"
+            ),
+            "basic struct",
+        ),
+        (
+            "StorageRef with two generic parameters",
+            &format!(
+                "{PRELUDE}
+#[contract]
+#[derive(Storage)]
+pub struct C {{
+    pub s: StorageRef<Felt, Felt>,
+}}
+
+fn main() -> Felt {{ return 0; }}"
+            ),
+            "exactly one generic parameter",
+        ),
+        (
+            "ArrayRef with one generic parameter",
+            &format!(
+                "{PRELUDE}
+#[contract]
+#[derive(Storage)]
+pub struct C {{
+    pub s: ArrayRef<Felt>,
+}}
+
+fn main() -> Felt {{ return 0; }}"
+            ),
+            "exactly two generic parameters",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (label, source, needle) in cases {
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("psy_se_{n}.psy"));
+        std::fs::write(&path, source).unwrap();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+            let _ = interpreter.typecheck_single(path.clone());
+        }));
+        let _ = std::fs::remove_file(&path);
+        #[allow(static_mut_refs)]
+        unsafe {
+            let _ = STD_PRIMITIVE_SCOPE_ID.take();
+        }
+
+        let message = match result {
+            Err(message) => message
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| message.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_default(),
+            Ok(()) => {
+                failures.push(format!("[{label}] expected a panic containing `{needle}`, got a clean return"));
+                continue;
+            }
+        };
+        if !message.to_lowercase().contains(&needle.to_lowercase()) {
+            failures.push(format!("[{label}] expected panic containing `{needle}`, got: {message}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}

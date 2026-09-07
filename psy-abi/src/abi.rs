@@ -284,3 +284,63 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod type_spec_tests {
+    use psy_ast::{ConstValue, Identifier, Location, PathNode, Program};
+
+    use super::*;
+
+    fn ident<F: Clone + From<u32>>(program: &mut Program<F>, name: &str) -> Identifier {
+        Identifier::new(program.interner.intern_ident(name), Location::default())
+    }
+
+    #[test]
+    fn from_unchecked_type_covers_every_classified_shape() {
+        let mut program = Program::<u32>::new();
+        let felt = ident(&mut program, "Felt");
+        let index_map = ident(&mut program, "IndexMap");
+        let owner = ident(&mut program, "Owner");
+        let ctx = &mut DefaultVisitorContext::<u32, ()>::new(&mut program);
+
+        // Basic identifiers map to their plain name.
+        let basic = UncheckedType::Basic(felt);
+        assert!(matches!(TypeAbiSpec::from_unchecked_type(&basic, ctx), TypeAbiSpec::Basic(name) if name == "Felt"));
+
+        // Arrays record the innermost element type and their length.
+        let array = UncheckedType::Array(Box::new(basic.clone()), ConstValue::U32(3), Location::default());
+        match TypeAbiSpec::from_unchecked_type(&array, ctx) {
+            TypeAbiSpec::Array { type_name, inner_type, length } => {
+                assert_eq!((type_name.as_str(), inner_type.as_str(), length), ("Array", "Felt", 3));
+            }
+            other => panic!("expected array spec, got {other:?}"),
+        }
+
+        // Nested arrays keep the innermost element type with the outer length.
+        let nested = UncheckedType::Array(Box::new(array), ConstValue::U32(5), Location::default());
+        match TypeAbiSpec::from_unchecked_type(&nested, ctx) {
+            TypeAbiSpec::Array { inner_type, length, .. } => {
+                assert_eq!((inner_type.as_str(), length), ("Felt", 5));
+            }
+            other => panic!("expected nested array spec, got {other:?}"),
+        }
+
+        // Generic types surface only the outer name.
+        let generic = UncheckedType::Generic(index_map, vec![basic], Location::default());
+        assert!(matches!(TypeAbiSpec::from_unchecked_type(&generic, ctx), TypeAbiSpec::Basic(name) if name == "IndexMap"));
+
+        // Paths classify by their target.
+        let path = UncheckedType::Path(Box::new(PathNode::from_target(UncheckedType::Basic(owner))));
+        assert!(matches!(TypeAbiSpec::from_unchecked_type(&path, ctx), TypeAbiSpec::Basic(name) if name == "Owner"));
+
+        // Everything else falls back to "unknown".
+        let tuple = UncheckedType::Tuple(vec![], Location::default());
+        assert!(matches!(TypeAbiSpec::from_unchecked_type(&tuple, ctx), TypeAbiSpec::Basic(name) if name == "unknown"));
+        let unknown = UncheckedType::Const(ConstValue::Bool(true), Location::default());
+        assert!(matches!(TypeAbiSpec::from_unchecked_type(&unknown, ctx), TypeAbiSpec::Basic(name) if name == "unknown"));
+        assert!(matches!(
+            TypeAbiSpec::from_unchecked_type(&UncheckedType::Unknown, ctx),
+            TypeAbiSpec::Basic(name) if name == "unknown"
+        ));
+    }
+}

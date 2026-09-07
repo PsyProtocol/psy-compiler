@@ -115,6 +115,12 @@ impl FromStr for CrateName {
     }
 }
 
+/// Legacy blacklist export retained for downstream compatibility.
+///
+/// Crate names are now validated with an allowlist; new code should parse names as `CrateName` instead.
+#[deprecated(note = "CrateName validation now uses an allowlist; parse the name as CrateName instead")]
+pub const CHARACTER_BLACK_LIST: [char; 1] = ['-'];
+
 #[cfg(test)]
 mod tests {
     use super::*;

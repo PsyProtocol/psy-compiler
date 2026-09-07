@@ -1172,4 +1172,150 @@ mod tests {
 
         drop(dir);
     }
+
+    /// A source exercising the formatter shapes VALID_MAIN lacks: module-path
+    /// generic types, assert statements, bare `return;`, checkpoint-stats
+    /// intrinsics, and turbofish method calls.
+    #[tokio::test]
+    #[serial]
+    async fn formatting_renders_intrinsics_bare_returns_and_turbofish() {
+        let rich = "\
+
+pub mod m {
+    pub struct H<T> { pub v: T }
+    pub fn g<T>(x: T) -> Felt { return 1; }
+}
+
+pub struct Host { pub x: Felt }
+
+impl Host {
+    pub fn set<S>(self: Self, v: S) -> Felt { return 1; }
+    pub fn done(self: Self) { return; }
+}
+
+fn take(x: m::H<Felt>) -> Felt {
+    assert(x.v > 0);
+    let h = Host { x: 1 };
+    let r = h.set::<u32>(2u32);
+    h.done();
+    return r;
+}
+
+fn main(q: Felt) -> Felt {
+    let v = take(m::H { v: q });
+    return v;
+}
+";
+        let service = drained_backend();
+        let server = service.inner();
+        let (dir, root, file) = write_psy_workspace(rich);
+        let uri = Url::from_file_path(&file).unwrap();
+        server.set_crate_path_graph_cache(root.clone(), entry_graph(&file));
+        server.collect_diagnostics_sync(&root).expect("rich source must typecheck");
+        assert!(server.is_ready());
+
+        let edits = server
+            .formatting(DocumentFormattingParams {
+                text_document: text_document(&uri),
+                options: FormattingOptions::default(),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+            })
+            .await
+            .expect("formatting")
+            .expect("edits");
+        let text = &edits[0].new_text;
+        for marker in ["assert(", "return;", "h.set::<u32>("] {
+            assert!(text.contains(marker), "formatted output lacks {marker:?}:\n{text}");
+        }
+
+        drop(dir);
+    }
+
+    /// Hover and navigation across the module and type reference arms: the
+    /// module declaration name, a struct declaration name, and a struct
+    /// literal path segment all resolve to their own hover shapes.
+    #[tokio::test]
+    #[serial]
+    async fn hover_answers_module_and_type_references() {
+        let source = "pub mod inner {\n    pub struct H { pub v: Felt }\n}\nuse inner::H;\n\nfn main(q: Felt) -> Felt {\n    let h = inner::H { v: q };\n    return h.v;\n}\n";
+        let service = drained_backend();
+        let server = service.inner();
+        let (dir, root, file) = write_psy_workspace(source);
+        let uri = Url::from_file_path(&file).unwrap();
+        server.set_crate_path_graph_cache(root.clone(), entry_graph(&file));
+        server.collect_diagnostics_sync(&root).expect("module fixture must typecheck");
+        assert!(server.is_ready());
+
+        let hover = |line: u32, needle: char| {
+            let position = position_at(source, line, needle);
+            let server = &server;
+            let uri = uri.clone();
+            async move {
+                server
+                    .hover(HoverParams {
+                        text_document_position_params: position_params(&uri, position),
+                        work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+                    })
+                    .await
+                    .expect("hover request")
+                    .expect("hover text")
+            }
+        };
+
+        // The module declaration name reports `mod inner`.
+        let module_hover = hover(3, 'i').await;
+        match &module_hover.contents {
+            HoverContents::Markup(markup) => {
+                assert!(markup.value.contains("mod inner"), "module hover: {}", markup.value);
+            }
+            other => panic!("unexpected module hover contents: {other:?}"),
+        }
+
+        // The struct declaration name and the struct-literal path segment both
+        // report the type.
+        for line in [1, 6] {
+            let type_hover = hover(line, 'H').await;
+            match &type_hover.contents {
+                HoverContents::Markup(markup) => {
+                    assert!(markup.value.contains("struct H"), "type hover on line {line}: {}", markup.value);
+                }
+                other => panic!("unexpected type hover contents: {other:?}"),
+            }
+        }
+
+        // Navigation from the struct-literal segment lands on the declaration.
+        let definition = server
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: position_params(&uri, position_at(source, 6, 'H')),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+                partial_result_params: PartialResultParams { partial_result_token: None },
+            })
+            .await
+            .expect("goto definition")
+            .expect("definition found");
+        match definition {
+            tower_lsp::lsp_types::GotoDefinitionResponse::Scalar(location) => {
+                assert_eq!(location.uri, uri);
+                // The type's recorded location starts at its `pub` keyword.
+                assert_eq!(location.range.start.line, 1);
+            }
+            other => panic!("unexpected goto definition response: {other:?}"),
+        }
+
+        // References from the module name include the declaration itself.
+        let references = server
+            .references(ReferenceParams {
+                text_document_position: position_params(&uri, position_at(source, 3, 'i')),
+                work_done_progress_params: WorkDoneProgressParams { work_done_token: None },
+                partial_result_params: PartialResultParams { partial_result_token: None },
+                context: ReferenceContext { include_declaration: true },
+            })
+            .await
+            .expect("references")
+            .expect("reference list");
+        assert!(!references.is_empty());
+        assert!(references.iter().all(|location| location.uri == uri));
+
+        drop(dir);
+    }
 }

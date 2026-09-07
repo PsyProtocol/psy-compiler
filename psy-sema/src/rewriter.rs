@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use psy_ast::{DefId, ExprId, IdentId, StmtId};
+use psy_ast::{DefId, ExprId, IdentId, NodeInfo, StmtId};
 use psy_vm::dpn::ops::context_trait::ContextFelt;
 use tracing::instrument;
 
@@ -249,8 +249,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
         for parameter in &mut checked_function.parameters {
             if let Some(type_path) = &mut parameter.path {
                 let path = type_path.origin_path.clone();
-                let path_target = path.target.as_basic().unwrap();
-                let mut root_type_id = self.substitute_all(type_path.root.unwrap(), ctx)?;
+                let path_target = path.target.as_basic().ok_or(Error::InvalidPathSegment { location: path.target.location(), segment: format!("{:?}", path.target) })?;
+                let mut root_type_id = self.substitute_all(type_path.root.ok_or(Error::InvalidPathSegment { location: type_path.location, segment: format!("{:?}", path) })?, ctx)?;
 
                 type_path.root = Some(root_type_id);
                 for segment in path.segments.iter() {
@@ -268,8 +268,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
         }
         if let Some(type_path) = &mut checked_function.return_type_path {
             let path = type_path.origin_path.clone();
-            let path_target = path.target.as_basic().unwrap();
-            let mut root_type_id = self.substitute_all(type_path.root.unwrap(), ctx)?;
+            let path_target = path.target.as_basic().ok_or(Error::InvalidPathSegment { location: path.target.location(), segment: format!("{:?}", path.target) })?;
+            let mut root_type_id = self.substitute_all(type_path.root.ok_or(Error::InvalidPathSegment { location: type_path.location, segment: format!("{:?}", path) })?, ctx)?;
 
             type_path.root = Some(root_type_id);
             for segment in path.segments.iter() {
@@ -330,8 +330,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
         for parameter in &mut checked_function.parameters {
             if let Some(type_path) = &mut parameter.path {
                 let path = type_path.origin_path.clone();
-                let path_target = path.target.as_basic().unwrap();
-                let mut root_type_id = self.substitute_all(type_path.root.unwrap(), ctx)?;
+                let path_target = path.target.as_basic().ok_or(Error::InvalidPathSegment { location: path.target.location(), segment: format!("{:?}", path.target) })?;
+                let mut root_type_id = self.substitute_all(type_path.root.ok_or(Error::InvalidPathSegment { location: type_path.location, segment: format!("{:?}", path) })?, ctx)?;
 
                 type_path.root = Some(root_type_id);
                 for segment in path.segments.iter() {
@@ -349,8 +349,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
         }
         if let Some(type_path) = &mut checked_function.return_type_path {
             let path = type_path.origin_path.clone();
-            let path_target = path.target.as_basic().unwrap();
-            let mut root_type_id = self.substitute_all(type_path.root.unwrap(), ctx)?;
+            let path_target = path.target.as_basic().ok_or(Error::InvalidPathSegment { location: path.target.location(), segment: format!("{:?}", path.target) })?;
+            let mut root_type_id = self.substitute_all(type_path.root.ok_or(Error::InvalidPathSegment { location: type_path.location, segment: format!("{:?}", path) })?, ctx)?;
 
             type_path.root = Some(root_type_id);
             for segment in path.segments.iter() {
