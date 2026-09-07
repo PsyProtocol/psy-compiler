@@ -3186,4 +3186,64 @@ mod tests {
             result.error
         );
     }
+
+    /// Regression: assertions under a *symbolic* branch condition (entry-input
+    /// dependent) are witness-gated and satisfiable — they must compile. The
+    /// eager constant-assert failure used to treat "not provably false" as
+    /// "definitely executes" and wrongly rejected programs like
+    /// `if a > b { assert(false) }`.
+    #[test]
+    #[serial]
+    fn asserts_under_symbolic_branches_stay_gated() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        // Witness-dependent arm: satisfiable by choosing a <= b.
+        let result = parse_result(&compile_source(
+            "fn main(a: Felt, b: Felt) -> Felt {\n    if a > b {\n        assert(false, \"only reachable when a > b\");\n    };\n    return a + b;\n}\n",
+        ));
+        assert!(result.success, "symbolic-branch assert must stay gated: {:?}", result.error);
+
+        // A provably dead arm nested under a symbolic arm cannot be proven
+        // dead either (the conjunction does not fold), so it stays gated too.
+        let result = parse_result(&compile_source(
+            "fn main(a: Felt, b: Felt) -> Felt {\n    if a > b {\n        if false {\n            assert(false, \"dead arm\");\n        };\n    };\n    return a + b;\n}\n",
+        ));
+        assert!(result.success, "nested dead-arm assert must stay gated: {:?}", result.error);
+
+        // A constant-false top-level arm stays gated (the original intent).
+        let result = parse_result(&compile_source(
+            "fn main() -> Felt {\n    if false {\n        assert(false, \"constant-false arm\");\n    };\n    return 1;\n}\n",
+        ));
+        assert!(result.success, "constant-false arm assert must stay gated: {:?}", result.error);
+    }
+
+    /// The eager failure itself must keep working where the branch IS provably
+    /// executed: top-level and constant-true arms fail at compile time.
+    #[test]
+    #[serial]
+    fn constant_asserts_in_definitely_executed_code_still_fail_eagerly() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        let result = parse_result(&compile_source(
+            "fn main() -> Felt {\n    assert(false, \"top level must fail\");\n    return 1;\n}\n",
+        ));
+        assert!(!result.success, "top-level assert(false) must fail compilation");
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("top level must fail"),
+            "unexpected error: {:?}",
+            result.error
+        );
+
+        let result = parse_result(&compile_source(
+            "fn main() -> Felt {\n    if 1 == 1 {\n        assert(false, \"constant-true arm must fail\");\n    };\n    return 1;\n}\n",
+        ));
+        assert!(!result.success, "constant-true arm assert(false) must fail compilation");
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("constant-true arm must fail"),
+            "unexpected error: {:?}",
+            result.error
+        );
+    }
 }

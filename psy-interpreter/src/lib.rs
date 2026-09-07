@@ -2163,13 +2163,15 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
     /// Whether the interpreter is currently inside a branch that is statically
     /// known to execute. Under symbolic execution both arms of an `if` are
-    /// interpreted: assertions inside a `ConstantFalse` arm are gated by the
-    /// condition stack and never fire, so they must not be treated as compile
-    /// time failures.
+    /// interpreted, so this must be a *positive* proof: only a provably
+    /// constant-true condition (including the enclosing condition stack)
+    /// counts. A symbolic condition (e.g. `if a > b` on entry inputs) makes
+    /// the arm witness-dependent — its assertions stay gated and satisfiable,
+    /// so they must not be treated as compile time failures.
     fn current_branch_definitely_executes(&self) -> bool {
         let condition = self.context.get_current_condition();
         let op_type = self.context.get_op_type(condition.clone());
-        op_type != DPNOpType::ConstantFalse && !(op_type == DPNOpType::Constant && self.context.get_constant_value(condition) == 0)
+        op_type == DPNOpType::ConstantTrue || (op_type == DPNOpType::Constant && self.context.get_constant_value(condition) != 0)
     }
 }
 
