@@ -1252,7 +1252,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                     elements.push(self.program.exprs.alloc_item(checked_expr));
                 }
 
-                let underlying_type_id = ctx.symbols.get_type_id(Some(ScopeId::primitive()), IdentId::TYPE_ARRAY).unwrap();
+                let underlying_type_id = ctx.symbols.get_type_id(Some(ctx.symbols.primitive_scope_id()), IdentId::TYPE_ARRAY).unwrap();
 
                 let size_ty = self.populate_constant(size.into(), ctx)?;
 
@@ -1286,7 +1286,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 let inner_ty = checked_element.ty();
                 let element = self.program.exprs.alloc_item(checked_element);
 
-                let underlying_type_id = ctx.symbols.get_type_id(Some(ScopeId::primitive()), IdentId::TYPE_ARRAY).unwrap();
+                let underlying_type_id = ctx.symbols.get_type_id(Some(ctx.symbols.primitive_scope_id()), IdentId::TYPE_ARRAY).unwrap();
                 let size_ty = self.populate_constant(size.into(), ctx)?;
 
                 let &CheckedArrayNode {
@@ -1907,7 +1907,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let element_types: Vec<TypeId> = checked_elements.iter().map(|e| e.ty()).collect();
 
         let tuple_type = Type::Tuple(element_types.clone());
-        let scope_id = ScopeId::primitive();
+        let scope_id = ctx.symbols.primitive_scope_id();
         let type_id = ctx.symbols.get_or_add_type(Some(scope_id), tuple_type.key(), tuple_type)?;
 
         let elements_with_types = checked_elements.into_iter().map(|e| (e.ty(), self.program.exprs.alloc_item(e))).collect();
@@ -2456,7 +2456,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let checked_def_id = self.typecheck_trait_predecl(node, ctx)?;
         let type_id = self.program[checked_def_id].as_trait().unwrap().type_id;
 
-        ctx.symbols.enter_scope(ctx.symbols[type_id].scope_id());
+        ctx.symbols.enter_scope(ctx.symbols.type_scope_id(type_id));
         self.infcx.enter_context();
 
         let mut checked_generic_parameters = Vec::with_capacity(trait_node.generic_parameters.len());
@@ -2534,7 +2534,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let checked_struct_node = self.program[checked_def_id].as_struct().cloned().unwrap();
         let type_id = checked_struct_node.type_id;
 
-        ctx.symbols.enter_scope(ctx.symbols[type_id].scope_id());
+        ctx.symbols.enter_scope(ctx.symbols.type_scope_id(type_id));
         self.infcx.enter_context();
 
         let mut checked_generic_parameters = Vec::with_capacity(struct_node.generic_parameters.len());
@@ -2828,13 +2828,13 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             name: None,
             ty: rhs_ty,
             value: ctx.symbols.get_or_add_constant(value?),
-            scope_id: ScopeId::primitive(),
+            scope_id: ctx.symbols.primitive_scope_id(),
             visibility: node.visibility,
         };
 
         let type_id = ctx
             .symbols
-            .get_or_add_type(Some(ScopeId::primitive()), TypeKey::from(node.value), Type::Const(node.clone()))?;
+            .get_or_add_type(Some(ctx.symbols.primitive_scope_id()), TypeKey::from(node.value), Type::Const(node.clone()))?;
 
         ctx.symbols.add_type_id(None, name, type_id)?;
 
@@ -3327,22 +3327,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
 
     #[instrument(level = "debug", skip_all)]
     fn typecheck_std_primitive_module(&mut self, ctx: &mut TypeCheckerVisitorContext<F, C>) -> Result<()> {
-        #[allow(static_mut_refs)]
-        unsafe {
-            let scope_id = ctx.symbols.current_scope_id().unwrap();
-            if let Err(id) = STD_PRIMITIVE_SCOPE_ID.set(scope_id)
-                && id != scope_id
-            {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-                STD_PRIMITIVE_SCOPE_ID.set(scope_id).unwrap();
-            }
-            // //Warning: Not safe to run in a multithreaded environment
-            // *STD_PRIMITIVE_SCOPE_ID.get_or_init(|| {
-            //     ctx.symbols
-            //         .current_scope_id()
-            //         .expect("cannot get current scope id")
-            // })
-        };
+        let scope_id = ctx.symbols.current_scope_id().unwrap();
+        ctx.symbols.set_primitive_scope_id(scope_id);
         for ty in &*PRIMITIVE_TYPES {
             ctx.symbols.add_type(None, ty.key(), ty.clone())?;
         }
@@ -3461,12 +3447,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
             name: None,
             ty,
             value: ctx.symbols.get_or_add_constant(CheckedValueRef::from_value(value_f, ty)),
-            scope_id: ScopeId::primitive(),
+            scope_id: ctx.symbols.primitive_scope_id(),
             visibility: Visibility::Public,
         };
 
         ctx.symbols
-            .get_or_add_type(Some(ScopeId::primitive()), TypeKey::from(node.value), Type::Const(node))
+            .get_or_add_type(Some(ctx.symbols.primitive_scope_id()), TypeKey::from(node.value), Type::Const(node))
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -3476,11 +3462,11 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
 
         let inner_ty = ctx.symbols.add_type_variable(
             ScopeKind::Module,
-            CheckedGenericParameter::new(IdentId::T, vec![], ScopeId::primitive(), Location::default()),
+            CheckedGenericParameter::new(IdentId::T, vec![], ctx.symbols.primitive_scope_id(), Location::default()),
         )?;
         let size = ctx.symbols.add_type_variable(
             ScopeKind::Module,
-            CheckedGenericParameter::new(IdentId::N, vec![FELT_TYPE], ScopeId::primitive(), Location::default()),
+            CheckedGenericParameter::new(IdentId::N, vec![FELT_TYPE], ctx.symbols.primitive_scope_id(), Location::default()),
         )?;
 
         let checked_array = CheckedArrayNode {
@@ -3490,7 +3476,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
         };
 
         let ty = Type::Array(checked_array.clone());
-        let type_id = ctx.symbols.add_type(Some(ScopeId::primitive()), ty.name(), ty)?;
+        let type_id = ctx.symbols.add_type(Some(ctx.symbols.primitive_scope_id()), ty.name(), ty)?;
 
         self.infcx.exit_context();
         ctx.symbols.end_scope();
@@ -3589,7 +3575,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                 }
             }
             UncheckedType::Array(inner_ty, size, location) => {
-                let underlying_type_id = ctx.symbols.get_type_id(Some(ScopeId::primitive()), IdentId::TYPE_ARRAY).unwrap();
+                let underlying_type_id = ctx.symbols.get_type_id(Some(ctx.symbols.primitive_scope_id()), IdentId::TYPE_ARRAY).unwrap();
 
                 let &CheckedArrayNode {
                     inner_ty: generic_inner_ty,
@@ -3624,7 +3610,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
 
                 let checked_tuple = Type::Tuple(checked_elements);
 
-                let scope_id = ScopeId::primitive();
+                let scope_id = ctx.symbols.primitive_scope_id();
 
                 ctx.symbols.get_or_add_type(Some(scope_id), checked_tuple.key(), checked_tuple)?
             }

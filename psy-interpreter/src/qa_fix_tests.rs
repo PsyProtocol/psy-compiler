@@ -9,8 +9,7 @@
 //         silently picked the first impl. Now rejected with
 //         `AmbiguousTraitMethod`.
 //
-// The shared `STD_PRIMITIVE_SCOPE_ID` singleton is reset after every case so
-// the suite is hermetic. Every case is `#[serial]`.
+// Each case owns an independent symbol table and uniquely named temporary file.
 
 use std::{
     fs,
@@ -19,7 +18,6 @@ use std::{
 };
 
 use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
-use serial_test::serial;
 
 use super::*;
 
@@ -43,10 +41,6 @@ fn compile(source: &str, label: &str) -> Outcome {
     }));
 
     let _ = fs::remove_file(&path);
-    #[allow(static_mut_refs)]
-    unsafe {
-        let _ = STD_PRIMITIVE_SCOPE_ID.take();
-    }
 
     match result {
         Ok(Ok((_typechecker, _ctx))) => Outcome::Accept,
@@ -111,11 +105,6 @@ fn run_main_outputs(source: &str, label: &str) -> Vec<u64> {
         .__interpret__(&typechecker.program, main_type_id, vec![], &mut ctx)
         .unwrap_or_else(|e| panic!("[{label}] interpret failed: {e:#}"));
 
-    #[allow(static_mut_refs)]
-    unsafe {
-        let _ = STD_PRIMITIVE_SCOPE_ID.take();
-    }
-
     felts.iter().map(|f| f.get_constant_value()).collect()
 }
 
@@ -124,7 +113,6 @@ fn run_main_outputs(source: &str, label: &str) -> Vec<u64> {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn b01_if_without_else_in_let_rejected() {
     expect_reject(
         "b01_if_without_else_in_let",
@@ -134,7 +122,6 @@ fn b01_if_without_else_in_let_rejected() {
 }
 
 #[test]
-#[serial]
 fn b01b_bool_match_single_literal_is_incomplete() {
     expect_reject(
         "b01b_bool_match_single_literal",
@@ -144,7 +131,6 @@ fn b01b_bool_match_single_literal_is_incomplete() {
 }
 
 #[test]
-#[serial]
 fn b01c_bool_match_two_equal_literals_is_incomplete() {
     expect_reject(
         "b01c_bool_match_duplicate_literal",
@@ -154,7 +140,6 @@ fn b01c_bool_match_two_equal_literals_is_incomplete() {
 }
 
 #[test]
-#[serial]
 fn b01d_bool_match_false_and_wildcard_is_complete() {
     expect_accept(
         "b01d_bool_match_false_wildcard",
@@ -163,7 +148,6 @@ fn b01d_bool_match_false_and_wildcard_is_complete() {
 }
 
 #[test]
-#[serial]
 fn b01e_bool_match_wildcard_only_is_complete() {
     expect_accept(
         "b01e_bool_match_wildcard_only",
@@ -172,7 +156,6 @@ fn b01e_bool_match_wildcard_only_is_complete() {
 }
 
 #[test]
-#[serial]
 fn b02_if_without_else_as_return_rejected() {
     // The if is the trailing expression of the function body block (value
     // position), so it must have an else branch.
@@ -184,7 +167,6 @@ fn b02_if_without_else_as_return_rejected() {
 }
 
 #[test]
-#[serial]
 fn b03_if_without_else_as_call_arg_rejected() {
     expect_reject(
         "b03_if_without_else_as_arg",
@@ -194,14 +176,12 @@ fn b03_if_without_else_as_call_arg_rejected() {
 }
 
 #[test]
-#[serial]
 fn b04_if_without_else_as_statement_accepted() {
     // As a statement (ExpressionStmt) an else branch is not required.
     expect_accept("b04_if_stmt_no_else", "fn main() {\n    if false {\n        let x = 1;\n    }\n}");
 }
 
 #[test]
-#[serial]
 fn b05_if_without_else_void_body_in_for_accepted() {
     // Mirrors `psy-std/storage.psy:689`: an if with a void body used as a
     // for-body block's trailing expression is side-effect only and must
@@ -212,7 +192,6 @@ fn b05_if_without_else_void_body_in_for_accepted() {
     );
 }
 #[test]
-#[serial]
 fn b06_if_with_else_as_value_accepted() {
     expect_accept("b06_if_with_else_value", "fn main() {\n    let x: Felt = if false { 7 } else { 9 };\n}");
 }
@@ -243,7 +222,6 @@ fn main() -> u32 {
 "#;
 
 #[test]
-#[serial]
 fn b07_chained_mut_self_returns_three() {
     // Before the fix the receiver of each link was evaluated twice (once for
     // callee resolution, once for the arg list), so every `inc` mutation was
@@ -253,7 +231,6 @@ fn b07_chained_mut_self_returns_three() {
 }
 
 #[test]
-#[serial]
 fn b08_single_mut_self_returns_two() {
     let src = r#"
 struct S {
@@ -278,7 +255,6 @@ fn main() -> u32 {
 }
 
 #[test]
-#[serial]
 fn b09_stepwise_mut_self_returns_three() {
     // Stepwise already worked; defends against regressing the non-chained path.
     let src = r#"
@@ -336,7 +312,6 @@ fn main() {
 "#;
 
 #[test]
-#[serial]
 fn b10_ambiguous_trait_method_rejected() {
     match compile(AMBIG_SRC, "b10_ambiguous_trait_method") {
         Outcome::Reject(message) => {
@@ -349,7 +324,6 @@ fn b10_ambiguous_trait_method_rejected() {
 }
 
 #[test]
-#[serial]
 fn b10b_exact_trait_impl_wins_over_earlier_generic_impl() {
     expect_accept(
         "b10b_exact_over_generic",
@@ -365,7 +339,6 @@ fn main() { let value: Felt = Box::<Felt> { value: 1 }.value(); }
 }
 
 #[test]
-#[serial]
 fn b10c_two_generic_trait_methods_are_ambiguous() {
     expect_reject(
         "b10c_generic_ambiguity",
@@ -385,7 +358,6 @@ fn main() { let value = Box::<Felt> { value: 1 }.value(); }
 /// providers: `<W as Conv<..>>::conv` must select the requested impl,
 /// not silently collapse to whichever was declared first.
 #[test]
-#[serial]
 fn b10d_same_generic_trait_two_impls_dispatch_by_trait_args() {
     // Both disambiguated calls select their own impl and run.
     let outputs = run_main_outputs(
@@ -427,7 +399,6 @@ fn main() {
 /// whichever impl registered first (implementer.rs provider dedup
 /// used to collapse these too).
 #[test]
-#[serial]
 fn b10e_same_generic_trait_assoc_types_dispatch() {
     let outputs = run_main_outputs(
         r#"
@@ -448,7 +419,6 @@ fn main() -> (Felt, u32) {
 /// Three impls of the same generic trait: every instantiation must pick
 /// its own (no first-wins collapse at any arity).
 #[test]
-#[serial]
 fn b10f_three_impls_of_same_generic_trait() {
     let outputs = run_main_outputs(
         r#"
@@ -473,7 +443,6 @@ fn main() -> (u32, Felt) {
 /// The undecorated method call with two same-trait impls in scope is
 /// genuinely ambiguous and must be reported, not silently resolved.
 #[test]
-#[serial]
 fn b10g_undecorated_call_with_same_trait_impls_is_ambiguous() {
     expect_reject(
         "b10g_undecorated_ambiguous",
@@ -492,7 +461,6 @@ fn main() {
 }
 
 #[test]
-#[serial]
 fn b11_single_trait_method_accepted() {
     // A single trait providing `val` must still resolve cleanly.
     let src = r#"
@@ -516,7 +484,6 @@ fn main() {
 }
 
 #[test]
-#[serial]
 fn b12_inherent_plus_trait_no_ambiguity() {
     // An inherent impl method shadows trait methods; no ambiguity expected.
     let src = r#"

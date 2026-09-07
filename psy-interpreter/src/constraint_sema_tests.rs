@@ -6,26 +6,23 @@
 // temporary `.psy` sources. Every case names the concrete contract it defends
 // and asserts the exact accept/reject outcome.
 //
-// The shared `STD_PRIMITIVE_SCOPE_ID` singleton is reset after *every* case
+// The primitive scope is owned by each typecheck symbol table
 // (via `check`, which tears down before the caller can panic) so the suite
 // is hermetic.
 
 use std::{
     fs,
-    path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
-use serial_test::serial;
 
 use super::*;
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Typecheck `source` written to a throwaway temp file, then ALWAYS tear down
-/// the file and reset the shared primitive-scope singleton. Returns `None` if
+/// Typecheck `source` written to a throwaway temp file, then tear it down. Returns `None` if
 /// the program typechecked, or `Some(formatted_error)` if it was rejected.
 fn check(source: &str) -> Option<String> {
     let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
@@ -37,10 +34,6 @@ fn check(source: &str) -> Option<String> {
     let result = interpreter.typecheck_single(path.clone());
 
     let _ = fs::remove_file(path);
-    #[allow(static_mut_refs)]
-    unsafe {
-        let _ = STD_PRIMITIVE_SCOPE_ID.take();
-    }
 
     match result {
         Ok(_) => None,
@@ -74,7 +67,6 @@ fn expect_reject(name: &str, source: &str, needle: &str) {
 /// Method call `x.m()` on a constrained type variable `T: Trait` resolves
 /// through the constraint's trait scope (implementer.rs:328-340).
 #[test]
-#[serial]
 fn c01_single_constraint_method_resolves() {
     expect_accept(
         "c01_single_constraint_method_resolves",
@@ -89,7 +81,6 @@ fn main() {}
 /// Associated function call `T::make()` on a constrained type variable
 /// resolves through the constraint.
 #[test]
-#[serial]
 fn c01b_single_constraint_assoc_fn_resolves() {
     expect_accept(
         "c01b_single_constraint_assoc_fn_resolves",
@@ -104,7 +95,6 @@ fn main() {}
 /// Constrained generic function with a body that doesn't use the constraint
 /// still typechecks (constraint declared but unused).
 #[test]
-#[serial]
 fn c01c_single_constraint_unused_typechecks() {
     expect_accept(
         "c01c_single_constraint_unused_typechecks",
@@ -122,7 +112,6 @@ fn main() {}
 
 /// Two constraints `T: A + B` — method from A is available.
 #[test]
-#[serial]
 fn c02_multi_constraint_first_method() {
     expect_accept(
         "c02_multi_constraint_first_method",
@@ -137,7 +126,6 @@ fn main() {}
 
 /// Two constraints `T: A + B` — method from B is available.
 #[test]
-#[serial]
 fn c02b_multi_constraint_second_method() {
     expect_accept(
         "c02b_multi_constraint_second_method",
@@ -152,7 +140,6 @@ fn main() {}
 
 /// Three constraints `T: A + B + C` — all methods available.
 #[test]
-#[serial]
 fn c02c_three_constraints_all_methods() {
     expect_accept(
         "c02c_three_constraints_all_methods",
@@ -172,7 +159,6 @@ fn main() {}
 
 /// Declaration of generic struct with constraint typechecks.
 #[test]
-#[serial]
 fn c03_generic_struct_with_constraint_decl() {
     expect_accept(
         "c03_generic_struct_with_constraint_decl",
@@ -187,7 +173,6 @@ fn main() {}
 /// Method access through a field of constrained generic struct type.
 /// `s.x.m()` where `s: S<T>` and `S<T: T>` — `s.x` has type T with constraint T.
 #[test]
-#[serial]
 fn c03b_generic_struct_field_method_access() {
     expect_accept(
         "c03b_generic_struct_field_method_access",
@@ -202,7 +187,6 @@ fn main() {}
 
 /// Struct literal construction with constrained generic type parameter.
 #[test]
-#[serial]
 fn c03c_struct_literal_constrained_generic() {
     expect_accept(
         "c03c_struct_literal_constrained_generic",
@@ -224,7 +208,6 @@ fn main() {}
 /// `impl<T: T> U for T` — T's trait method resolves via the constraint inside
 /// the impl body.
 #[test]
-#[serial]
 fn c04_impl_constraint_method_resolves() {
     expect_accept(
         "c04_impl_constraint_method_resolves",
@@ -241,7 +224,6 @@ fn main() {}
 
 /// A type variable cannot be used as the trait in a blanket impl header.
 #[test]
-#[serial]
 fn c04b_blanket_impl_constraint_rejected() {
     expect_reject("c04b_blanket_impl_constraint_rejected", r#"
 trait T { fn m(self: Self) -> Felt; }
@@ -258,7 +240,6 @@ fn main() {}
 
 /// `fn f<T: T>` calls `fn g<T: T>` — constraint propagates.
 #[test]
-#[serial]
 fn c05_constraint_propagation_same() {
     expect_accept(
         "c05_constraint_propagation_same",
@@ -274,7 +255,6 @@ fn main() {}
 /// `fn f<T>` (no constraint) calls `fn g<T: T>` — should fail because
 /// f's T doesn't satisfy g's constraint.
 #[test]
-#[serial]
 fn c05b_constraint_propagation_missing_rejected() {
     expect_reject(
         "c05b_constraint_propagation_missing_rejected",
@@ -294,7 +274,6 @@ fn main() {}
 
 /// `fn use_it<T: T>(x: T)` called with `Foo` where `impl T for Foo` — works.
 #[test]
-#[serial]
 fn c06_concrete_type_satisfies_constraint() {
     expect_accept(
         "c06_concrete_type_satisfies_constraint",
@@ -311,7 +290,6 @@ fn main() { let f = Foo { v: 42 }; let r = use_it::<Foo>(f); }
 /// Calling a constrained generic function with a type that does NOT implement
 /// the trait — should fail.
 #[test]
-#[serial]
 fn c06b_concrete_type_missing_impl_rejected() {
     expect_reject(
         "c06b_concrete_type_missing_impl_rejected",
@@ -334,7 +312,6 @@ fn main() { let b = Bar { v: 42 }; let r = use_it::<Bar>(b); }
 /// `fn f<T>(x: T) { x.m() }` where m is from Trait — rejected because T has
 /// no constraint.
 #[test]
-#[serial]
 fn c07_missing_constraint_rejected() {
     expect_reject(
         "c07_missing_constraint_rejected",
@@ -349,7 +326,6 @@ fn main() {}
 
 /// Missing constraint on associated function call — `T::make()` without T: T.
 #[test]
-#[serial]
 fn c07b_missing_constraint_assoc_fn_rejected() {
     expect_reject(
         "c07b_missing_constraint_assoc_fn_rejected",
@@ -371,7 +347,6 @@ fn main() {}
 /// parses comma-separated types, not `Name = Type` bindings. So this syntax
 /// is not supported and will produce a parse error.
 #[test]
-#[serial]
 fn c08_constraint_with_assoc_type_binding_unimplemented() {
     expect_reject(
         "c08_constraint_with_assoc_type_binding_unimplemented",
@@ -387,7 +362,6 @@ fn main() {}
 /// Associated type WITH a constraint in trait declaration — `type Item: NewTrait`.
 /// This IS supported (parse_trait_associated_type at item.rs:782-810).
 #[test]
-#[serial]
 fn c08b_assoc_type_with_constraint_in_trait_decl() {
     expect_accept(
         "c08b_assoc_type_with_constraint_in_trait_decl",
@@ -403,7 +377,6 @@ fn main() {}
 /// Felt does not implement NewTrait, so the override `type Item = Felt` should
 /// be rejected.
 #[test]
-#[serial]
 fn c08c_assoc_type_constraint_override_rejected() {
     expect_reject(
         "c08c_assoc_type_constraint_override_rejected",
@@ -424,7 +397,6 @@ fn main() {}
 
 /// `<Foo as T>::m(f)` — static trait method dispatch on concrete type.
 #[test]
-#[serial]
 fn c09_trait_static_dispatch_concrete() {
     expect_accept(
         "c09_trait_static_dispatch_concrete",
@@ -443,7 +415,6 @@ fn main() {
 /// `<T as Trait>::method()` on a constrained type variable — dispatch through
 /// the constraint (lib.rs:1482-1500 checks constraint list for type variables).
 #[test]
-#[serial]
 fn c09b_trait_cast_on_type_variable() {
     expect_accept(
         "c09b_trait_cast_on_type_variable",
@@ -464,7 +435,6 @@ fn main() {}
 /// UNIMPLEMENTED: parse_trait_definition (item.rs:714-717) does not parse a
 /// colon after the trait name. The `:` would be unexpected.
 #[test]
-#[serial]
 fn c10_supertrait_unimplemented() {
     expect_reject(
         "c10_supertrait_unimplemented",
@@ -485,7 +455,6 @@ fn main() {}
 /// UNIMPLEMENTED: parse_function_definition (item.rs:283-292) does not parse
 /// `where` after the return type. The `where` keyword would be unexpected.
 #[test]
-#[serial]
 fn c11_where_clause_unimplemented() {
     expect_reject(
         "c11_where_clause_unimplemented",
@@ -500,7 +469,6 @@ fn main() {}
 
 /// Where clause on a struct — also unimplemented.
 #[test]
-#[serial]
 fn c11b_where_clause_on_struct_unimplemented() {
     expect_reject(
         "c11b_where_clause_on_struct_unimplemented",
@@ -519,7 +487,6 @@ fn main() {}
 
 /// `fn f<T: A + B>` calls `fn g<T: A>` — relaxation works (T: A+B satisfies T: A).
 #[test]
-#[serial]
 fn c12_constraint_relaxation_ab_to_a() {
     expect_accept(
         "c12_constraint_relaxation_ab_to_a",
@@ -535,7 +502,6 @@ fn main() {}
 
 /// `fn f<T: A + B + C>` calls `fn g<T: A + B>` — relaxation works.
 #[test]
-#[serial]
 fn c12b_constraint_relaxation_abc_to_ab() {
     expect_accept(
         "c12b_constraint_relaxation_abc_to_ab",
@@ -558,7 +524,6 @@ fn main() {}
 /// Sema's typecheck_generic_parameter (lib.rs:3378) checks all are traits,
 /// which passes. No duplicate detection.
 #[test]
-#[serial]
 fn c13_duplicate_constraint_accepted() {
     expect_accept(
         "c13_duplicate_constraint_accepted",
@@ -572,7 +537,6 @@ fn main() {}
 
 /// Triple duplicate `T: A + A + A` — still accepted.
 #[test]
-#[serial]
 fn c13b_triple_duplicate_constraint_accepted() {
     expect_accept(
         "c13b_triple_duplicate_constraint_accepted",
@@ -592,7 +556,6 @@ fn main() {}
 /// parse_generic_constraints (ty.rs:424-437) consumes `:` then calls
 /// parse_path_ty, which fails on `{`.
 #[test]
-#[serial]
 fn c14_empty_constraint_after_colon_rejected() {
     // This is a parse error — typecheck_single returns a parse-level error.
     // We accept any rejection.
@@ -608,7 +571,6 @@ fn main() {}
 
 /// `fn f<T: >(x: T) {}` — colon with space then nothing. Same rejection.
 #[test]
-#[serial]
 fn c14b_empty_constraint_space_rejected() {
     expect_reject(
         "c14b_empty_constraint_space_rejected",
@@ -627,7 +589,6 @@ fn main() {}
 /// `fn method(self: Self) where Self: OtherTrait` — where clause on method.
 /// UNIMPLEMENTED: where clauses are not parsed (same as focus area 11).
 #[test]
-#[serial]
 fn c15_self_where_clause_unimplemented() {
     expect_reject(
         "c15_self_where_clause_unimplemented",
@@ -650,7 +611,6 @@ fn main() {}
 /// Struct literal `S { x: value }` where S<T: T> — constructing with a value
 /// that satisfies the constraint.
 #[test]
-#[serial]
 fn ca_struct_literal_with_constraint() {
     expect_accept(
         "ca_struct_literal_with_constraint",
@@ -666,7 +626,6 @@ fn main() { let f = Foo { v: 42 }; let s = S::<Foo> { x: f }; }
 
 /// Struct literal with bare generic and constraint — `S<Foo> { x: f }`.
 #[test]
-#[serial]
 fn ca_struct_literal_bare_generic_constraint() {
     expect_accept(
         "ca_struct_literal_bare_generic_constraint",
@@ -687,7 +646,6 @@ fn main() { let f = Foo { v: 42 }; let s = S<Foo> { x: f }; }
 /// Blanket impl with constraint: `impl<T: T> U for T` where the U method body
 /// calls T's method via the constraint.
 #[test]
-#[serial]
 fn cb_trait_impl_block_constraint() {
     expect_accept(
         "cb_trait_impl_block_constraint",
@@ -704,7 +662,6 @@ fn main() {}
 
 /// Multiple constraints on impl generic parameter.
 #[test]
-#[serial]
 fn cb_impl_multi_constraint() {
     expect_accept(
         "cb_impl_multi_constraint",
@@ -728,7 +685,6 @@ fn main() {}
 /// `N: u32` is valid per typecheck_generic_parameter (lib.rs:3379: exactly 1
 /// basic type constraint).
 #[test]
-#[serial]
 fn cc_array_constraint_mixed_type_const() {
     expect_accept(
         "cc_array_constraint_mixed_type_const",
@@ -742,7 +698,6 @@ fn main() {}
 
 /// Array type with constrained element type: `[T; N]` where `T: Trait`.
 #[test]
-#[serial]
 fn cc_array_with_constrained_element() {
     expect_accept(
         "cc_array_with_constrained_element",
@@ -760,7 +715,6 @@ fn main() {}
 
 /// Tuple type with constrained generic: `fn f<T: T>(x: (T, Felt))`.
 #[test]
-#[serial]
 fn cd_tuple_with_constrained_generic() {
     expect_accept(
         "cd_tuple_with_constrained_generic",
@@ -774,7 +728,6 @@ fn main() {}
 
 /// Tuple of two constrained generics: `(T, T)`.
 #[test]
-#[serial]
 fn cd_tuple_two_constrained() {
     expect_accept(
         "cd_tuple_two_constrained",
@@ -792,7 +745,6 @@ fn main() {}
 
 /// Self type in trait method signature with constraint — basic Self works.
 #[test]
-#[serial]
 fn ce_self_type_basic() {
     expect_accept(
         "ce_self_type_basic",
@@ -811,7 +763,6 @@ fn main() {}
 /// the same trait during default method typechecking. This is a sema
 /// limitation, not a parser issue.
 #[test]
-#[serial]
 fn ce_self_method_call_in_trait_rejected() {
     expect_reject(
         "ce_self_method_call_in_trait_rejected",
@@ -833,7 +784,6 @@ fn main() {}
 
 /// `extern fn f<T: Trait>(x: T) -> Felt;` — extern fn with constraint, no body.
 #[test]
-#[serial]
 fn cf_extern_fn_with_constraint() {
     expect_accept(
         "cf_extern_fn_with_constraint",
@@ -847,7 +797,6 @@ fn main() {}
 
 /// `const extern fn` with constraint — both qualifiers with constraint.
 #[test]
-#[serial]
 fn cf_const_extern_fn_with_constraint() {
     expect_accept(
         "cf_const_extern_fn_with_constraint",
@@ -866,7 +815,6 @@ fn main() {}
 /// Constraint is available during predecl: function with constraint that uses
 /// the constraint in its own signature (return type references the trait).
 #[test]
-#[serial]
 fn cg_constraint_available_in_predecl() {
     expect_accept(
         "cg_constraint_available_in_predecl",
@@ -882,7 +830,6 @@ fn main() {}
 /// Forward reference: function f uses constraint and is called before its
 /// declaration in the module — predecl phase registers all functions first.
 #[test]
-#[serial]
 fn cg_forward_ref_constraint() {
     expect_accept(
         "cg_forward_ref_constraint",
@@ -901,7 +848,6 @@ impl T for Felt { fn m(self: Self) -> Felt { return 0; } }
 
 /// `T: Felt` — single basic type constraint. Valid per lib.rs:3379.
 #[test]
-#[serial]
 fn ch_basic_type_constraint_valid() {
     expect_accept(
         "ch_basic_type_constraint_valid",
@@ -918,7 +864,6 @@ fn main() {}
 /// constraint — it reports UnresolvedType. This is a limitation: only
 /// Felt is accepted as a basic-type constraint (lib.rs:3379), not Bool/u32.
 #[test]
-#[serial]
 fn ch_bool_constraint_rejected() {
     expect_reject(
         "ch_bool_constraint_rejected",
@@ -932,7 +877,6 @@ fn main() {}
 
 /// `T: u32` — single basic type constraint (u32). Valid.
 #[test]
-#[serial]
 fn ch_u32_constraint_valid() {
     expect_accept(
         "ch_u32_constraint_valid",
@@ -946,7 +890,6 @@ fn main() {}
 
 /// `T: Struct` — constraint is a struct, not a trait. INVALID.
 #[test]
-#[serial]
 fn ch_struct_constraint_rejected() {
     expect_reject(
         "ch_struct_constraint_rejected",
@@ -966,7 +909,6 @@ fn main() {}
 /// `T: Trait<Felt>` — generic trait as constraint. The parser parses this as
 /// a generic type, and sema checks it's a trait.
 #[test]
-#[serial]
 fn ci_generic_trait_constraint() {
     expect_accept(
         "ci_generic_trait_constraint",
@@ -981,7 +923,6 @@ fn main() {}
 /// Generic trait constraint with concrete type that implements the generic
 /// trait with the right type argument.
 #[test]
-#[serial]
 fn ci_generic_trait_constraint_satisfied() {
     expect_accept(
         "ci_generic_trait_constraint_satisfied",
@@ -1001,7 +942,6 @@ fn main() { let foo = Foo { v: 42 }; let r = f::<Foo>(foo); }
 
 /// Enum declarations are currently rejected with a regular sema error.
 #[test]
-#[serial]
 fn cj_enum_constraint_decl_rejected() {
     expect_reject("cj_enum_constraint_decl_rejected", r#"
 trait T { fn m(self: Self) -> Felt; }
@@ -1014,7 +954,6 @@ fn main() {}
 /// associated type. Defends: find_associated_type on type variable with
 /// constraints (implementer.rs:328-340 fallthrough to associated type lookup).
 #[test]
-#[serial]
 fn ck_assoc_type_access_on_constrained_var() {
     expect_accept(
         "ck_assoc_type_access_on_constrained_var",
@@ -1032,7 +971,6 @@ fn main() {}
 /// losing the associated type resolution. T::Item (without explicit cast)
 /// works via constraint fallback (implementer.rs:328-340).
 #[test]
-#[serial]
 fn ck_assoc_type_explicit_cast_constrained_rejected() {
     expect_reject(
         "ck_assoc_type_explicit_cast_constrained",

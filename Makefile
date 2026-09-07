@@ -1,8 +1,8 @@
 PROFILE := release
 COVERAGE_PROFILE := dev
 LOG_LEVEL := dargo=info
-COVERAGE_MIN_LINES ?= 85
-COVERAGE_MIN_FUNCTIONS ?= 80
+COVERAGE_MIN_LINES ?= 95
+COVERAGE_MIN_FUNCTIONS ?= 95
 COVERAGE_DIR ?= target/coverage
 COVERAGE_IGNORE_REGEX := '(^|/)(psy-lsp-server/psy-lsp-vscode|psy-wasm/demo-(web|node)|psy-precompiles/src/bin|[^/]+/src/main\.rs)(/|$$)'
 
@@ -16,10 +16,9 @@ check:
 test:
 	@RUST_LOG=$(LOG_LEVEL) cargo test --profile $(PROFILE) --workspace --all-targets -- --nocapture
 
-# Expensive proving tests mutate process-global compiler state and therefore
-# must run serially. They are intentionally kept out of the PR-fast path.
+# Expensive proving/end-to-end tests are intentionally kept out of the PR-fast path.
 test-slow:
-	@RUST_LOG=$(LOG_LEVEL) cargo test --profile $(PROFILE) --package dargo -- --ignored --test-threads=1 --nocapture
+	@RUST_LOG=$(LOG_LEVEL) cargo test --profile $(PROFILE) --package dargo -- --ignored --nocapture
 
 # Generate a local HTML report and a machine-readable LCOV report. This target
 # intentionally has no threshold so it can be used to establish a baseline.

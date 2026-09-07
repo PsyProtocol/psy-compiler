@@ -78,15 +78,11 @@ mod tests {
 
     use super::*;
     #[tokio::test(flavor = "multi_thread")]
-    #[ignore = "slow end-to-end proving; run serially with `make test-slow`"]
+    #[ignore = "slow end-to-end proving; run with `make test-slow`"]
     async fn psy_unit_test() {
         insta::glob!("../../../tests", "*_test.psy", |path| {
             let args = TestCommand { file: path.into() };
             tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(run(args))).unwrap();
-            #[allow(static_mut_refs)]
-            unsafe {
-                psy_sema::STD_PRIMITIVE_SCOPE_ID.take()
-            };
         });
     }
 
@@ -103,11 +99,6 @@ mod tests {
         .expect("write test file");
 
         run(TestCommand { file: file.clone() }).await.expect("passing #[test] functions must execute and prove");
-
-        #[allow(static_mut_refs)]
-        unsafe {
-            psy_sema::STD_PRIMITIVE_SCOPE_ID.take()
-        };
         fs::remove_file(file).ok();
     }
 }

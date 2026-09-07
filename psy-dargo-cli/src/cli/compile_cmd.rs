@@ -769,10 +769,6 @@ mod tests {
     }
 
     fn reset_std_scope() {
-        #[allow(static_mut_refs)]
-        unsafe {
-            psy_sema::STD_PRIMITIVE_SCOPE_ID.take();
-        }
     }
 
     #[test]

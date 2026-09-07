@@ -599,10 +599,6 @@ mod tests {
             if let Err(err) = tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(run_doc(args, workspace))) {
                 panic!("file: {:?}, {:?}", path, err);
             }
-            #[allow(static_mut_refs)]
-            unsafe {
-                psy_sema::STD_PRIMITIVE_SCOPE_ID.take()
-            };
         });
     }
 }

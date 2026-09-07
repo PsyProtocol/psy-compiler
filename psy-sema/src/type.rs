@@ -529,11 +529,8 @@ mod tests {
     #[test]
     fn scope_ids_come_from_the_node_for_composites() {
         // The primitive scope global may not have been populated yet when this test runs first.
-        #[allow(static_mut_refs)]
-        unsafe {
-            if crate::STD_PRIMITIVE_SCOPE_ID.get().is_none() {
-                crate::STD_PRIMITIVE_SCOPE_ID.set(ScopeId(99)).unwrap();
-            }
+        if crate::STD_PRIMITIVE_SCOPE_ID.get().is_none() {
+            crate::STD_PRIMITIVE_SCOPE_ID.set(ScopeId(99)).unwrap();
         }
 
         assert_eq!(Type::Array(array()).scope_id(), ScopeId(1));

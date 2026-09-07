@@ -12,9 +12,8 @@
 // Bug 9: immutable assignment (`let x=1; x=2;`) was only checked on the
 //        runtime/interpret path, silently accepted by non-test typecheck.
 //
-// Every case asserts a clean accept/reject and that no path panics. The shared
-// `STD_PRIMITIVE_SCOPE_ID` singleton is reset after every case so the suite is
-// hermetic. Every case is `#[serial]`.
+// Every case asserts a clean accept/reject and that no path panics. Each case owns
+// an independent symbol table and uniquely named temporary file.
 
 use std::{
     fs,
@@ -23,7 +22,6 @@ use std::{
 };
 
 use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
-use serial_test::serial;
 
 use super::*;
 
@@ -55,10 +53,6 @@ fn compile(source: &str, label: &str) -> Outcome {
     }));
 
     let _ = fs::remove_file(path);
-    #[allow(static_mut_refs)]
-    unsafe {
-        let _ = STD_PRIMITIVE_SCOPE_ID.take();
-    }
 
     match result {
         Ok(Ok((typechecker, ctx))) => Outcome::Accept(Compiled { interpreter, typechecker, ctx }),
@@ -163,14 +157,12 @@ fn expect_input_materialization_error(c: &mut Compiled, function_ty: TypeId, lab
 }
 
 #[test]
-#[serial]
 fn b12_non_bool_not_is_rejected_at_typecheck() {
     expect_reject("b12_felt_not", "fn main() { let value = !1; }", "TypeMismatch");
     expect_reject("b12_u32_not", "fn main() { let value = !1u32; }", "TypeMismatch");
 }
 
 #[test]
-#[serial]
 fn b13_mixed_for_range_endpoint_types_are_rejected() {
     expect_reject(
         "b13_mixed_for_range",
@@ -183,7 +175,6 @@ fn b13_mixed_for_range_endpoint_types_are_rejected() {
 /// be rejected instead of panicking at interpretation (M2): the old check
 /// unified (binding) the free variable to FELT, accepting anything.
 #[test]
-#[serial]
 fn b19_generic_struct_for_range_endpoint_rejected() {
     expect_reject(
         "b19_struct_endpoint",
@@ -198,7 +189,6 @@ fn b19_generic_struct_for_range_endpoint_rejected() {
 }
 
 #[test]
-#[serial]
 fn b14_bool_invalid_compound_assignments_are_rejected() {
     for (label, operator) in [
         ("add", "+="),
@@ -220,7 +210,6 @@ fn b14_bool_invalid_compound_assignments_are_rejected() {
 }
 
 #[test]
-#[serial]
 fn b14_bool_xor_assignment_executes_without_panicking() {
     let source = "fn main() { let mut value = true; value ^= true; assert_eq(value, false); }";
     match run_main(source, "b14_bool_xor_assign") {
@@ -233,7 +222,6 @@ fn b14_bool_xor_assignment_executes_without_panicking() {
 /// A runtime `split_bits` length must be refused, not silently turned
 /// into a circuit whose bit count is the input variable's *index*.
 #[test]
-#[serial]
 fn b16_split_bits_runtime_length_is_a_typecheck_error() {
     let source = "fn main(x: Felt, n: Felt) { let bits = split_bits(x, n); let b0 = bits[0]; }";
     expect_reject("b16_split_bits_runtime_length", source, "TypeMismatch");
@@ -253,7 +241,6 @@ fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
 /// A negated literal length (`-64` wraps to p-64) must report
 /// ArrayTooLarge instead of aborting with `capacity overflow`.
 #[test]
-#[serial]
 fn b17_split_bits_negative_length_is_a_typecheck_error() {
     expect_reject(
         "b17_split_bits_negative_length",
@@ -265,7 +252,6 @@ fn b17_split_bits_negative_length_is_a_typecheck_error() {
 /// `u32 **` overflow must report ArithmeticOverflow like the other
 /// constant u32 ops, not panic inside the VM (M8).
 #[test]
-#[serial]
 fn b18_u32_pow_overflow_is_arithmetic_overflow() {
     expect_runtime_error(
         "b18_u32_pow_overflow",
@@ -285,7 +271,6 @@ fn b18_u32_pow_overflow_is_arithmetic_overflow() {
 /// Non-overflowing u32 powers keep working (regression guard for the
 /// pre-check itself).
 #[test]
-#[serial]
 fn b18_u32_pow_in_range_executes() {
     let source = "fn main() { let value = 2u32 ** 5u32; assert_eq(value, 32u32, \"pow\"); }";
     match run_main(source, "b18_u32_pow_ok") {
@@ -299,7 +284,6 @@ fn b18_u32_pow_in_range_executes() {
 /// huge input arrays must stop at the total cap instead of allocating
 /// unbounded memory (M4/L2). Each layer here passes the per-node check.
 #[test]
-#[serial]
 fn b20_total_materialization_budget_binds_nested_repeats() {
     expect_runtime_error(
         "b20_nested_repeats_budget",
@@ -309,7 +293,6 @@ fn b20_total_materialization_budget_binds_nested_repeats() {
 }
 
 #[test]
-#[serial]
 fn b20_input_array_footprint_capped() {
     // The parameter's footprint (5M) exceeds the budget before any
     // allocation happens. Interpreted with a symbolic input bound to the
@@ -325,7 +308,6 @@ fn b20_input_array_footprint_capped() {
 }
 
 #[test]
-#[serial]
 fn b20_deep_input_array_footprint_cannot_bypass_budget() {
     let mut ty = "[Felt; 5000000]".to_string();
     for _ in 0..40 {
@@ -344,7 +326,6 @@ fn b20_deep_input_array_footprint_cannot_bypass_budget() {
 /// A large-but-legal array still compiles (the budget is 4M total; a
 /// 1024x1024 nested repeat is 1M and must pass).
 #[test]
-#[serial]
 fn b20_legal_large_array_still_works() {
     let source = "fn main() { let ok_size = [[0; 1024]; 1024]; assert_eq(ok_size[0][0], 0, \"zero\"); }";
     match run_main(source, "b20_legal_large") {
@@ -358,7 +339,6 @@ fn b20_legal_large_array_still_works() {
 /// materialized again. At an already-full budget, forwarding the same array
 /// through a helper must therefore remain valid (review P2).
 #[test]
-#[serial]
 fn b28_internal_function_arguments_are_not_charged_again() {
     let source = "fn first(a: [Felt; 2]) -> Felt { return a[0]; }\nfn main() {}";
     let mut c = match compile(source, "b28_reused_function_argument") {
@@ -387,7 +367,6 @@ fn b28_internal_function_arguments_are_not_charged_again() {
 /// contract with several 1M-array fields read gigabytes past the budget
 /// with no cap (self-audit finding after P1/P2).
 #[test]
-#[serial]
 fn b30_storage_read_range_is_charged_globally() {
     let source = "use std::prelude::*;\n#[contract]\n#[derive(Storage)]\npub struct Big { pub a: [Felt; 1000000], pub b: [Felt; 1000000], pub c: [Felt; 1000000], pub d: [Felt; 1000000], pub e: [Felt; 1000000] }\n#[contract_method]\npub fn read_all() -> Felt { let v = Big::read(0, 0, 0, 0); return v.a[0]; }\nfn main() {}";
     let mut graph = psy_common::Graph::new();
@@ -411,7 +390,6 @@ fn b30_storage_read_range_is_charged_globally() {
 /// same global materialization budget even when each call is below its
 /// per-array cap (review P1).
 #[test]
-#[serial]
 fn b29_split_bits_arrays_are_charged_globally() {
     let source = "fn main() { let a = split_bits(3, 2); let b = split_bits(3, 2); }";
     let mut c = match compile(source, "b29_split_bits_global_budget") {
@@ -433,7 +411,6 @@ fn b29_split_bits_arrays_are_charged_globally() {
 /// before registering the instance, so the recursive call inside re-entered
 /// instantiation forever.
 #[test]
-#[serial]
 fn b21_generic_self_recursion_diagnosed() {
     expect_reject(
         "b21_generic_self_recursion",
@@ -456,7 +433,6 @@ fn b21_generic_self_recursion_diagnosed() {
 /// A finite generic call chain may be deeper than the former arbitrary
 /// limit of 8. Only a repeated active function is recursion.
 #[test]
-#[serial]
 fn b23_deep_finite_generic_chain_still_works() {
     expect_accept(
         "b23_depth_ten",
@@ -477,7 +453,6 @@ fn b23_deep_finite_generic_chain_still_works() {
 /// The materialization footprint is structural: struct fields and
 /// tuples count toward the budget too (M4 covered plain arrays).
 #[test]
-#[serial]
 fn b25_struct_and_tuple_input_footprints_capped() {
     // Struct containing a huge array: footprint = 5M through the field.
     // Interpreted with one symbolic input bound to the parameter; the
@@ -505,7 +480,6 @@ fn b25_struct_and_tuple_input_footprints_capped() {
 /// for-range endpoints of other wrong kinds must be rejected too (M2
 /// covered struct; bool and array endpoints are the same class).
 #[test]
-#[serial]
 fn b24_bool_and_array_for_range_endpoints_rejected() {
     expect_reject(
         "b24_bool_endpoint",
@@ -523,7 +497,6 @@ fn b24_bool_and_array_for_range_endpoints_rejected() {
 /// not `as_function().unwrap()` panic (M5). Drives the real interpret
 /// entry (method-name resolution) via virtual files — no CLI needed.
 #[test]
-#[serial]
 fn b22_method_name_resolving_to_struct_is_a_clean_error() {
     let source = "pub struct Foo { pub x: Felt }\nfn main() -> Felt { return Foo { x: 1 }.x; }\n";
     let mut graph = psy_common::Graph::new();
@@ -562,7 +535,6 @@ fn b22_method_name_resolving_to_struct_is_a_clean_error() {
 /// obvious base case cannot terminate it. It must return a compiler error
 /// instead of overflowing the host stack (M3).
 #[test]
-#[serial]
 fn b26_concrete_recursion_is_a_clean_error() {
     let source = "fn count(n: Felt) -> Felt { if n == 0 { 0 } else { count(n - 1) } }\nfn main() -> Felt { count(0) }";
     match run_main(source, "b26_concrete_recursion") {
@@ -591,7 +563,6 @@ fn b26_concrete_recursion_is_a_clean_error() {
 /// ABI/entry-point collection used to sort and deduplicate same-name
 /// methods, silently dropping one overload (M6).
 #[test]
-#[serial]
 fn b27_contract_method_overload_is_rejected() {
     let source = r#"
 #[contract]
@@ -623,7 +594,6 @@ fn main() {}
 }
 
 #[test]
-#[serial]
 fn b15_hash_two_to_one_requires_two_hash_operands() {
     expect_accept(
         "b15_hash_two_to_one_valid",
@@ -659,14 +629,12 @@ fn expect_runtime_error(label: &str, source: &str, needle: &str) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn b03_member_access_on_u32_no_panic() {
     // `1.foo` used as a value: previously `as_struct().unwrap()` panicked.
     expect_reject("b03_member_on_u32", "fn main() { let x = 1.foo; }", "UnresolvedMember");
 }
 
 #[test]
-#[serial]
 fn b03_member_call_on_u32_no_panic() {
     // `1.foo()` routes through find_member first; when it fails it must not
     // fall through to the struct unwrap.
@@ -681,7 +649,6 @@ fn b03_member_call_on_u32_no_panic() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn b04_call_u32_value_no_panic() {
     // `1u32(2u32)`: callee is a U32 value; `Type::signature` used to
     // `unreachable!()`.
@@ -693,19 +660,16 @@ fn b04_call_u32_value_no_panic() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn b05_const_u32_div_by_zero_no_panic() {
     expect_reject("b05_const_u32_div0", "const X: u32 = 1u32 / 0u32;\nfn main() {}", "DivisionByZero");
 }
 
 #[test]
-#[serial]
 fn b05_const_u32_rem_by_zero_no_panic() {
     expect_reject("b05_const_u32_rem0", "const X: u32 = 1u32 % 0u32;\nfn main() {}", "DivisionByZero");
 }
 
 #[test]
-#[serial]
 fn b05_const_felt_div_by_zero_no_panic() {
     expect_reject("b05_const_felt_div0", "const X: Felt = 1 / 0;\nfn main() {}", "DivisionByZero");
 }
@@ -715,7 +679,6 @@ fn b05_const_felt_div_by_zero_no_panic() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn b06_const_u32_add_overflow_no_panic() {
     expect_reject(
         "b06_const_u32_add_ovf",
@@ -725,7 +688,6 @@ fn b06_const_u32_add_overflow_no_panic() {
 }
 
 #[test]
-#[serial]
 fn b06_const_u32_mul_overflow_no_panic() {
     expect_reject(
         "b06_const_u32_mul_ovf",
@@ -735,7 +697,6 @@ fn b06_const_u32_mul_overflow_no_panic() {
 }
 
 #[test]
-#[serial]
 fn b06_const_u32_sub_underflow_no_panic() {
     expect_reject(
         "b06_const_u32_sub_unflow",
@@ -745,7 +706,6 @@ fn b06_const_u32_sub_underflow_no_panic() {
 }
 
 #[test]
-#[serial]
 fn b06_const_felt_add_does_not_overflow() {
     // Felt is modular over the Goldilocks prime — large felt sums must NOT be
     // flagged as overflow (only u32 wrapping is rejected).
@@ -757,7 +717,6 @@ fn b06_const_felt_add_does_not_overflow() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn b07_runtime_u32_div_by_zero_no_panic() {
     expect_runtime_error(
         "b07_rt_u32_div0",
@@ -767,7 +726,6 @@ fn b07_runtime_u32_div_by_zero_no_panic() {
 }
 
 #[test]
-#[serial]
 fn b07_runtime_u32_rem_by_zero_no_panic() {
     expect_runtime_error(
         "b07_rt_u32_rem0",
@@ -781,7 +739,6 @@ fn b07_runtime_u32_rem_by_zero_no_panic() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn b08_runtime_array_oob_no_panic() {
     expect_runtime_error(
         "b08_rt_array_oob",
@@ -791,7 +748,6 @@ fn b08_runtime_array_oob_no_panic() {
 }
 
 #[test]
-#[serial]
 fn b08_runtime_array_in_bounds_ok() {
     // Sanity: a valid in-bounds access must still succeed at runtime.
     match run_main("fn main() -> Felt { let a = [1, 2, 3]; return a[1]; }", "b08_rt_array_ok") {
@@ -802,7 +758,6 @@ fn b08_runtime_array_in_bounds_ok() {
 }
 
 #[test]
-#[serial]
 fn b08_runtime_array_write_oob_no_panic() {
     expect_runtime_error(
         "b08_rt_array_write_oob",
@@ -812,7 +767,6 @@ fn b08_runtime_array_write_oob_no_panic() {
 }
 
 #[test]
-#[serial]
 fn b08_runtime_array_write_at_last_index_ok() {
     match run_main(
         "fn main() -> Felt { let mut a = [1, 2, 3]; a[2] = 7; return a[2]; }",
@@ -825,7 +779,6 @@ fn b08_runtime_array_write_at_last_index_ok() {
 }
 
 #[test]
-#[serial]
 fn b08_nested_array_write_oob_no_panic() {
     expect_runtime_error(
         "b08_nested_array_write_oob",
@@ -835,7 +788,6 @@ fn b08_nested_array_write_oob_no_panic() {
 }
 
 #[test]
-#[serial]
 fn b08b_huge_array_repeat_returns_error_without_allocating() {
     expect_runtime_error(
         "b08b_huge_array_repeat",
@@ -849,21 +801,18 @@ fn b08b_huge_array_repeat_returns_error_without_allocating() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn b09_immutable_assign_rejected_at_typecheck() {
     // `let x=1; x=2;` must be rejected by sema (not only at runtime).
     expect_reject("b09_imm_assign", "fn main() { let x = 1; x = 2; }", "ImmutableVariable");
 }
 
 #[test]
-#[serial]
 fn b09_mutable_assign_accepted() {
     // `let mut x=1; x=2;` must still typecheck.
     expect_accept("b09_mut_assign", "fn main() { let mut x = 1; x = 2; }");
 }
 
 #[test]
-#[serial]
 fn b09_storage_ref_field_assign_immutable_local_ok() {
     // Assigning to a field of a storage-ref handle (`CRef`) is a storage write
     // routed through `eq_assign`, NOT a mutation of the local binding. The
@@ -875,7 +824,6 @@ fn b09_storage_ref_field_assign_immutable_local_ok() {
 }
 
 #[test]
-#[serial]
 fn felt_for_loop_executes_without_u32_conversion() {
     match run_main("fn main() { for i in 0..3 { let x = i; } }", "felt_for_loop") {
         Ok(None) => {}
@@ -885,7 +833,6 @@ fn felt_for_loop_executes_without_u32_conversion() {
 }
 
 #[test]
-#[serial]
 fn descending_u32_for_range_is_empty() {
     match run_main("fn main() { for i in 5u32..3u32 { let x = i; } }", "descending_u32_for_range") {
         Ok(None) => {}
