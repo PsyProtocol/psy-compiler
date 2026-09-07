@@ -3109,6 +3109,22 @@ mod tests {
         assert_eq!(log[1]["success"], false);
     }
 
+    /// Regression: a tuple-typed entry parameter used to panic with
+    /// "primitive scope has not been initialized" because `to_input` still read
+    /// the retired process-global primitive scope instead of the symbol table.
+    #[test]
+    #[serial]
+    fn tuple_entry_inputs_compile() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        let result = parse_result(&compile_source(
+            "fn main(t: (Felt, Felt)) -> Felt { return t.0; }",
+        ));
+        assert!(result.success, "tuple entry input must compile: {:?}", result.error);
+        assert_eq!(result.method_count, Some(1));
+    }
+
     #[test]
     #[serial]
     fn read_imt_state_lists_entries_written_by_contract_calls() {
@@ -3151,3 +3167,4 @@ mod tests {
         assert_eq!(entries[0]["key"].as_array().and_then(|k| k.first()).and_then(serde_json::Value::as_u64), Some(7001));
     }
 }
+

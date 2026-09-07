@@ -265,7 +265,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
                     result.push((element_type, value));
                 }
-                let type_id = symbols.get_type_id(Some(ScopeId::primitive()), symbols[ty].key()).unwrap();
+                // Tuples live in the primitive scope; read it from the symbol
+                // table (the process-global fallback is never set in production).
+                let type_id = symbols.get_type_id(Some(symbols.type_scope_id(ty)), symbols[ty].key()).unwrap();
 
                 CheckedValue::Tuple { type_id, elements: result }
             }
