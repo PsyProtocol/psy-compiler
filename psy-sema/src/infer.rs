@@ -5,7 +5,7 @@ use psy_vm::dpn::ops::context_trait::ContextFelt;
 
 use crate::{
     rewriter::Rewriter, CheckedArrayNode, CheckedFunctionSignature, CheckedStructField, CheckedStructNode, Constraint, Error, Implementer, Result,
-    ScopeId, Type, TypeChecker, TypeCheckerVisitorContext, TypeId,
+    Type, TypeChecker, TypeCheckerVisitorContext, TypeId,
 };
 
 #[derive(Debug)]
@@ -169,8 +169,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                     size_ty: self.substitute_all(array.size_ty, ctx)?,
                     scope_id: array.scope_id,
                 });
-                let type_id = ctx.symbols.get_or_add_type(Some(ScopeId::primitive()), ty.key(), ty)?;
-                let poly_ty = ctx.symbols.get_type_id(Some(ScopeId::primitive()), IdentId::TYPE_ARRAY).unwrap();
+                let type_id = ctx.symbols.get_or_add_type(Some(ctx.symbols.primitive_scope_id()), ty.key(), ty)?;
+                let poly_ty = ctx.symbols.get_type_id(Some(ctx.symbols.primitive_scope_id()), IdentId::TYPE_ARRAY).unwrap();
                 self.register_instance(type_id, poly_ty, ctx)?;
                 Ok(type_id)
             }
@@ -181,7 +181,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                     new_types.push(self.substitute_all(ty, ctx)?);
                 }
                 let ty = Type::Tuple(new_types);
-                ctx.symbols.get_or_add_type(Some(ScopeId::primitive()), ty.key(), ty)
+                ctx.symbols.get_or_add_type(Some(ctx.symbols.primitive_scope_id()), ty.key(), ty)
             }
 
             Type::FunctionSignature(sig) => {

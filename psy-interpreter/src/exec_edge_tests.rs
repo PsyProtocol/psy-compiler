@@ -4,9 +4,7 @@
 // materialization limits, failing assertion reporting, and the
 // `interpret_vfs_files` / `typecheck_lsp` entry points.
 //
-// Every case drives `main` through the interpreter with a stub compile
-// function (no DPN proving) and resets the shared STD_PRIMITIVE_SCOPE_ID
-// singleton so the suite stays hermetic. All cases are `#[serial]`.
+// Every case drives `main` through an independent interpreter and symbol table.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -14,7 +12,6 @@ use psy_vm::dpn::{
     ops::{exec_context::QExecContext, sym_felt::SymFeltRef},
     vm::{compile::PsyCompileResult, def::DPNFunctionCircuitDefinition},
 };
-use serial_test::serial;
 
 use super::*;
 
@@ -47,13 +44,6 @@ fn real_compile_fn(
     PsyCompileResult::compile_exec(name, method_id, &context.store, context, &outputs)
 }
 
-fn reset_primitive_scope() {
-    #[allow(static_mut_refs)]
-    unsafe {
-        let _ = STD_PRIMITIVE_SCOPE_ID.take();
-    }
-}
-
 fn exec_source(label: &str, source: &str) -> Result<(), String> {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!("psy_exec_{n}.psy"));
@@ -71,7 +61,6 @@ fn exec_source(label: &str, source: &str) -> Result<(), String> {
             .map_err(|e| format!("interpret: {e:#}"))
     };
     let _ = std::fs::remove_file(&path);
-    reset_primitive_scope();
     result
 }
 
@@ -94,7 +83,6 @@ fn exec_rejects(label: &str, source: &str, needle: &str) {
 /// Sweep every binary-operator dispatch arm on all three operand families.
 /// `a` is a symbolic input so nothing constant-folds away before dispatch.
 #[test]
-#[serial]
 fn operator_matrix_executes_felt_u32_and_bool_binops() {
     exec_accepts(
         "felt operator matrix",
@@ -189,7 +177,6 @@ fn main(a: Felt) {
 /// `CheckedValueRef::get_path`/`set_path`; tuple and struct targets take the
 /// positional/name-based arms.
 #[test]
-#[serial]
 fn symbolic_index_paths_read_and_write_composites() {
     exec_accepts(
         "symbolic array index read and write",
@@ -247,7 +234,6 @@ fn main() {
 /// Array repeats materialize at execution; the interpreter caps the element
 /// count and rejects oversized repeats before allocating.
 #[test]
-#[serial]
 fn array_repeats_materialize_and_oversized_repeats_reject() {
     exec_accepts(
         "small array repeat",
@@ -276,7 +262,6 @@ fn main() {
 
 /// Failing constant assertions surface the user message at execution.
 #[test]
-#[serial]
 fn failing_assertions_report_their_messages() {
     exec_rejects(
         "assert_eq with differing constants",
@@ -304,7 +289,6 @@ fn main() {
 
 /// The VFS entry point runs an in-memory program without touching the disk.
 #[test]
-#[serial]
 fn vfs_files_interpret_a_virtual_program() {
     let source = "use std::prelude::*;\nfn main() { let a = split_bits(3, 2); assert_eq(a[0], 1, \"vfs\"); }";
     let mut graph = Graph::new();
@@ -315,7 +299,6 @@ fn vfs_files_interpret_a_virtual_program() {
         graph,
         vec![(std::path::PathBuf::from("/virtual/src/main.psy"), std::sync::Arc::from(source))],
     );
-    reset_primitive_scope();
     match result {
         Ok(res) => assert_eq!(res.compile_results.len(), 1, "vfs main compiled"),
         Err(err) => panic!("[vfs_files] expected success, got:\n{err:#}"),
@@ -325,7 +308,6 @@ fn vfs_files_interpret_a_virtual_program() {
 /// The LSP typecheck entry point shares the pipeline but lowers errors to
 /// diagnostics instead of anyhow chains.
 #[test]
-#[serial]
 fn typecheck_lsp_typechecks_the_module_graph() {
     let entry: PathBuf = "../tests/module_test/foo/src/main.psy".into();
     let dependency_entry: PathBuf = "../tests/module_test/bar/src/lib.psy".into();
@@ -334,11 +316,18 @@ fn typecheck_lsp_typechecks_the_module_graph() {
     crate_path_graph.add_node(entry.clone());
     crate_path_graph.add_edge(entry.clone(), dependency_entry);
 
+    let mut first_graph = Graph::new();
+    first_graph.add_node(PathBuf::from("../tests/fn_test.psy"));
+
     let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
-    let result = interpreter.typecheck_lsp(crate_path_graph);
-    reset_primitive_scope();
+    let result = interpreter.typecheck_lsp(first_graph);
     match result {
         Ok((_typechecker, _ctx)) => {}
         Err(err) => panic!("[typecheck_lsp] expected success, got:\n{err:?}"),
+    }
+
+    match interpreter.typecheck_lsp(crate_path_graph) {
+        Ok((_typechecker, _ctx)) => {}
+        Err(err) => panic!("[typecheck_lsp second pass] expected success, got:\n{err:?}"),
     }
 }

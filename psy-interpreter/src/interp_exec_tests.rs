@@ -11,8 +11,7 @@
 // resolution, view-method enforcement) is covered with the real
 // `PsyCompileResult::compile_exec` backend so state commands are visible.
 //
-// The shared `STD_PRIMITIVE_SCOPE_ID` singleton is reset after every case so
-// the suite is hermetic. Every case is `#[serial]`.
+// Each case owns an independent interpreter, symbol table, and uniquely named temporary file.
 
 use std::{
     fs,
@@ -24,7 +23,6 @@ use psy_vm::dpn::{
     ops::{exec_context::QExecContext, sym_felt::SymFeltRef},
     vm::{compile::PsyCompileResult, def::DPNFunctionCircuitDefinition},
 };
-use serial_test::serial;
 
 use super::*;
 
@@ -79,13 +77,6 @@ fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
     }
 }
 
-fn reset_primitive_scope() {
-    #[allow(static_mut_refs)]
-    unsafe {
-        let _ = STD_PRIMITIVE_SCOPE_ID.take();
-    }
-}
-
 fn temp_psy_path(label: &str) -> std::path::PathBuf {
     let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -118,7 +109,6 @@ fn run_with(
     }));
 
     let _ = fs::remove_file(&path);
-    reset_primitive_scope();
 
     match result {
         Ok(Ok(defs)) => Outcome::Executed(defs),
@@ -147,7 +137,6 @@ fn run_psy_tests(source: &str, label: &str) -> Outcome {
     }));
 
     let _ = fs::remove_file(&path);
-    reset_primitive_scope();
 
     match result {
         Ok(Ok(defs)) => Outcome::Executed(defs),
@@ -194,7 +183,6 @@ fn expect_test_panic(label: &str, source: &str, needle: &str) {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[serial]
 fn felt_binary_operators_execute() {
     expect_exec(
         "felt_ops",
@@ -225,7 +213,6 @@ fn felt_binary_operators_execute() {
 }
 
 #[test]
-#[serial]
 fn u32_binary_operators_execute() {
     expect_exec(
         "u32_ops",
@@ -256,7 +243,6 @@ fn u32_binary_operators_execute() {
 }
 
 #[test]
-#[serial]
 fn bool_logic_operators_execute() {
     expect_exec(
         "bool_ops",
@@ -279,7 +265,6 @@ fn bool_logic_operators_execute() {
 }
 
 #[test]
-#[serial]
 fn constant_division_and_overflow_are_clean_errors() {
     expect_failure(
         "div_by_zero",
@@ -343,7 +328,6 @@ fn constant_division_and_overflow_are_clean_errors() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[serial]
 fn unary_operators_execute() {
     expect_exec(
         "unary_ops",
@@ -363,7 +347,6 @@ fn unary_operators_execute() {
 }
 
 #[test]
-#[serial]
 fn casts_execute_and_reject_out_of_range() {
     expect_exec(
         "casts_ok",
@@ -398,7 +381,6 @@ fn casts_execute_and_reject_out_of_range() {
 }
 
 #[test]
-#[serial]
 fn compound_assignment_operators_execute() {
     expect_exec(
         "compound_assign",
@@ -453,7 +435,6 @@ fn compound_assignment_operators_execute() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[serial]
 fn while_and_for_loops_execute() {
     expect_exec(
         "loops",
@@ -495,7 +476,6 @@ fn while_and_for_loops_execute() {
 }
 
 #[test]
-#[serial]
 fn uncertain_loop_conditions_are_rejected() {
     expect_failure(
         "uncertain_while",
@@ -524,7 +504,6 @@ fn uncertain_loop_conditions_are_rejected() {
 }
 
 #[test]
-#[serial]
 fn match_statements_and_expressions_execute() {
     expect_exec(
         "match_all",
@@ -575,7 +554,6 @@ fn match_statements_and_expressions_execute() {
 }
 
 #[test]
-#[serial]
 fn if_else_and_else_if_chains_execute() {
     expect_exec(
         "if_else",
@@ -610,7 +588,6 @@ fn if_else_and_else_if_chains_execute() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[serial]
 fn closures_and_helper_calls_execute() {
     expect_exec(
         "closures",
@@ -634,7 +611,6 @@ fn closures_and_helper_calls_execute() {
 }
 
 #[test]
-#[serial]
 fn recursion_is_rejected() {
     expect_failure(
         "recursion",
@@ -657,7 +633,6 @@ fn recursion_is_rejected() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[serial]
 fn array_literals_repeat_and_mutation_execute() {
     expect_exec(
         "arrays",
@@ -687,7 +662,6 @@ fn array_literals_repeat_and_mutation_execute() {
 }
 
 #[test]
-#[serial]
 fn oversized_repeat_arrays_are_rejected() {
     expect_failure(
         "repeat_too_large",
@@ -716,7 +690,6 @@ fn oversized_repeat_arrays_are_rejected() {
 }
 
 #[test]
-#[serial]
 fn array_and_struct_parameters_are_materialized() {
     expect_exec(
         "param_materialize",
@@ -743,7 +716,6 @@ fn array_and_struct_parameters_are_materialized() {
 }
 
 #[test]
-#[serial]
 fn struct_values_methods_and_mutation_execute() {
     expect_exec(
         "structs",
@@ -800,7 +772,6 @@ fn struct_values_methods_and_mutation_execute() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[serial]
 fn assert_intrinsics_execute_and_fail_cleanly() {
     expect_exec(
         "assert_ok",
@@ -844,7 +815,6 @@ fn assert_intrinsics_execute_and_fail_cleanly() {
 }
 
 #[test]
-#[serial]
 fn clear_entire_tree_intrinsic_executes() {
     // Storage teardown intrinsic inside a contract write method.
     expect_exec(
@@ -891,7 +861,6 @@ const LIFECYCLE_CONTRACT: &str = r#"
 "#;
 
 #[test]
-#[serial]
 fn contract_auto_discovery_executes_all_methods() {
     match run_with(LIFECYCLE_CONTRACT, "contract_auto", None, &[], true) {
         Outcome::Executed(defs) => {
@@ -910,7 +879,6 @@ fn contract_auto_discovery_executes_all_methods() {
 }
 
 #[test]
-#[serial]
 fn contract_explicit_name_and_single_method_execute() {
     match run_with(LIFECYCLE_CONTRACT, "contract_explicit", Some("LifecycleContract"), &["set_value"], true) {
         Outcome::Executed(defs) => {
@@ -923,7 +891,6 @@ fn contract_explicit_name_and_single_method_execute() {
 }
 
 #[test]
-#[serial]
 fn contract_entry_point_errors_are_reported() {
     // Unknown contract name.
     expect_failure_with("contract_missing", LIFECYCLE_CONTRACT, Some("Nope"), &[], "undefined function");
@@ -948,7 +915,6 @@ fn contract_entry_point_errors_are_reported() {
 }
 
 #[test]
-#[serial]
 fn view_method_that_writes_state_is_rejected() {
     let source = r#"
         #[contract]
@@ -973,7 +939,6 @@ fn view_method_that_writes_state_is_rejected() {
 }
 
 #[test]
-#[serial]
 fn overloaded_contract_methods_are_rejected() {
     let source = r#"
         #[contract]
@@ -1006,7 +971,6 @@ fn overloaded_contract_methods_are_rejected() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[serial]
 fn contract_storage_with_array_and_map_fields_typechecks() {
     expect_exec(
         "storage_layout",
@@ -1036,7 +1000,6 @@ fn contract_storage_with_array_and_map_fields_typechecks() {
 }
 
 #[test]
-#[serial]
 fn nested_storage_ref_fields_typecheck() {
     expect_exec(
         "nested_refs",
@@ -1066,7 +1029,6 @@ fn nested_storage_ref_fields_typecheck() {
 }
 
 #[test]
-#[serial]
 fn second_map_in_contract_is_rejected() {
     expect_failure(
         "two_maps",
@@ -1087,7 +1049,6 @@ fn second_map_in_contract_is_rejected() {
 }
 
 #[test]
-#[serial]
 fn map_nested_in_array_field_typechecks() {
     // A single Map nested inside an array field counts as one map and is
     // accepted.
@@ -1108,7 +1069,6 @@ fn map_nested_in_array_field_typechecks() {
 }
 
 #[test]
-#[serial]
 fn recursive_storage_struct_cycle_is_handled() {
     let outcome = run(
         r#"
@@ -1143,7 +1103,6 @@ fn recursive_storage_struct_cycle_is_handled() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[serial]
 fn psy_test_runner_executes_passing_and_expected_panic_tests() {
     match run_psy_tests(
         r#"
@@ -1180,7 +1139,6 @@ fn psy_test_runner_executes_passing_and_expected_panic_tests() {
 }
 
 #[test]
-#[serial]
 fn psy_test_runner_panics_when_a_test_fails() {
     expect_test_panic(
         "test_fails",
@@ -1195,7 +1153,6 @@ fn psy_test_runner_panics_when_a_test_fails() {
 }
 
 #[test]
-#[serial]
 fn psy_test_runner_panics_when_should_panic_test_passes() {
     expect_test_panic(
         "unexpected_pass",
@@ -1211,7 +1168,6 @@ fn psy_test_runner_panics_when_should_panic_test_passes() {
 }
 
 #[test]
-#[serial]
 fn psy_test_runner_runs_contract_storage_tests() {
     match run_psy_tests(
         r#"
@@ -1246,7 +1202,6 @@ fn psy_test_runner_runs_contract_storage_tests() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[serial]
 fn void_main_and_block_expressions_execute() {
     expect_exec(
         "void_main",
@@ -1294,7 +1249,6 @@ fn format_source(source: &str) -> String {
 }
 
 #[test]
-#[serial]
 fn formatter_renders_enums_traits_impls_and_aliases() {
     let output = format_source(
         r#"
@@ -1371,7 +1325,6 @@ fn formatter_renders_enums_traits_impls_and_aliases() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[serial]
 fn generic_bodies_with_hash_mem_and_event_intrinsics_instantiate() {
     expect_exec(
         "generic_intrinsics",

@@ -41,10 +41,8 @@ pub struct InterpretResult {
 }
 
 pub fn interpret(contract_name: Option<String>, method_names: Vec<String>, crate_path_graph: Graph<PathBuf>) -> anyhow::Result<InterpretResult> {
-    with_primitive_scope_reset(|| {
-        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
-        interpret_with_program(&mut interpreter, crate_path_graph, Program::new(), contract_name, method_names)
-    })
+    let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+    interpret_with_program(&mut interpreter, crate_path_graph, Program::new(), contract_name, method_names)
 }
 
 pub fn interpret_virtual_files(
@@ -53,14 +51,12 @@ pub fn interpret_virtual_files(
     crate_path_graph: Graph<PathBuf>,
     files: Vec<(PathBuf, Arc<str>)>,
 ) -> anyhow::Result<InterpretResult> {
-    with_primitive_scope_reset(|| {
-        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
-        let mut program = Program::new();
-        for (path, content) in files {
-            program.file_resolver.add_file(path, content);
-        }
-        interpret_with_program(&mut interpreter, crate_path_graph, program, contract_name, method_names)
-    })
+    let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+    let mut program = Program::new();
+    for (path, content) in files {
+        program.file_resolver.add_file(path, content);
+    }
+    interpret_with_program(&mut interpreter, crate_path_graph, program, contract_name, method_names)
 }
 
 pub fn interpret_vfs_files(
@@ -72,22 +68,8 @@ pub fn interpret_vfs_files(
     interpret_virtual_files(contract_name, method_names, crate_path_graph, files)
 }
 
+#[cfg(test)]
 fn with_primitive_scope_reset<T>(f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
-    struct PrimitiveScopeResetGuard;
-    impl Drop for PrimitiveScopeResetGuard {
-        fn drop(&mut self) {
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            }
-        }
-    }
-
-    #[allow(static_mut_refs)]
-    unsafe {
-        let _ = STD_PRIMITIVE_SCOPE_ID.take();
-    }
-    let _primitive_scope_guard = PrimitiveScopeResetGuard;
     f()
 }
 
@@ -653,14 +635,6 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     where
         F: 'static,
     {
-        // Each standalone source check owns a fresh symbol table. Clear the
-        // process-global primitive scope handle so names such as `Array` are
-        // resolved against this check's std primitive module, not a previous
-        // test or compilation.
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        }
         let mut crate_path_graph = Graph::new();
         crate_path_graph.add_node(file);
         self.typecheck(crate_path_graph)
@@ -711,15 +685,6 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     where
         F: 'static,
     {
-        // Same rationale as `typecheck_single`: the LSP server typechecks
-        // repeatedly in one process, so clear the process-global primitive
-        // scope handle before repopulating it against this call's symbol
-        // table. Without this, the second typecheck in a session resolves
-        // std names (e.g. `Array` in storage.psy) against a stale scope.
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        }
         let mut program = Program::new();
 
         let mut parser = Parser::new(&mut program, &mut self.context, crate_path_graph);
@@ -2237,10 +2202,6 @@ mod tests {
         assert_eq!(result.compile_results.len(), 1);
         assert_eq!(result.compile_results[0].name, "main");
         println!("compile_result: {:?}", result.compile_results);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2249,10 +2210,6 @@ mod tests {
         psy_common::setup_logging().ok();
 
         insta::glob!("../../tests", "{struct*.psy,fn_test.psy,fn_chain_call_test.psy}", |path| {
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            }
             let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
             let (mut typechecker, mut ctx) = interpreter.typecheck_single(path.into()).unwrap();
 
@@ -2322,10 +2279,6 @@ mod tests {
 
             println!("result_vm: {:?}", cfc_input.outputs);
             println!("result_events: {:?}", cfc_input.events);
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            };
 
             assert_snapshot!(ctx.debug_scope(ScopeId::root()))
         });
@@ -2337,18 +2290,9 @@ mod tests {
         psy_common::setup_logging().ok();
 
         insta::glob!("../../tests", "*_test.psy", |path| {
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            }
             let entry: PathBuf = path.into();
             let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
             let (_typechecker, mut ctx) = interpreter.typecheck_single(entry.clone()).unwrap();
-
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            };
 
             let formatted_content = ctx.format_file(&entry).unwrap();
 
@@ -2359,11 +2303,6 @@ mod tests {
 
             let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
             assert!(interpreter.typecheck_single(entry.clone()).is_ok(), "{}", entry.display());
-
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            };
         });
     }
 
@@ -2403,11 +2342,6 @@ fn main() {}
         );
 
         let _ = fs::remove_file(path);
-
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
 
     #[test]
@@ -2456,11 +2390,6 @@ fn main() {
             .expect("storage array contracts must preprocess and typecheck");
 
         let _ = fs::remove_file(path);
-
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
 
     #[test]
@@ -2489,10 +2418,6 @@ fn main() -> bool {
         );
 
         let _ = fs::remove_file(path);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
     #[test]
     #[serial]
@@ -2526,10 +2451,6 @@ fn main() {}
         );
 
         let _ = fs::remove_file(path);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
 
 
@@ -2565,10 +2486,6 @@ fn main() {}
         );
 
         let _ = fs::remove_file(path);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
 
     #[test]
@@ -2587,10 +2504,6 @@ fn main() -> bool {
         interpreter.typecheck_single(path.clone()).unwrap();
 
         let _ = fs::remove_file(path);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
 
     /// Every raw `__`-prefixed intrinsic family must be gated to the canonical
@@ -2636,10 +2549,6 @@ fn main() -> bool {
             );
 
             let _ = fs::remove_file(path);
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            };
         }
     }
 
@@ -2681,10 +2590,6 @@ fn main() {
         assert_eq!(compile_results.len(), 1);
 
         let _ = fs::remove_file(path);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
     #[test]
     #[serial]
@@ -2721,10 +2626,6 @@ fn main() {
         assert_eq!(compile_results[0].events.len(), 1, "derived Event::emit must compile one event record");
 
         let _ = fs::remove_file(path);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
 
     /// The index-access desugaring (`a[i]` on a non-array) reports a specific
@@ -2842,10 +2743,6 @@ fn main() -> Felt {
             );
 
             let _ = fs::remove_file(path);
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            };
         }
     }
 
@@ -2921,10 +2818,6 @@ fn main() -> Felt {
             );
 
             let _ = fs::remove_file(path);
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            };
         }
     }
 
@@ -2957,10 +2850,6 @@ fn main() -> Felt {
             );
 
             let _ = fs::remove_file(path);
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            };
         }
     }
 }

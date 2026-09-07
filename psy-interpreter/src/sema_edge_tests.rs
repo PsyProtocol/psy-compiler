@@ -8,7 +8,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
-use serial_test::serial;
 
 use super::*;
 
@@ -23,10 +22,6 @@ fn compile(source: &str) -> Result<(), String> {
     let result = interpreter.typecheck_single(path.clone());
 
     let _ = std::fs::remove_file(&path);
-    #[allow(static_mut_refs)]
-    unsafe {
-        let _ = STD_PRIMITIVE_SCOPE_ID.take();
-    }
     result.map(|_| ()).map_err(|e| format!("{e:#}"))
 }
 
@@ -76,7 +71,6 @@ impl P {
 "#;
 
 #[test]
-#[serial]
 fn binary_and_unary_operator_type_guards_reject() {
     let cases: &[(&str, &str, &str)] = &[
         ("add on bool", "fn main() -> Felt { let a: bool = true; let b: Felt = a + 1; return b; }", "mismatch"),
@@ -93,7 +87,6 @@ fn binary_and_unary_operator_type_guards_reject() {
 }
 
 #[test]
-#[serial]
 fn call_arity_and_generic_argument_guards_reject() {
     let source = format!(
         "{PRELUDE}{STRUCT_P}
@@ -121,7 +114,6 @@ pub fn two(a: Felt, b: Felt) -> Felt {{
 }
 
 #[test]
-#[serial]
 fn member_call_shapes_resolve() {
     // Happy-path method call: resolves through find_member into the
     // visit_member_call validation. (Wrong-shape methods are filtered out
@@ -144,7 +136,6 @@ fn main() -> Felt {{
 }
 
 #[test]
-#[serial]
 fn custom_index_and_eq_shapes_reject() {
     // find_member filters method candidates by expected signature before the
     // visitor's own validation runs, so several wrong-shape methods surface
@@ -173,7 +164,6 @@ impl P {{
 }
 
 #[test]
-#[serial]
 fn tuple_and_if_expression_guards_reject() {
     let cases: &[(&str, &str, &str)] = &[
         ("tuple access out of bounds", "fn main() -> Felt { let t = (1, 2); return t.2; }", "index"),
@@ -201,7 +191,6 @@ fn tuple_and_if_expression_guards_reject() {
 }
 
 #[test]
-#[serial]
 fn return_placement_guards_reject() {
     rejects(
         "statement after quick return",
@@ -216,7 +205,6 @@ fn return_placement_guards_reject() {
 }
 
 #[test]
-#[serial]
 fn match_expression_guards_reject() {
     let cases: &[(&str, &str, &str)] = &[
         ("non-primitive scrutinee", "let t = (1, 2); let x: Felt = match t { _ => 1 };", "mismatch"),
@@ -231,7 +219,6 @@ fn match_expression_guards_reject() {
 }
 
 #[test]
-#[serial]
 fn lambda_parameter_and_return_guards() {
     let path_param = format!(
         "{PRELUDE}{STRUCT_P}fn main() -> Felt {{
@@ -276,7 +263,6 @@ impl Box<Felt> {
 "#;
 
 #[test]
-#[serial]
 fn impl_and_trait_header_guards_reject() {
     let bad_impl = format!(
         "{PRELUDE}pub struct Box<T: Felt> {{ v: T, }}\nimpl Box<bool> {{\n    pub fn z() -> Felt {{ return 0; }}\n}}\nfn main() -> Felt {{ return 0; }}"
@@ -305,7 +291,6 @@ fn impl_and_trait_header_guards_reject() {
 }
 
 #[test]
-#[serial]
 fn generic_type_annotation_guards_reject() {
     rejects(
         "too few generic arguments in annotation",
@@ -320,7 +305,6 @@ fn generic_type_annotation_guards_reject() {
 }
 
 #[test]
-#[serial]
 fn method_resolution_and_member_call_paths_accept() {
     // `self.get()` inside an impl resolves the callee through the
     // member-call arm of visit_member_access; `P::new` covers the
@@ -362,7 +346,6 @@ fn main() -> Felt {{
 }
 
 #[test]
-#[serial]
 fn compound_assignment_guards() {
     // Compound assignment on a struct routes through `add_assign` member
     // lookup; a matching method typechecks...
@@ -391,7 +374,6 @@ fn main() -> Felt {{
 }
 
 #[test]
-#[serial]
 fn trait_cast_paths_cover_segments_constraints_and_rejections() {
     let traits = format!(
         "{PRELUDE}{STRUCT_P}
@@ -473,7 +455,6 @@ fn main() -> Felt {{
 }
 
 #[test]
-#[serial]
 fn qualified_module_paths_and_roots_resolve() {
     // Nested module path: root=outer resolves by name, then the `inner`
     // segment walks std-module-style from parent to child.
@@ -568,7 +549,6 @@ fn main() -> Felt {{
 }
 
 #[test]
-#[serial]
 fn bare_function_argument_matches_expected_signature() {
     // Passing a top-level function by bare name walks the scope chain with
     // the call's expected signature instead of resolving a value path.
@@ -603,7 +583,6 @@ fn main() -> Felt {{
 }
 
 #[test]
-#[serial]
 fn index_sugar_and_member_call_guards() {
     // Inherent method calls resolve through the member-call fast path.
     accepts(
@@ -653,7 +632,6 @@ fn main() -> Felt {{
 }
 
 #[test]
-#[serial]
 fn operator_calls_and_size_position_edges() {
     // `!=` on a custom type lowers to the eq method wrapped in unary not.
     accepts(
@@ -748,7 +726,6 @@ fn main() -> Felt {{
 }
 
 #[test]
-#[serial]
 fn generic_instantiation_rewrites_paths_and_statements() {
     // Instantiating `take::<P>` / `take::<Q>` rewrites the parameter and
     // return type paths, the associated-type alias in Q's impl, and the
@@ -803,7 +780,6 @@ fn main() -> Felt {{
 }
 
 #[test]
-#[serial]
 fn ambiguous_members_across_traits_and_inherent_associated_types() {
     // Two constraints providing the same method name make the bare call
     // ambiguous.
@@ -877,7 +853,6 @@ fn main() -> Felt {{
 }
 
 #[test]
-#[serial]
 fn array_and_struct_literals_reject_inconsistent_shapes() {
     accepts(
         "consistent array literal",
@@ -908,7 +883,6 @@ fn main() {{ let n = Num<Felt> {{ a: 1u32, b: 2u32 }}; }}"
 }
 
 #[test]
-#[serial]
 fn return_placement_rejects_returns_inside_if_blocks() {
     rejects(
         "return inside an if statement",
@@ -918,7 +892,6 @@ fn return_placement_rejects_returns_inside_if_blocks() {
 }
 
 #[test]
-#[serial]
 fn type_annotations_cover_arrays_tuples_and_fn_signatures() {
     accepts(
         "array type annotation",
@@ -956,7 +929,6 @@ fn main() {{ let r = call2(add2, 3); }}"
 }
 
 #[test]
-#[serial]
 fn size_position_arguments_bind_constants_and_reject_runtime_values() {
     accepts(
         "felt literal in size position",
@@ -984,7 +956,6 @@ fn main() {{ bad(2); }}"
 }
 
 #[test]
-#[serial]
 fn trait_cast_type_positions_with_segments_resolve() {
     accepts(
         "trait cast with nested associated type segments",
@@ -1009,7 +980,6 @@ fn main() {{ bad(1); }}"
 }
 
 #[test]
-#[serial]
 fn generic_path_call_targets_resolve() {
     accepts(
         "explicit generic arguments on a module type path",
@@ -1030,7 +1000,6 @@ fn main() -> Felt {{
 }
 
 #[test]
-#[serial]
 fn nested_member_access_uses_the_fast_path() {
     // `o.inner.get()` resolves the receiver `o.inner` while the ancestor is
     // the member call, so the member-access fast path (find_member without an
@@ -1066,7 +1035,6 @@ fn main() -> Felt {{ return lib::make().inner.get(); }}"
 }
 
 #[test]
-#[serial]
 fn associated_types_accept_non_path_shapes() {
     accepts(
         "tuple associated type on an inherent impl",
@@ -1082,7 +1050,6 @@ fn main() {{ let p: P::Pair = P::make_pair(); }}"
 }
 
 #[test]
-#[serial]
 fn deep_associated_type_chains_resolve() {
     // Two levels past a trait cast (`<P as Outer>::Assoc::Mid::Leaf`) walk the
     // trait-cast segment loop, and module-rooted chains (`deep::H0::Inner::Leaf`)
@@ -1135,7 +1102,6 @@ fn main() {{ bad(1); }}"
 }
 
 #[test]
-#[serial]
 fn generic_instantiation_rewrites_impls_signatures_and_bodies() {
     // A generic inherent impl with an associated type plus a generic method
     // drives instantiate_impl (assoc types + per-method signature rewriting).
@@ -1187,7 +1153,6 @@ fn main() {{
 }
 
 #[test]
-#[serial]
 fn trait_impl_associated_types_rewrite_through_roots() {
     // An associated type whose value is itself a rooted path (`Src::Native`)
     // takes the root-substitution branch when the generic impl is instantiated.
@@ -1217,7 +1182,6 @@ fn main() {{
 }
 
 #[test]
-#[serial]
 fn impl_search_rejects_conflicting_generic_arguments() {
     // The concrete `Number<u32>` implementations cannot serve a `Number<Felt>`
     // receiver, so instantiation unification fails and the call is rejected.
@@ -1261,7 +1225,6 @@ fn main() {{
 }
 
 #[test]
-#[serial]
 fn bare_generic_calls_walk_scopes_for_matching_functions() {
     accepts(
         "bare call to a generic function",
@@ -1281,7 +1244,6 @@ fn main() {{
 }
 
 #[test]
-#[serial]
 fn crate_paths_resolve_from_nested_modules() {
     accepts(
         "crate root path from inside an inline module",
@@ -1301,7 +1263,6 @@ fn main() {{
 }
 
 #[test]
-#[serial]
 fn generic_bodies_rewrite_definitions_asserts_structs_and_matches() {
     // Every statement/expression shape inside a generic function body runs
     // through the rewriter when the function is instantiated: nested
@@ -1329,7 +1290,6 @@ fn main() {{
 }
 
 #[test]
-#[serial]
 fn inherent_impls_rewrite_rooted_associated_types_when_generic() {
     // An associated type whose value is a rooted path (`Src::Native`) inside
     // a *generic* inherent impl exercises the rewriter's root/target branch
@@ -1357,7 +1317,6 @@ fn main() {{
 }
 
 #[test]
-#[serial]
 fn generic_unification_rejects_conflicting_arguments() {
     let mut failures = Vec::new();
     for (label, source, needle) in [
@@ -1396,7 +1355,6 @@ fn main() {{ let r = P2 {{ x: 1 }}.pick::<u32>(true); }}"
 }
 
 #[test]
-#[serial]
 fn trait_cast_paths_resolve_through_the_trait_segment() {
     accepts(
         "fully qualified trait method call",
@@ -1416,7 +1374,6 @@ fn main() {{
 }
 
 #[test]
-#[serial]
 fn imports_of_unknown_modules_are_rejected() {
     rejects(
         "import from an unresolved module",
@@ -1426,7 +1383,6 @@ fn imports_of_unknown_modules_are_rejected() {
 }
 
 #[test]
-#[serial]
 fn member_function_references_and_bare_type_values_rewrite() {
     // A method may not be referenced without a call (no first-class method
     // values), while a bare type name in value position is accepted.
@@ -1463,7 +1419,6 @@ fn main() {{ let v = mark(1); }}"
 }
 
 #[test]
-#[serial]
 fn index_access_and_member_visibility_guards() {
     rejects(
         "array index with a boolean subscript",
@@ -1514,7 +1469,6 @@ fn main() -> Felt {{
 }
 
 #[test]
-#[serial]
 fn unification_walks_signatures_and_tuples() {
     // Function values are not first-class: a function name passed for a
     // fn-signature parameter is rejected, and the diagnostic renders the
@@ -1552,7 +1506,6 @@ fn main() -> Felt {{
 /// Panics inside preprocessing must stay observable as panics (they abort the
 /// compiler), so assert on the message while resetting the primitive scope.
 #[test]
-#[serial]
 fn storage_preprocessing_panics_on_malformed_refs() {
     let cases = [
         (
@@ -1610,10 +1563,6 @@ fn main() -> Felt {{ return 0; }}"
             let _ = interpreter.typecheck_single(path.clone());
         }));
         let _ = std::fs::remove_file(&path);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        }
 
         let message = match result {
             Err(message) => message

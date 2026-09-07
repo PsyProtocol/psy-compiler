@@ -153,11 +153,6 @@ mod tests {
 
         let abi = fs::read_to_string(output_dir.join("demo_abi.abi.json")).expect("ABI file must exist");
         assert!(abi.contains("\"main\""), "ABI must list the compiled method: {abi}");
-
-        #[allow(static_mut_refs)]
-        unsafe {
-            psy_sema::STD_PRIMITIVE_SCOPE_ID.take();
-        }
         fs::remove_dir_all(dir).ok();
     }
 
@@ -196,11 +191,6 @@ mod tests {
         let abi = fs::read_to_string(target_dir.join("Demo.abi.json"))
             .expect("the default ABI file must land in the workspace target dir");
         assert!(abi.contains("\"main\""), "ABI must list the compiled method: {abi}");
-
-        #[allow(static_mut_refs)]
-        unsafe {
-            psy_sema::STD_PRIMITIVE_SCOPE_ID.take();
-        }
         fs::remove_dir_all(dir).ok();
     }
 }

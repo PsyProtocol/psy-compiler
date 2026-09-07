@@ -96,10 +96,6 @@ mod tests {
         let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
         let typecheck = {
             let result = interpreter.typecheck_single(entry.clone());
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = psy_sema::STD_PRIMITIVE_SCOPE_ID.take();
-            }
             result
         };
         let _ = std::fs::remove_file(&entry);

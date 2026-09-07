@@ -2,7 +2,7 @@ use std::{
     fmt::{Display, Formatter},
     hash::Hash,
     ops::{Index, IndexMut},
-    sync::OnceLock,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use anyhow::anyhow;
@@ -18,7 +18,41 @@ define_arena_id!(ScopeId);
 define_arena_id!(VarId);
 define_arena_id!(ConstId);
 
-pub static mut STD_PRIMITIVE_SCOPE_ID: OnceLock<ScopeId> = OnceLock::new();
+pub struct PrimitiveScopeId(AtomicUsize);
+
+impl PrimitiveScopeId {
+    const UNSET: usize = usize::MAX;
+
+    pub const fn new() -> Self {
+        Self(AtomicUsize::new(Self::UNSET))
+    }
+
+    pub fn get(&self) -> Option<ScopeId> {
+        let id = self.0.load(Ordering::Acquire);
+        (id != Self::UNSET).then_some(ScopeId(id))
+    }
+
+    pub fn set(&self, scope_id: ScopeId) -> Result<(), ScopeId> {
+        self.0
+            .compare_exchange(Self::UNSET, scope_id.0, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| ())
+            .map_err(|_| scope_id)
+    }
+
+    pub fn take(&self) -> Option<ScopeId> {
+        let id = self.0.swap(Self::UNSET, Ordering::AcqRel);
+        (id != Self::UNSET).then_some(ScopeId(id))
+    }
+}
+
+impl Default for PrimitiveScopeId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// Compatibility export for downstream users. Compiler state is now stored in SymbolTable.
+pub static STD_PRIMITIVE_SCOPE_ID: PrimitiveScopeId = PrimitiveScopeId::new();
 
 impl ScopeId {
     pub const fn root() -> Self {
@@ -26,10 +60,7 @@ impl ScopeId {
     }
 
     pub fn primitive() -> Self {
-        #[allow(static_mut_refs)]
-        unsafe {
-            *STD_PRIMITIVE_SCOPE_ID.get().unwrap()
-        }
+        STD_PRIMITIVE_SCOPE_ID.get().expect("primitive scope has not been initialized")
     }
 }
 
@@ -152,6 +183,7 @@ pub struct SymbolTable<F: Clone + From<u32> + ContextFelt> {
     scopes: Vec<Scope<F>>,
     scope_stack: Vec<ScopeId>,
     frames: Vec<Frame<CheckedValueRef<F>>>,
+    primitive_scope_id: Option<ScopeId>,
 
     pub types: Vec<Type>,
     consts: Vec<CheckedValueRef<F>>,
@@ -237,6 +269,7 @@ impl<F: Clone + From<u32> + ContextFelt> SymbolTable<F> {
             scopes: vec![],
             scope_stack: vec![],
             frames: vec![],
+            primitive_scope_id: None,
 
             types: vec![],
             consts: vec![],
@@ -277,6 +310,21 @@ impl<F: Clone + From<u32> + ContextFelt> SymbolTable<F> {
 
     pub fn types(&self) -> &Vec<Type> {
         &self.types
+    }
+
+    pub fn set_primitive_scope_id(&mut self, scope_id: ScopeId) {
+        self.primitive_scope_id = Some(scope_id);
+    }
+
+    pub fn primitive_scope_id(&self) -> ScopeId {
+        self.primitive_scope_id.expect("primitive scope has not been initialized")
+    }
+
+    pub fn type_scope_id(&self, type_id: TypeId) -> ScopeId {
+        match &self[type_id] {
+            Type::Felt | Type::Bool | Type::U32 | Type::Tuple(_) => self.primitive_scope_id(),
+            ty => ty.scope_id(),
+        }
     }
 
     pub fn current_scope_id(&self) -> Option<ScopeId> {
@@ -641,6 +689,28 @@ mod tests {
             "a private module unrelated to the current one is invisible"
         );
         table.exit_module();
+    }
+
+    #[test]
+    fn primitive_scopes_are_local_to_each_symbol_table() {
+        let mut first = SymbolTable::<SymFeltRef>::new();
+        let mut second = SymbolTable::<SymFeltRef>::new();
+        first.set_primitive_scope_id(ScopeId(3));
+        second.set_primitive_scope_id(ScopeId(17));
+
+        let first_felt = first.create_type(Type::Felt).unwrap();
+        let second_felt = second.create_type(Type::Felt).unwrap();
+        assert_eq!(first.primitive_scope_id(), ScopeId(3));
+        assert_eq!(second.primitive_scope_id(), ScopeId(17));
+        assert_eq!(first.type_scope_id(first_felt), ScopeId(3));
+        assert_eq!(second.type_scope_id(second_felt), ScopeId(17));
+    }
+
+    #[test]
+    #[should_panic(expected = "primitive scope has not been initialized")]
+    fn primitive_scope_requires_initialization() {
+        let table = SymbolTable::<SymFeltRef>::new();
+        let _ = table.primitive_scope_id();
     }
 
     #[test]

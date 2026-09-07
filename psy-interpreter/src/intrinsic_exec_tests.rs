@@ -3,7 +3,6 @@
 // tests run `main` through the interpreter so each CheckedIntrinsicExprNode
 // arm of the runtime dispatch actually executes against QExecContext.
 
-use serial_test::serial;
 
 use super::*;
 
@@ -24,13 +23,6 @@ fn compile_stub(
     }
 }
 
-fn reset_primitive_scope() {
-    #[allow(static_mut_refs)]
-    unsafe {
-        let _ = STD_PRIMITIVE_SCOPE_ID.take();
-    }
-}
-
 fn exec_source(label: &str, source: &str) -> Result<(), String> {
     let path = std::env::temp_dir().join(format!("{label}_intrinsics.psy"));
     std::fs::write(&path, source).unwrap();
@@ -47,7 +39,6 @@ fn exec_source(label: &str, source: &str) -> Result<(), String> {
             .map_err(|e| format!("interpret: {e:#}"))
     };
     let _ = std::fs::remove_file(&path);
-    reset_primitive_scope();
     result
 }
 
@@ -92,12 +83,10 @@ fn exec_override_source(label: &str, source: &str, extra_std: &str) -> Result<()
             .map(|_| ())
             .map_err(|e| format!("interpret: {e:#}"))
     };
-    reset_primitive_scope();
     result
 }
 
 #[test]
-#[serial]
 fn raw_checkpoint_stats_and_storage_write_range_execute() {
     let extra_std = r#"
 pub fn probe_raw_stats_exec(checkpoint_id: Felt) {
@@ -126,7 +115,6 @@ pub fn probe_raw_write_range_exec(offset: Felt, values: [Felt; 3]) {
 }
 
 #[test]
-#[serial]
 fn context_identity_getters_execute() {
     expect_intrinsics_exec(
         "ctx_identity",
@@ -152,7 +140,6 @@ fn context_identity_getters_execute() {
 }
 
 #[test]
-#[serial]
 fn imt_intrinsics_execute() {
     expect_intrinsics_exec(
         "imt_ops",
@@ -177,7 +164,6 @@ fn imt_intrinsics_execute() {
 }
 
 #[test]
-#[serial]
 fn checkpoint_stat_getters_execute() {
     expect_intrinsics_exec(
         "checkpoint_stats",
@@ -209,7 +195,6 @@ fn checkpoint_stat_getters_execute() {
 }
 
 #[test]
-#[serial]
 fn bit_intrinsics_execute() {
     expect_intrinsics_exec(
         "bit_ops",
@@ -226,7 +211,6 @@ fn bit_intrinsics_execute() {
 }
 
 #[test]
-#[serial]
 fn crypto_and_invoke_intrinsics_execute() {
     expect_intrinsics_exec(
         "crypto_invoke",
@@ -244,7 +228,6 @@ fn crypto_and_invoke_intrinsics_execute() {
 }
 
 #[test]
-#[serial]
 fn invoke_sync_with_generic_return_hits_size_calculation_guard() {
     // The std wrapper's generic return `T` is not substituted into the
     // CheckedIntrinsicExprNode, so the runtime output-size calculation
@@ -264,7 +247,6 @@ fn invoke_sync_with_generic_return_hits_size_calculation_guard() {
             "#,
         )
     });
-    reset_primitive_scope();
     let payload = outcome.expect_err("generic invoke_sync must hit the size-calculation guard");
     let message = payload
         .downcast_ref::<String>()
@@ -278,7 +260,6 @@ fn invoke_sync_with_generic_return_hits_size_calculation_guard() {
 }
 
 #[test]
-#[serial]
 fn derived_events_emit_at_runtime() {
     expect_intrinsics_exec(
         "event_emit",
@@ -300,7 +281,6 @@ fn derived_events_emit_at_runtime() {
 }
 
 #[test]
-#[serial]
 fn split_bits_rejects_non_constant_lengths_at_runtime() {
     expect_intrinsics_failure(
         "split_bits_non_const",
@@ -318,7 +298,6 @@ fn split_bits_rejects_non_constant_lengths_at_runtime() {
 }
 
 #[test]
-#[serial]
 fn split_bits_rejects_oversized_lengths_at_runtime() {
     expect_intrinsics_failure(
         "split_bits_too_large",
