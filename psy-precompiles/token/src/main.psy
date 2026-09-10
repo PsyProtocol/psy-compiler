@@ -488,8 +488,14 @@ impl PsyTokenContractRef {
             c.last_claimed_pow_rewards_checkpoint_id.get() < checkpoint_id,
         "must haven't already claimed during this ups");
 
+        let cumulative_rewards = pow_rewards_persistent_state.claimed_rewards;
+        let previously_settled_rewards = c.claimed_rewards.get();
+        assert(cumulative_rewards >= previously_settled_rewards, "pow rewards total cannot decrease");
+        let newly_settled_rewards = cumulative_rewards - previously_settled_rewards;
+
         c.last_claimed_pow_rewards_checkpoint_id = checkpoint_id;
-        c.balance += pow_rewards_persistent_state.claimed_rewards;
+        c.claimed_rewards = cumulative_rewards;
+        c.balance += newly_settled_rewards;
     }
 
     #[contract_method]
