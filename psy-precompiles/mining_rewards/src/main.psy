@@ -40,9 +40,9 @@ impl MiningRewardMerkleProof {
         let mut nullifier_level_start_index_multiplier = 1;
 
         let index = self.index;
-        let max_index = 4294967296;
+        let max_index = 1 << proof_height;
 
-        assert(index < max_index, "index out of range");
+        assert(index < max_index, "index exceeds proof height");
 
         // Step 1: Compute leaf hash from three components
         // hash(hash(leaf_left, leaf_right), leaf_tag)
