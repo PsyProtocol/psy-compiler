@@ -183,6 +183,10 @@ impl PsyTokenContractRef {
             x[4] == 0u32 && x[5] == 0u32,
             "amount exceeds uint64 range"
         );
+        assert(
+            x[6] < 4294967295u32 || x[7] == 0u32,
+            "amount exceeds Felt range"
+        );
         (x[6] as Felt) * Self::u32_shift_factor() + (x[7] as Felt)
     }
 
@@ -516,6 +520,9 @@ impl PsyTokenContractRef {
             let amount = amounts[i as Felt];
 
             if amount > 0 {
+                let transfer_event = TransferEvent { to: recipient, amount };
+                transfer_event.emit();
+
                 let mut recipient_info = c.other_user_info[recipient].get();
                 assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
 
@@ -547,6 +554,9 @@ impl PsyTokenContractRef {
             let amount = amounts[i as Felt];
 
             if amount > 0 {
+                let transfer_event = TransferEvent { to: recipient, amount };
+                transfer_event.emit();
+
                 let mut recipient_info = c.other_user_info[recipient].get();
                 assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
 
