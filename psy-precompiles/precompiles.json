@@ -73,7 +73,6 @@
         "batch_simple_transfer_2",
         "batch_simple_transfer_5",
         "simple_claim",
-        "simple_claim_pow_rewards",
         "private_transfer",
         "private_claim"
       ]

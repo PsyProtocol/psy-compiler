@@ -28,6 +28,18 @@ pub struct PrivateClaimEvent {
 }
 
 #[derive(Event)]
+pub struct PrivateTransferEvent {
+    // Do not emit receiver, value, or note_commitment: they contain private or
+    // linkable transfer data.
+    // pub receiver: Hash,
+    // pub value: Felt,
+    // pub note_commitment: Hash,
+    pub index: Felt,
+    pub commitment: Hash,
+    pub new_root: Hash,
+}
+
+#[derive(Event)]
 pub struct DepositClaimEvent {
     pub shield_address: Hash,
     pub nullifier_hash: Hash,
@@ -182,6 +194,10 @@ impl PsyTokenContractRef {
             x[0] == 0u32 && x[1] == 0u32 && x[2] == 0u32 && x[3] == 0u32 &&
             x[4] == 0u32 && x[5] == 0u32,
             "amount exceeds uint64 range"
+        );
+        assert(
+            x[6] < 4294967295u32 || x[7] == 0u32,
+            "amount exceeds Felt range"
         );
         (x[6] as Felt) * Self::u32_shift_factor() + (x[7] as Felt)
     }
@@ -488,8 +504,14 @@ impl PsyTokenContractRef {
             c.last_claimed_pow_rewards_checkpoint_id.get() < checkpoint_id,
         "must haven't already claimed during this ups");
 
+        let cumulative_rewards = pow_rewards_persistent_state.claimed_rewards;
+        let previously_settled_rewards = c.claimed_rewards.get();
+        assert(cumulative_rewards >= previously_settled_rewards, "pow rewards total cannot decrease");
+        let newly_settled_rewards = cumulative_rewards - previously_settled_rewards;
+
         c.last_claimed_pow_rewards_checkpoint_id = checkpoint_id;
-        c.balance += pow_rewards_persistent_state.claimed_rewards;
+        c.claimed_rewards = cumulative_rewards;
+        c.balance += newly_settled_rewards;
     }
 
     #[contract_method]
@@ -510,6 +532,9 @@ impl PsyTokenContractRef {
             let amount = amounts[i as Felt];
 
             if amount > 0 {
+                let transfer_event = TransferEvent { to: recipient, amount };
+                transfer_event.emit();
+
                 let mut recipient_info = c.other_user_info[recipient].get();
                 assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
 
@@ -541,6 +566,9 @@ impl PsyTokenContractRef {
             let amount = amounts[i as Felt];
 
             if amount > 0 {
+                let transfer_event = TransferEvent { to: recipient, amount };
+                transfer_event.emit();
+
                 let mut recipient_info = c.other_user_info[recipient].get();
                 assert(recipient_info.amount_sent + amount > recipient_info.amount_sent, "amount sent overflow");
 
@@ -587,6 +615,13 @@ impl PsyTokenContractRef {
 
         c.note_root = current;
         c.note_count = idx + 1;
+
+        let transfer_event = PrivateTransferEvent {
+            index: idx,
+            commitment,
+            new_root: current,
+        };
+        transfer_event.emit();
     }
 
     #[contract_method]
