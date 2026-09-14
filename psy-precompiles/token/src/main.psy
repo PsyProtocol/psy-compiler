@@ -28,6 +28,18 @@ pub struct PrivateClaimEvent {
 }
 
 #[derive(Event)]
+pub struct PrivateTransferEvent {
+    // Do not emit receiver, value, or note_commitment: they contain private or
+    // linkable transfer data.
+    // pub receiver: Hash,
+    // pub value: Felt,
+    // pub note_commitment: Hash,
+    pub index: Felt,
+    pub commitment: Hash,
+    pub new_root: Hash,
+}
+
+#[derive(Event)]
 pub struct DepositClaimEvent {
     pub shield_address: Hash,
     pub nullifier_hash: Hash,
@@ -603,6 +615,13 @@ impl PsyTokenContractRef {
 
         c.note_root = current;
         c.note_count = idx + 1;
+
+        let transfer_event = PrivateTransferEvent {
+            index: idx,
+            commitment,
+            new_root: current,
+        };
+        transfer_event.emit();
     }
 
     #[contract_method]
