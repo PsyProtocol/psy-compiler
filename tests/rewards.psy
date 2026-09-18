@@ -164,13 +164,13 @@ impl ContractRef {
     }
 
     #[contract_method]
-    pub fn simple_mint(amount: Felt) {
+    pub fn mint(amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
         c.balance += amount;
     }
 
     #[contract_method]
-    pub fn simple_burn(amount: Felt) {
+    pub fn burn(amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
         assert(current_balance >= amount, "insufficient balance");
@@ -178,7 +178,7 @@ impl ContractRef {
     }
 
     #[contract_method]
-    pub fn simple_transfer(recipient: Felt, amount: Felt) {
+    pub fn transfer(recipient: Felt, amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
         assert(current_balance >= amount, "insufficient balance");
@@ -195,7 +195,7 @@ impl ContractRef {
     }
 
     #[contract_method]
-    pub fn simple_claim(sender: Felt) {
+    pub fn claim(sender: Felt) {
         let self_user_id = get_user_id();
         // Self-claim is allowed in this storage layout because balance and
         // per-sender claim metadata are stored in separate slots.

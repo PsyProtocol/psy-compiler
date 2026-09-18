@@ -48,8 +48,8 @@ mod tests {
     #[test]
     fn test_function_lookup_by_name() {
         // Test looking up specific functions by name
-        let simple_mint = get_precompiled_contract_function_by_name("token", "simple_mint");
-        let claim_pow_rewards = get_precompiled_contract_function_by_name("token", "simple_claim_pow_rewards");
+        let mint = get_precompiled_contract_function_by_name("token", "mint");
+        let claim_pow_rewards = get_precompiled_contract_function_by_name("token", "claim_pow_rewards");
         let claim_reward = get_precompiled_contract_function_by_name("mining_rewards", "claim_guta_rewards_1");
         let claim_rewards_2 = get_precompiled_contract_function_by_name("mining_rewards", "claim_guta_rewards_2");
         let claim_rewards_5 = get_precompiled_contract_function_by_name("mining_rewards", "claim_guta_rewards_5");
@@ -57,14 +57,14 @@ mod tests {
         let legacy_session = get_precompiled_contract_function_by_name("mining_rewards", "start_session");
         let faucet = get_precompiled_contract_function_by_name("faucet", "faucet");
 
-        if let Some(mint_func) = simple_mint {
-            println!("Found simple_mint function with method_id: {}", mint_func.method_id);
-            assert_eq!(mint_func.name, "simple_mint");
+        if let Some(mint_func) = mint {
+            println!("Found mint function with method_id: {}", mint_func.method_id);
+            assert_eq!(mint_func.name, "mint");
         }
 
         if let Some(claim_func) = claim_pow_rewards {
-            println!("Found simple_claim_pow_rewards function with method_id: {}", claim_func.method_id);
-            assert_eq!(claim_func.name, "simple_claim_pow_rewards");
+            println!("Found claim_pow_rewards function with method_id: {}", claim_func.method_id);
+            assert_eq!(claim_func.name, "claim_pow_rewards");
         }
 
         if let Some(claim_reward_func) = claim_reward {
@@ -144,12 +144,12 @@ mod tests {
         }
 
         if !usdt_methods.is_empty() {
-            assert!(usdt_methods.contains(&"simple_mint".to_string()));
+            assert!(usdt_methods.contains(&"mint".to_string()));
         }
 
         if !token_methods.is_empty() {
-            assert!(token_methods.contains(&"simple_mint".to_string()));
-            assert!(token_methods.contains(&"simple_claim_pow_rewards".to_string()));
+            assert!(token_methods.contains(&"mint".to_string()));
+            assert!(token_methods.contains(&"claim_pow_rewards".to_string()));
         }
 
         if !faucet_methods.is_empty() {
@@ -167,7 +167,7 @@ mod tests {
         for _ in 0..1000 {
             let _ = get_contract_id_by_name("mining_rewards");
             let _ = get_precompiled_contract_functions(0);
-            let _ = get_precompiled_contract_function_by_name("token", "simple_mint");
+            let _ = get_precompiled_contract_function_by_name("token", "mint");
         }
 
         let elapsed = start.elapsed();

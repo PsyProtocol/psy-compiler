@@ -48,10 +48,10 @@ ci:
 
 	@$(DARGO_CLI_COMPILE) ctx_test.psy
 	@$(DARGO_CLI_COMPILE) storage_test.psy --contract-name=SimpleContract --method-names set_a set_b set_c set_d get_a get_b get_c get_d
-	@$(DARGO_CLI_COMPILE) basic_ups.psy --contract-name=Contract --method-names simple_mint simple_transfer simple_claim
-	@$(DARGO_CLI_COMPILE) token.psy --contract-name=ContractRef --method-names simple_mint simple_transfer simple_claim
-	@$(DARGO_CLI_COMPILE) two_user_ups.psy --contract-name=Contract --method-names simple_mint simple_transfer simple_claim
-	@$(DARGO_CLI_COMPILE) rewards.psy --contract-name=ContractRef --method-names batch_claim_pm_rewards simple_mint simple_burn simple_transfer simple_claim
+	@$(DARGO_CLI_COMPILE) basic_ups.psy --contract-name=Contract --method-names mint transfer claim
+	@$(DARGO_CLI_COMPILE) token.psy --contract-name=ContractRef --method-names mint transfer claim
+	@$(DARGO_CLI_COMPILE) two_user_ups.psy --contract-name=Contract --method-names mint transfer claim
+	@$(DARGO_CLI_COMPILE) rewards.psy --contract-name=ContractRef --method-names batch_claim_pm_rewards mint burn transfer claim
 
 	@$(DARGO_CLI_EXECUTE) assert_test.psy --parameters 2,3
 	@$(DARGO_CLI_EXECUTE) keccak256_test.psy
@@ -111,10 +111,10 @@ ci:
 	@$(DARGO_CLI_EXECUTE) block_test.psy
 	@$(DARGO_CLI_EXECUTE) path_test.psy
 	@$(DARGO_CLI_EXECUTE) should_panic_test.psy --parameters 2,3
-	@$(DARGO_CLI_EXECUTE) basic_ups.psy --contract-name=Contract --method-names=simple_mint --method-names=simple_transfer --parameters 133700 --parameters 2,1000
-	@$(DARGO_CLI_EXECUTE) basic_ups.psy --contract-name=Contract --method-names=simple_mint --method-names=simple_transfer --parameters 1000 --parameters=2,100
-	@$(DARGO_CLI_EXECUTE) token.psy --contract-name=ContractRef --method-names=simple_mint --method-names=simple_transfer --parameters 1000 --parameters 2,100
-	@$(DARGO_CLI_EXECUTE) two_user_ups.psy --contract-name=Contract --method-names=simple_mint --method-names=simple_transfer --parameters 1000 --parameters 2,100
+	@$(DARGO_CLI_EXECUTE) basic_ups.psy --contract-name=Contract --method-names=mint --method-names=transfer --parameters 133700 --parameters 2,1000
+	@$(DARGO_CLI_EXECUTE) basic_ups.psy --contract-name=Contract --method-names=mint --method-names=transfer --parameters 1000 --parameters=2,100
+	@$(DARGO_CLI_EXECUTE) token.psy --contract-name=ContractRef --method-names=mint --method-names=transfer --parameters 1000 --parameters 2,100
+	@$(DARGO_CLI_EXECUTE) two_user_ups.psy --contract-name=Contract --method-names=mint --method-names=transfer --parameters 1000 --parameters 2,100
 	@$(DARGO_CLI_EXECUTE) check_secp_sign_test.psy
 	@$(DARGO_CLI_EXECUTE) clear_entire_tree_test.psy
 	@$(DARGO_CLI_EXECUTE) array_ref_multiple_fields_offset_test.psy
@@ -166,20 +166,20 @@ interpret:
 	@RUST_LOG=${LOG_LEVEL} ./target/${PROFILE}/dargo execute --program-dir $(dir ${FILE}) --debug --entry-path $(notdir ${FILE}) --parameters ${PARAMETERS}
 
 compile-token-contract:
-	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit simple_mint simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
+	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn claim_pow_rewards private_transfer private_claim
 
 
 compile-mining-rewards-contract:
 	@cd $(MINING_REWARDS_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyPOWMiningRewardsClaimContractRef --method-names claim_guta_rewards_1 claim_guta_rewards_2 claim_guta_rewards_5 claim_guta_rewards_10
 
 compile-usdt-token-contract:
-	@cd $(USDT_TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=USDTTokenContractRef --method-names withdraw claim_deposit simple_mint simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn private_transfer private_claim
+	@cd $(USDT_TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=USDTTokenContractRef --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn private_transfer private_claim
 
 compile-usdt-token-abi:
-	@cd $(USDT_TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c USDTTokenContractRef --abi-name usdt_token --method-names withdraw claim_deposit simple_mint simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn private_transfer private_claim
+	@cd $(USDT_TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c USDTTokenContractRef --abi-name usdt_token --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn private_transfer private_claim
 
 compile-token-abi:
-	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyTokenContractRef --abi-name token --method-names withdraw claim_deposit simple_mint simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
+	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyTokenContractRef --abi-name token --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn claim_pow_rewards private_transfer private_claim
 
 compile-withdrawal-tree-contract:
 	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyWithdrawalTreeContractRef --method-names set_chain_root get_root get_chain_root append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
@@ -217,9 +217,9 @@ gen-deploy-json: build \
 	compile-usdt-token-contract compile-mining-rewards-contract \
 	compile-deposit-tree-contract compile-withdrawal-tree-contract \
 	compile-faucet-contract
-	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
+	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit transfer claim batch_transfer_2 batch_transfer_5 burn claim_pow_rewards private_transfer private_claim
 	@mv $(TOKEN_CONTRACT_PATH)/target/token.json $(TOKEN_CONTRACT_PATH)/target/token.update.json
-	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit simple_mint simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
+	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn claim_pow_rewards private_transfer private_claim
 	@mkdir -p $(PSY_GENESIS) $(GENESIS_ABI_DIR)
 	@test -f $(TOKEN_CONTRACT_PATH)/target/token.json || { echo "error: missing compiled token artifact: $(TOKEN_CONTRACT_PATH)/target/token.json"; exit 1; }
 	@test -f $(TOKEN_CONTRACT_PATH)/target/token.update.json || { echo "error: missing compiled token update artifact: $(TOKEN_CONTRACT_PATH)/target/token.update.json"; exit 1; }
@@ -236,8 +236,8 @@ gen-deploy-json: build \
 		$(FAUCET_CONTRACT_PATH)/target/faucet.json
 	@# Regenerate ABI files to a separate dir (avoids overwriting compiled .json)
 	@mkdir -p $(ABI_OUTPUT_DIR)
-	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyTokenContractRef --abi-name token --output-dir $(ABI_OUTPUT_DIR) --method-names withdraw claim_deposit simple_mint simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
-	@cd $(USDT_TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c USDTTokenContractRef --abi-name usdt_token --output-dir $(ABI_OUTPUT_DIR) --method-names withdraw claim_deposit simple_mint simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn private_transfer private_claim
+	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyTokenContractRef --abi-name token --output-dir $(ABI_OUTPUT_DIR) --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn claim_pow_rewards private_transfer private_claim
+	@cd $(USDT_TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c USDTTokenContractRef --abi-name usdt_token --output-dir $(ABI_OUTPUT_DIR) --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn private_transfer private_claim
 	@cd $(MINING_REWARDS_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyPOWMiningRewardsClaimContractRef --abi-name mining_rewards --output-dir $(ABI_OUTPUT_DIR) --method-names claim_guta_rewards_1 claim_guta_rewards_2 claim_guta_rewards_5 claim_guta_rewards_10
 	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyDepositTreeContractRef --abi-name deposit_tree --output-dir $(ABI_OUTPUT_DIR) --method-names get_root get_chain_root is_known_root_hash is_known_root set_chain_root append_leaf append_deposit batch_append_deposits_2 batch_append_deposits_5
 	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyWithdrawalTreeContractRef --abi-name withdrawal_tree --output-dir $(ABI_OUTPUT_DIR) --method-names get_root get_chain_root append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
