@@ -49,7 +49,12 @@ mod tests {
     fn test_function_lookup_by_name() {
         // Test looking up specific functions by name
         let simple_mint = get_precompiled_contract_function_by_name("token", "simple_mint");
-        let batch_claim = get_precompiled_contract_function_by_name("mining_rewards", "claim_guta_rewards_1");
+        let claim_pow_rewards = get_precompiled_contract_function_by_name("token", "simple_claim_pow_rewards");
+        let claim_reward = get_precompiled_contract_function_by_name("mining_rewards", "claim_guta_rewards_1");
+        let claim_rewards_2 = get_precompiled_contract_function_by_name("mining_rewards", "claim_guta_rewards_2");
+        let claim_rewards_5 = get_precompiled_contract_function_by_name("mining_rewards", "claim_guta_rewards_5");
+        let claim_rewards_10 = get_precompiled_contract_function_by_name("mining_rewards", "claim_guta_rewards_10");
+        let legacy_session = get_precompiled_contract_function_by_name("mining_rewards", "start_session");
         let faucet = get_precompiled_contract_function_by_name("faucet", "faucet");
 
         if let Some(mint_func) = simple_mint {
@@ -57,9 +62,47 @@ mod tests {
             assert_eq!(mint_func.name, "simple_mint");
         }
 
-        if let Some(claim_func) = batch_claim {
-            println!("Found batch_claim_pm_rewards function with method_id: {}", claim_func.method_id);
-            assert_eq!(claim_func.name, "claim_guta_rewards_1");
+        if let Some(claim_func) = claim_pow_rewards {
+            println!("Found simple_claim_pow_rewards function with method_id: {}", claim_func.method_id);
+            assert_eq!(claim_func.name, "simple_claim_pow_rewards");
+        }
+
+        if let Some(claim_reward_func) = claim_reward {
+            println!("Found claim_guta_rewards_1 function with method_id: {}", claim_reward_func.method_id);
+            assert_eq!(claim_reward_func.name, "claim_guta_rewards_1");
+        }
+        assert!(claim_rewards_2.is_some());
+        assert!(claim_rewards_5.is_some());
+        assert!(claim_rewards_10.is_some());
+        assert!(legacy_session.is_none());
+
+        for method_name in [
+            "claim_guta_rewards_1",
+            "claim_guta_rewards_2",
+            "claim_guta_rewards_5",
+            "claim_guta_rewards_10",
+        ] {
+            let function = get_precompiled_contract_function_by_name("mining_rewards", method_name)
+                .unwrap_or_else(|| panic!("missing mining rewards method {method_name}"));
+            let encoded = serde_json::to_string(function).expect("serialize compiled mining rewards method");
+            assert!(
+                encoded.contains("ContainsSelfUserCurrentIMTContractStateValue"),
+                "{method_name} must retain the claimed_jobs nullifier check"
+            );
+            assert!(
+                encoded.contains("SetIMTContractStateValue"),
+                "{method_name} must retain the first-claim claimed_jobs insert"
+            );
+            assert!(
+                encoded.contains("MR001: reward already claimed"),
+                "{method_name} must reject duplicate claims with the stable MR001 error code"
+            );
+            assert!(
+                !encoded.contains("GetSelfUserCurrentIMTContractStateValue"),
+                "{method_name} must not compile a strict claimed_jobs read after contains; \
+                 DPN resolves state reads before conditional execution, so the first claim \
+                 would fail when the IMT key is absent"
+            );
         }
 
         if let Some(faucet_func) = faucet {
@@ -94,6 +137,10 @@ mod tests {
         // These should contain the methods defined in config.json
         if !rewards_methods.is_empty() {
             assert!(rewards_methods.contains(&"claim_guta_rewards_1".to_string()));
+            assert!(rewards_methods.contains(&"claim_guta_rewards_2".to_string()));
+            assert!(rewards_methods.contains(&"claim_guta_rewards_5".to_string()));
+            assert!(rewards_methods.contains(&"claim_guta_rewards_10".to_string()));
+            assert_eq!(rewards_methods.len(), 4);
         }
 
         if !usdt_methods.is_empty() {
@@ -102,6 +149,7 @@ mod tests {
 
         if !token_methods.is_empty() {
             assert!(token_methods.contains(&"simple_mint".to_string()));
+            assert!(token_methods.contains(&"simple_claim_pow_rewards".to_string()));
         }
 
         if !faucet_methods.is_empty() {

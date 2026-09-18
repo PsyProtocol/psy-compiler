@@ -101,7 +101,7 @@ struct ShieldClaimPublicInputsPreimage {
 #[derive(Storage)]
 pub struct PsyTokenContract {
     pub balance: Felt,
-    pub last_claimed_pow_rewards_checkpoint_id: Felt,
+    pub reserved_last_claimed_pow_rewards_checkpoint_id: Felt,
     pub claimed_rewards: Felt,
     pub other_user_info: [OtherUserInfo; 4294967296],
 
@@ -489,29 +489,20 @@ impl PsyTokenContractRef {
     }
 
     #[contract_method]
-    pub fn simple_claim_pow_rewards(checkpoint_id: Felt) {
+    pub fn simple_claim_pow_rewards() {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         let psy_pow_mining_rewards_claim_contract = PsyPOWMiningRewardsClaimContractRef::new(ContractMetadata::new(1, get_user_id()));
-        let pow_rewards_persistent_state = psy_pow_mining_rewards_claim_contract.persistent_state.get();
-
-        assert(
-            pow_rewards_persistent_state.last_claimed_checkpoint_id == checkpoint_id,
-        "the claims must be from the latest ups");
-        assert(
-            pow_rewards_persistent_state.last_sealed_checkpoint_id == checkpoint_id,
-        "the checkpoint must be sealed");
-        assert(
-            c.last_claimed_pow_rewards_checkpoint_id.get() < checkpoint_id,
-        "must haven't already claimed during this ups");
-
-        let cumulative_rewards = pow_rewards_persistent_state.claimed_rewards;
+        let cumulative_rewards = psy_pow_mining_rewards_claim_contract.total_rewards.get();
         let previously_settled_rewards = c.claimed_rewards.get();
         assert(cumulative_rewards >= previously_settled_rewards, "pow rewards total cannot decrease");
         let newly_settled_rewards = cumulative_rewards - previously_settled_rewards;
 
-        c.last_claimed_pow_rewards_checkpoint_id = checkpoint_id;
+        let current_balance = c.balance.get();
+        let new_balance = current_balance + newly_settled_rewards;
+        assert(new_balance >= current_balance, "balance overflow");
+
         c.claimed_rewards = cumulative_rewards;
-        c.balance += newly_settled_rewards;
+        c.balance = new_balance;
     }
 
     #[contract_method]

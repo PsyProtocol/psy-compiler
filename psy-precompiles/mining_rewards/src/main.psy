@@ -1,3 +1,5 @@
+use std::prelude::*;
+
 struct SimpleMerkleProofSiblingLevel {
     pub sibling: [Felt; 4],
     pub parent_tag: [Felt; 4],
@@ -14,20 +16,19 @@ struct MiningRewardMerkleProof {
     pub siblings: [SimpleMerkleProofSiblingLevel; 21],
 }
 
-#[derive(Storage)]
-struct PersistentState {
-    pub claimed_rewards: Felt,
-    pub last_claimed_checkpoint_id: Felt,
-    pub last_sealed_checkpoint_id: Felt,
+#[derive(Event)]
+pub struct RewardClaimedEvent {
+    pub checkpoint_id: Felt,
+    pub job_id: Hash,
+    pub user_id: Felt,
+    pub reward: Felt,
 }
 
 #[contract]
 #[derive(Storage)]
 pub struct PsyPOWMiningRewardsClaimContract {
-    pub persistent_state: PersistentState,
-    pub claimed_guta_nullifiers: [Felt; 16777216],
-    pub claimed_contract_deployment_nullifiers: [Felt; 1048576],
-    pub claimed_user_registration_nullifiers: [Felt; 1048576]
+    pub total_rewards: Felt,
+    pub claimed_jobs: Map<Hash, Hash, 1073741824u32>,
 }
 
 impl MiningRewardMerkleProof {
@@ -94,18 +95,15 @@ impl PsyPOWMiningRewardsClaimContractRef {
         proposed_reward < user_transaction_inclusion_fee && total_reward_if_all_claim <= total_fees_paid
     }
 
-    fn claim_single_guta_reward(
+    fn verify_guta_reward_proof(
         checkpoint_id: Felt,
         proof: MiningRewardMerkleProof,
         proposed_reward: Felt
-    ) {
-        let c = PsyPOWMiningRewardsClaimContractRef::new(ContractMetadata::current());
-        let user_id_hash = hash([get_user_id()]);
-
+    ) -> Felt {
         let expected_guta_rewards_tree_root = get_gutas_root(checkpoint_id);
         let total_proofs = get_gutas_completed(checkpoint_id);
         let total_fees = get_guta_fees_collected(checkpoint_id);
-        assert(check_guta_reward(total_proofs, total_fees, proposed_reward), "invalid reward amount");
+        assert(Self::check_guta_reward(total_proofs, total_fees, proposed_reward), "invalid reward amount");
 
         let result: ([Felt; 4], Felt) = proof.compute_root_and_nullifier_index();
         let computed_root = result.0;
@@ -122,46 +120,44 @@ impl PsyPOWMiningRewardsClaimContractRef {
 
         assert(proof.leaf_tag == expected_reward_tree_tag_hash, "reward_tree_tag_preimage hash not for current proof leaf tag");
 
-        assert(c.claimed_guta_nullifiers[nullifier_index] == 0, "reward already claimed");
-
-        c.claimed_guta_nullifiers[nullifier_index] = 1;
+        nullifier_index
     }
 
-    #[contract_method]
-    pub fn start_session(
-        claim_checkpoint_id: Felt
-    ) {
+    // Returns the newly claimed reward amount. A duplicate claim fails with a
+    // stable error code after proof verification, without performing a strict
+    // IMT get that would reject the first insertion when the key is absent.
+    fn claim_single_reward(
+        checkpoint_id: Felt,
+        proof: MiningRewardMerkleProof,
+        proposed_reward: Felt
+    ) -> Felt {
         let c = PsyPOWMiningRewardsClaimContractRef::new(ContractMetadata::current());
 
-        let persistent_state = c.persistent_state.get();
-        assert(persistent_state.last_claimed_checkpoint_id == persistent_state.last_sealed_checkpoint_id, "previous session must be sealed first");
+        let nullifier_index = Self::verify_guta_reward_proof(checkpoint_id, proof, proposed_reward);
 
-        assert(claim_checkpoint_id > persistent_state.last_sealed_checkpoint_id, "checkpoint is sealed");
+        let job_id: Hash = hash([checkpoint_id, nullifier_index]);
 
-        c.persistent_state = PersistentState {
-            last_claimed_checkpoint_id: claim_checkpoint_id,
-            claimed_rewards: persistent_state.claimed_rewards,
-            last_sealed_checkpoint_id: persistent_state.last_sealed_checkpoint_id,
+        let already_claimed = c.claimed_jobs.contains(job_id);
+        assert(already_claimed == false, "MR001: reward already claimed");
+        c.claimed_jobs.insert(job_id, [proposed_reward, 0, 0, 0]);
+
+        let event = RewardClaimedEvent {
+            checkpoint_id,
+            job_id,
+            user_id: get_user_id(),
+            reward: proposed_reward,
         };
+        event.emit();
+
+        proposed_reward
     }
 
-    #[contract_method]
-    pub fn end_session(claim_checkpoint_id: Felt) {
+    fn settle_total_rewards(newly_claimed: Felt) {
         let c = PsyPOWMiningRewardsClaimContractRef::new(ContractMetadata::current());
-        let persistent_state = c.persistent_state.get();
-
-        assert(
-            claim_checkpoint_id == persistent_state.last_claimed_checkpoint_id
-            && persistent_state.last_claimed_checkpoint_id > persistent_state.last_sealed_checkpoint_id,
-        "no active session to end");
-
-        clear_entire_tree();
-
-        c.persistent_state = PersistentState {
-            last_claimed_checkpoint_id: persistent_state.last_claimed_checkpoint_id,
-            claimed_rewards: persistent_state.claimed_rewards,
-            last_sealed_checkpoint_id: claim_checkpoint_id,
-        };
+        let previous_total_rewards = c.total_rewards.get();
+        let new_total_rewards = previous_total_rewards + newly_claimed;
+        assert(new_total_rewards >= previous_total_rewards, "pow rewards total overflow");
+        c.total_rewards = new_total_rewards;
     }
 
     #[contract_method]
@@ -170,106 +166,50 @@ impl PsyPOWMiningRewardsClaimContractRef {
         proof: MiningRewardMerkleProof,
         proposed_reward: Felt
     ) {
-        let c = PsyPOWMiningRewardsClaimContractRef::new(ContractMetadata::current());
-        let persistent_state = c.persistent_state.get();
-
-        if checkpoint_id != persistent_state.last_claimed_checkpoint_id {
-            if persistent_state.last_claimed_checkpoint_id != persistent_state.last_sealed_checkpoint_id {
-                Self::end_session(persistent_state.last_claimed_checkpoint_id);
-            };
-            Self::start_session(checkpoint_id);
-        };
-
-        assert(checkpoint_id > persistent_state.last_sealed_checkpoint_id, "checkpoint is sealed");
-
-        Self::claim_single_guta_reward(checkpoint_id, proof, proposed_reward);
-
-        let new_persistent_state = c.persistent_state.get();
-        c.persistent_state = PersistentState {
-            last_claimed_checkpoint_id: checkpoint_id,
-            claimed_rewards: new_persistent_state.claimed_rewards + proposed_reward,
-            last_sealed_checkpoint_id: new_persistent_state.last_sealed_checkpoint_id,
-        };
+        let newly_claimed = Self::claim_single_reward(checkpoint_id, proof, proposed_reward);
+        Self::settle_total_rewards(newly_claimed);
     }
 
     #[contract_method]
     pub fn claim_guta_rewards_2(
-        checkpoints: [Felt; 2],
+        checkpoint_ids: [Felt; 2],
         proofs: [MiningRewardMerkleProof; 2],
         proposed_rewards: [Felt; 2]
     ) {
-        let c = PsyPOWMiningRewardsClaimContractRef::new(ContractMetadata::current());
-        let initial_persistent_state = c.persistent_state.get();
-
-        let mut total_rewards_claimed = 0;
-        let mut last_checkpoint = initial_persistent_state.last_claimed_checkpoint_id;
-
+        let mut total_newly_claimed = 0;
         for i in 0u32..2u32 {
             let idx = i as Felt;
-            let checkpoint_id = checkpoints[idx];
-            let proof = proofs[idx];
-            let proposed_reward = proposed_rewards[idx];
-
-            if checkpoint_id != last_checkpoint {
-                if last_checkpoint != initial_persistent_state.last_sealed_checkpoint_id {
-                    Self::end_session(last_checkpoint);
-                };
-                Self::start_session(checkpoint_id);
-                last_checkpoint = checkpoint_id;
-            };
-
-            assert(checkpoint_id > initial_persistent_state.last_sealed_checkpoint_id, "checkpoint is sealed");
-
-            Self::claim_single_guta_reward(checkpoint_id, proof, proposed_reward);
-            total_rewards_claimed = total_rewards_claimed + proposed_reward;
+            total_newly_claimed = total_newly_claimed + Self::claim_single_reward(checkpoint_ids[idx], proofs[idx], proposed_rewards[idx]);
         }
-
-        let final_persistent_state = c.persistent_state.get();
-        c.persistent_state = PersistentState {
-            last_claimed_checkpoint_id: last_checkpoint,
-            claimed_rewards: final_persistent_state.claimed_rewards + total_rewards_claimed,
-            last_sealed_checkpoint_id: final_persistent_state.last_sealed_checkpoint_id,
-        };
+        Self::settle_total_rewards(total_newly_claimed);
     }
 
     #[contract_method]
     pub fn claim_guta_rewards_5(
-        checkpoints: [Felt; 5],
+        checkpoint_ids: [Felt; 5],
         proofs: [MiningRewardMerkleProof; 5],
         proposed_rewards: [Felt; 5]
     ) {
-        let c = PsyPOWMiningRewardsClaimContractRef::new(ContractMetadata::current());
-        let initial_persistent_state = c.persistent_state.get();
-
-        let mut total_rewards_claimed = 0;
-        let mut last_checkpoint = initial_persistent_state.last_claimed_checkpoint_id;
-
+        let mut total_newly_claimed = 0;
         for i in 0u32..5u32 {
             let idx = i as Felt;
-            let checkpoint_id = checkpoints[idx];
-            let proof = proofs[idx];
-            let proposed_reward = proposed_rewards[idx];
-
-            if checkpoint_id != last_checkpoint {
-                if last_checkpoint != initial_persistent_state.last_sealed_checkpoint_id {
-                    Self::end_session(last_checkpoint);
-                };
-                Self::start_session(checkpoint_id);
-                last_checkpoint = checkpoint_id;
-            };
-
-            assert(checkpoint_id > initial_persistent_state.last_sealed_checkpoint_id, "checkpoint is sealed");
-
-            Self::claim_single_guta_reward(checkpoint_id, proof, proposed_reward);
-            total_rewards_claimed = total_rewards_claimed + proposed_reward;
+            total_newly_claimed = total_newly_claimed + Self::claim_single_reward(checkpoint_ids[idx], proofs[idx], proposed_rewards[idx]);
         }
+        Self::settle_total_rewards(total_newly_claimed);
+    }
 
-        let final_persistent_state = c.persistent_state.get();
-        c.persistent_state = PersistentState {
-            last_claimed_checkpoint_id: last_checkpoint,
-            claimed_rewards: final_persistent_state.claimed_rewards + total_rewards_claimed,
-            last_sealed_checkpoint_id: final_persistent_state.last_sealed_checkpoint_id,
-        };
+    #[contract_method]
+    pub fn claim_guta_rewards_10(
+        checkpoint_ids: [Felt; 10],
+        proofs: [MiningRewardMerkleProof; 10],
+        proposed_rewards: [Felt; 10]
+    ) {
+        let mut total_newly_claimed = 0;
+        for i in 0u32..10u32 {
+            let idx = i as Felt;
+            total_newly_claimed = total_newly_claimed + Self::claim_single_reward(checkpoint_ids[idx], proofs[idx], proposed_rewards[idx]);
+        }
+        Self::settle_total_rewards(total_newly_claimed);
     }
 
 }
