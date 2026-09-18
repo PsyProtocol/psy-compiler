@@ -1,6 +1,10 @@
 PROFILE := release
 LOG_LEVEL := dargo=info
 
+# Release callers override this explicitly for their target stage.
+PSY_NETWORK ?= localhost
+export PSY_NETWORK
+
 export DARGO_STD_PATH := $(PWD)/psy-std/std.psy
 
 check:
