@@ -410,7 +410,7 @@ impl USDTTokenContractRef {
     }
 
     #[contract_method]
-    pub fn simple_mint(amount: Felt) {
+    pub fn mint(amount: Felt) {
         let deployer: Hash = get_contract_deployer(get_contract_id());
         assert(Self::eq_hash(deployer, get_user_public_key_hash()), "only deployer can mint");
 
@@ -419,7 +419,7 @@ impl USDTTokenContractRef {
     }
 
     #[contract_method]
-    pub fn simple_burn(amount: Felt) {
+    pub fn burn(amount: Felt) {
         let c = USDTTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
         assert(current_balance >= amount, "insufficient balance");
@@ -427,7 +427,7 @@ impl USDTTokenContractRef {
     }
 
     #[contract_method]
-    pub fn simple_transfer(recipient: Felt, amount: Felt) {
+    pub fn transfer(recipient: Felt, amount: Felt) {
         let transfer_info_event = TransferEvent {
             to: recipient,
             amount,
@@ -458,7 +458,7 @@ impl USDTTokenContractRef {
     }
 
     #[contract_method]
-    pub fn simple_claim(sender: Felt) {
+    pub fn claim(sender: Felt) {
         let self_user_id = get_user_id();
         // Self-claim is allowed in this storage layout because balance and
         // per-sender claim metadata are stored in separate slots.
@@ -489,7 +489,7 @@ impl USDTTokenContractRef {
     }
 
     #[contract_method]
-    pub fn batch_simple_transfer_2(recipients: [Felt; 2], amounts: [Felt; 2]) {
+    pub fn batch_transfer_2(recipients: [Felt; 2], amounts: [Felt; 2]) {
         let c = USDTTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
 
@@ -523,7 +523,7 @@ impl USDTTokenContractRef {
     }
 
     #[contract_method]
-    pub fn batch_simple_transfer_5(recipients: [Felt; 5], amounts: [Felt; 5]) {
+    pub fn batch_transfer_5(recipients: [Felt; 5], amounts: [Felt; 5]) {
         let c = USDTTokenContractRef::new(ContractMetadata::current());
         let current_balance = c.balance.get();
 

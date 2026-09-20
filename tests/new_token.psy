@@ -13,14 +13,14 @@ struct Contract {
 
 impl ContractRef {
     #[contract_method]
-    pub fn simple_mint(amount: Felt) {
+    pub fn mint(amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
         c.balance += amount;
         // invoke_deferred(0, 354447671, [999, 1]);
     }
 
     #[contract_method]
-    pub fn simple_burn(amount: Felt) {
+    pub fn burn(amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
         let current_balance = c.balance;
         assert(current_balance >= amount, "insufficient balance");
@@ -28,7 +28,7 @@ impl ContractRef {
     }
 
     #[contract_method]
-    pub fn simple_transfer(recipient: Felt, amount: Felt) {
+    pub fn transfer(recipient: Felt, amount: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
         let current_balance = c.balance;
         assert(current_balance >= amount, "insufficient balance");
@@ -45,7 +45,7 @@ impl ContractRef {
     }
 
     #[contract_method]
-    pub fn simple_claim(sender: Felt) {
+    pub fn claim(sender: Felt) {
         let self_user_id = get_user_id();
         // Self-claim is allowed in this storage layout because balance and
         // per-sender claim metadata are stored in separate slots.
@@ -71,11 +71,11 @@ impl ContractRef {
 
 fn main() {
     let c = ContractRef::new(ContractMetadata::current());
-    ContractRef::simple_mint(100);
+    ContractRef::mint(100);
 
     assert_eq(c.balance, 100, "c.balance == 100");
 
-    ContractRef::simple_transfer(10, 50);
+    ContractRef::transfer(10, 50);
     assert_eq(c.balance, 50, "c.balance == 50");
     assert_eq(c.other_user_info[10].amount_sent, 50, "c.other_user_info[10].amount_sent == 50");
 }

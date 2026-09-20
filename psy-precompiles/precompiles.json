@@ -7,13 +7,13 @@
       "method_names": [
         "withdraw",
         "claim_deposit",
-        "simple_mint",
-        "simple_burn",
-        "simple_transfer",
-        "batch_simple_transfer_2",
-        "batch_simple_transfer_5",
-        "simple_claim",
-        "simple_claim_pow_rewards",
+        "mint",
+        "burn",
+        "transfer",
+        "batch_transfer_2",
+        "batch_transfer_5",
+        "claim",
+        "claim_pow_rewards",
         "private_transfer",
         "private_claim"
       ]
@@ -27,7 +27,8 @@
         "end_session",
         "claim_guta_rewards_1",
         "claim_guta_rewards_2",
-        "claim_guta_rewards_5"
+        "claim_guta_rewards_5",
+        "claim_guta_rewards_10"
       ]
     },
     {
@@ -67,12 +68,12 @@
       "method_names": [
         "withdraw",
         "claim_deposit",
-        "simple_mint",
-        "simple_burn",
-        "simple_transfer",
-        "batch_simple_transfer_2",
-        "batch_simple_transfer_5",
-        "simple_claim",
+        "mint",
+        "burn",
+        "transfer",
+        "batch_transfer_2",
+        "batch_transfer_5",
+        "claim",
         "private_transfer",
         "private_claim"
       ]
