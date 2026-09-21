@@ -54,7 +54,8 @@ mod tests {
         let claim_rewards_2 = get_precompiled_contract_function_by_name("mining_rewards", "claim_guta_rewards_2");
         let claim_rewards_5 = get_precompiled_contract_function_by_name("mining_rewards", "claim_guta_rewards_5");
         let claim_rewards_10 = get_precompiled_contract_function_by_name("mining_rewards", "claim_guta_rewards_10");
-        let legacy_session = get_precompiled_contract_function_by_name("mining_rewards", "start_session");
+        let start_session = get_precompiled_contract_function_by_name("mining_rewards", "start_session");
+        let end_session = get_precompiled_contract_function_by_name("mining_rewards", "end_session");
         let faucet = get_precompiled_contract_function_by_name("faucet", "faucet");
 
         if let Some(mint_func) = mint {
@@ -74,7 +75,8 @@ mod tests {
         assert!(claim_rewards_2.is_some());
         assert!(claim_rewards_5.is_some());
         assert!(claim_rewards_10.is_some());
-        assert!(legacy_session.is_none());
+        assert!(start_session.is_some());
+        assert!(end_session.is_some());
 
         for method_name in [
             "claim_guta_rewards_1",
@@ -134,11 +136,13 @@ mod tests {
 
         // These should contain the methods defined in config.json
         if !rewards_methods.is_empty() {
+            assert!(rewards_methods.contains(&"start_session".to_string()));
+            assert!(rewards_methods.contains(&"end_session".to_string()));
             assert!(rewards_methods.contains(&"claim_guta_rewards_1".to_string()));
             assert!(rewards_methods.contains(&"claim_guta_rewards_2".to_string()));
             assert!(rewards_methods.contains(&"claim_guta_rewards_5".to_string()));
             assert!(rewards_methods.contains(&"claim_guta_rewards_10".to_string()));
-            assert_eq!(rewards_methods.len(), 4);
+            assert_eq!(rewards_methods.len(), 6);
         }
 
         if !usdt_methods.is_empty() {
