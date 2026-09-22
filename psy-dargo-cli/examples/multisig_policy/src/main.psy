@@ -1,0 +1,19 @@
+use std::prelude::*;
+
+#[contract]
+#[derive(Storage)]
+pub struct MultisigPolicyContract {
+    pub policy_commitment: Hash,
+}
+
+impl MultisigPolicyContractRef {
+    #[contract_method]
+    pub fn set_policy(expected: Hash, next: Hash) {
+        let c = MultisigPolicyContractRef::new(ContractMetadata::current());
+        let current = c.policy_commitment.get();
+        assert(current == expected, "expected policy mismatch");
+        let zero: Hash = [0, 0, 0, 0];
+        assert(next != zero, "next policy zero");
+        c.policy_commitment = next;
+    }
+}

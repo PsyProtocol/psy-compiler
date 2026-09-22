@@ -1,0 +1,6 @@
+[package]
+name = "multisig_policy"
+type = "bin"
+authors = [""]
+
+[dependencies]
