@@ -600,6 +600,7 @@ pub fn call_contract(caller_id: u64, contract_id: u64, method_name: &str, args_j
             checkpoint_id: chain.checkpoint_id,
             nonce: chain.transaction_log.len() as u64,
             user_public_key_hash: [0; 4],
+            session_proof_tree_root: [0; 4],
         };
 
         let mut executor = VmExecutor::new(chain.state.clone());
@@ -767,6 +768,8 @@ struct ExecutionContextInput {
     nonce: Option<u64>,
     #[serde(default)]
     user_public_key_hash: Option<[u64; 4]>,
+    #[serde(default)]
+    session_proof_tree_root: Option<[u64; 4]>,
 }
 
 #[derive(Deserialize, Default)]
@@ -1227,6 +1230,7 @@ fn default_execution_context() -> ExecutionContext {
         checkpoint_id: 0,
         nonce: 0,
         user_public_key_hash: [0; 4],
+        session_proof_tree_root: [0; 4],
     }
 }
 
@@ -1239,6 +1243,7 @@ impl From<ExecutionContextInput> for ExecutionContext {
             checkpoint_id: value.checkpoint_id.unwrap_or(0),
             nonce: value.nonce.unwrap_or(0),
             user_public_key_hash: value.user_public_key_hash.unwrap_or([0; 4]),
+            session_proof_tree_root: value.session_proof_tree_root.unwrap_or([0; 4]),
         }
     }
 }
@@ -2552,6 +2557,7 @@ mod tests {
             checkpoint_id: None,
             nonce: None,
             user_public_key_hash: None,
+            session_proof_tree_root: None,
         });
         assert_eq!(context.user_id, 0);
         assert_eq!(context.contract_id, 0);
@@ -2567,6 +2573,7 @@ mod tests {
             checkpoint_id: Some(13),
             nonce: Some(17),
             user_public_key_hash: Some([1, 2, 3, 4]),
+            session_proof_tree_root: Some([5, 6, 7, 8]),
         });
         assert_eq!(context.user_id, 7);
         assert_eq!(context.contract_id, 9);
@@ -2574,6 +2581,7 @@ mod tests {
         assert_eq!(context.checkpoint_id, 13);
         assert_eq!(context.nonce, 17);
         assert_eq!(context.user_public_key_hash, [1, 2, 3, 4]);
+        assert_eq!(context.session_proof_tree_root, [5, 6, 7, 8]);
 
         let default = default_execution_context();
         assert_eq!(default.user_id, 0);

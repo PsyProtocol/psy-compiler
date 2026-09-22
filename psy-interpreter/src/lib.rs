@@ -685,7 +685,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
         let mut formatter = Formatter::new();
         formatter.visit_program(&mut default_visitor_context)?;
-        println!("formatted:\n{}", formatter.get_output());
+        tracing::debug!("formatted:\n{}", formatter.get_output());
 
         let mut typechecker_context = TypeCheckerVisitorContext::new(program);
         typechecker.visit_program(&mut typechecker_context).map_err(|err| {
@@ -2943,4 +2943,9 @@ mod sema_edge_tests {
 #[cfg(test)]
 mod exec_edge_tests {
     include!("exec_edge_tests.rs");
+}
+
+#[cfg(test)]
+mod random_graph_diff_tests {
+    include!("random_graph_diff_tests.rs");
 }
