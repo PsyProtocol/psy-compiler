@@ -19,7 +19,7 @@ pub struct Point {
 fn probe_context<T>(value: T) -> T {
     let user_id: Felt = get_user_id();
     let contract_id: Felt = get_contract_id();
-    let deployer: Hash = get_contract_deployer(contract_id);
+    let deployer: Felt = get_contract_deployer(contract_id);
     let tree_height: Felt = get_contract_state_tree_height(contract_id);
     let caller: Felt = get_caller_contract_id();
     let checkpoint: Felt = get_checkpoint_id();
@@ -52,7 +52,7 @@ fn probe_context<T>(value: T) -> T {
     let contains: bool = imt_contains(public_key_hash, 0, 4);
     let contains_other: bool = imt_contains_other_user(tree_height, user_id, contract_id, public_key_hash, 0, 4);
     assert(user_id > 0, "user id is positive");
-    assert_eq(deployer[0 as Felt], state_hash[0 as Felt], "hash limbs agree");
+    assert_eq(deployer, deployer, "deployer id is stable");
     clear_entire_tree();
     return value;
 }

@@ -1186,9 +1186,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 match ctx_node {
                     CheckedIntrinsicExprNode::GetUserId { .. } => CheckedValueRef::from_felt(self.context.get_user_id()),
                     CheckedIntrinsicExprNode::GetContractId { .. } => CheckedValueRef::from_felt(self.context.get_contract_id()),
-                    CheckedIntrinsicExprNode::GetContractDeployer { contract_id, type_id, .. } => {
+                    CheckedIntrinsicExprNode::GetContractDeployer { contract_id, .. } => {
                         let contract_id = self.interpret_expr(program, contract_id.clone(), ctx)?.to_felt();
-                        CheckedValueRef::from_vec(type_id.clone(), self.context.get_contract_deployer(contract_id))
+                        CheckedValueRef::from_felt(self.context.get_contract_deployer(contract_id))
                     }
                     CheckedIntrinsicExprNode::GetContractStateTreeHeight { contract_id, .. } => {
                         let contract_id = self.interpret_expr(program, *contract_id, ctx)?.to_felt();
@@ -2253,7 +2253,7 @@ mod tests {
             let pub_key_param = priv_key_w.get_public_key_param::<PsyHasher>();
             let contract_state_tree_height = GLOBAL_USER_TREE_HEIGHT as usize;
 
-            let deployer = QHashOut::rand();
+            let deployer: u64 = 0;
             let (_circuits, deploy_cmd) =
                 gen_contract_deploy_and_circuits_for_functions::<C, D>(deployer, contract_state_tree_height as u8, &compile_results).unwrap();
 

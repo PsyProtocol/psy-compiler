@@ -19,7 +19,7 @@ const GENERIC_CONTEXT_PROBES: &str = r#"
 pub fn probe_raw_context_getters<T>(v: T) -> T {
     let user_id: Felt = __ctx_get_user_id();
     let contract_id: Felt = __ctx_get_contract_id();
-    let deployer: Hash = __ctx_get_contract_deployer(contract_id);
+    let deployer: Felt = __ctx_get_contract_deployer(contract_id);
     let height: Felt = __ctx_get_contract_state_tree_height(contract_id);
     let caller: Felt = __ctx_get_caller_contract_id();
     let checkpoint: Felt = __ctx_get_checkpoint_id();

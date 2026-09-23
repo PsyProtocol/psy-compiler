@@ -127,7 +127,7 @@ fn context_identity_getters_execute() {
             let caller: Felt = get_caller_contract_id();
             let checkpoint: Felt = get_checkpoint_id();
             let nonce: Felt = get_last_nonce();
-            let deployer: Hash = get_contract_deployer(contract);
+            let deployer: Felt = get_contract_deployer(contract);
             let height: Felt = get_contract_state_tree_height(contract);
             let pkh: Hash = get_user_public_key_hash();
             let session: Hash = get_session_proof_tree_root();

@@ -809,7 +809,7 @@ struct HashValueInput {
 #[derive(Deserialize)]
 struct DeployerInput {
     contract_id: u64,
-    deployer: [u64; 4],
+    deployer: u64,
 }
 
 #[derive(Deserialize)]
@@ -2628,7 +2628,7 @@ mod tests {
             "initial_state": {
                 "slots": [{ "user_id": 1, "contract_id": 1, "slot_index": 0, "value": 7 }],
                 "hashes": [{ "user_id": 1, "contract_id": 1, "slot_index": 0, "value": [1, 2, 3, 4] }],
-                "deployers": [{ "contract_id": 1, "deployer": [1, 2, 3, 4] }],
+                "deployers": [{ "contract_id": 1, "deployer": 7 }],
                 "checkpoint_stats": [{ "checkpoint_id": 1, "values": [1, 2] }],
                 "contract_leaves": [{ "contract_id": 1, "values": [1, 2, 3, 4] }],
                 "checkpoint_global_state_roots": [{ "checkpoint_id": 1, "values": [1, 2] }],

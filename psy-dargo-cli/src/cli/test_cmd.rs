@@ -42,7 +42,7 @@ pub(crate) async fn run(args: TestCommand) -> crate::errors::Result<()> {
     let pub_key_param = priv_key_w.get_public_key_param::<PsyHasher>();
     let contract_state_tree_height = GLOBAL_USER_TREE_HEIGHT as usize;
 
-    let deployer = QHashOut::rand();
+    let deployer: u64 = 1;
     let (circuits, deploy_cmd) =
         gen_contract_deploy_and_circuits_for_functions::<C, D>(deployer, contract_state_tree_height as u8, &compile_results)?;
 
