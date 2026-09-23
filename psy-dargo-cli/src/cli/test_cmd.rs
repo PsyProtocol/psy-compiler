@@ -42,7 +42,7 @@ pub(crate) async fn run(args: TestCommand) -> crate::errors::Result<()> {
     let pub_key_param = priv_key_w.get_public_key_param::<PsyHasher>();
     let contract_state_tree_height = GLOBAL_USER_TREE_HEIGHT as usize;
 
-    let deployer = QHashOut::rand();
+    let deployer: u64 = 1;
     let (circuits, deploy_cmd) =
         gen_contract_deploy_and_circuits_for_functions::<C, D>(deployer, contract_state_tree_height as u8, &compile_results)?;
 
@@ -72,16 +72,33 @@ pub(crate) async fn run(args: TestCommand) -> crate::errors::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+
+    use serial_test::serial;
+
     use super::*;
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "slow end-to-end proving; run with `make test-slow`"]
     async fn psy_unit_test() {
         insta::glob!("../../../tests", "*_test.psy", |path| {
             let args = TestCommand { file: path.into() };
             tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(run(args))).unwrap();
-            #[allow(static_mut_refs)]
-            unsafe {
-                psy_sema::STD_PRIMITIVE_SCOPE_ID.take()
-            };
         });
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn test_command_runs_passing_psy_tests_end_to_end() {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock");
+        // Identifier-stem file name keeps the derived module name valid.
+        let file = std::env::temp_dir().join(format!("psy_dargo_test_ok_{}.psy", nanos.as_nanos()));
+        fs::write(
+            &file,
+            "#[test]\nfn doubles() {\n    assert_eq(dbl(21), 42, \"dbl\");\n}\n\nfn dbl(x: Felt) -> Felt {\n    return x * 2;\n}\n",
+        )
+        .expect("write test file");
+
+        run(TestCommand { file: file.clone() }).await.expect("passing #[test] functions must execute and prove");
+        fs::remove_file(file).ok();
     }
 }

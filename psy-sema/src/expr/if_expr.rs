@@ -29,3 +29,19 @@ impl NodeInfo for CheckedIfExprNode {
         NodeType::IfExpr
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checked_case_new_stores_all_fields() {
+        // A function pointer keeps the tiny constructor from being inlined
+        // into the caller so its own body executes out-of-line.
+        let new_fn: fn(ExprId, TypeId, ExprId) -> CheckedCase = CheckedCase::new;
+        let case = new_fn(ExprId(1), TypeId(2), ExprId(3));
+        assert_eq!(case.predicate, ExprId(1));
+        assert_eq!(case.type_id, TypeId(2));
+        assert_eq!(case.body, ExprId(3));
+    }
+}

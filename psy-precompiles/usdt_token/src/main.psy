@@ -411,8 +411,8 @@ impl USDTTokenContractRef {
 
     #[contract_method]
     pub fn mint(amount: Felt) {
-        let deployer: Hash = get_contract_deployer(get_contract_id());
-        assert(Self::eq_hash(deployer, get_user_public_key_hash()), "only deployer can mint");
+        let deployer: Felt = get_contract_deployer(get_contract_id());
+        assert(deployer == get_user_id(), "only deployer can mint");
 
         let c = USDTTokenContractRef::new(ContractMetadata::current());
         c.balance += amount;

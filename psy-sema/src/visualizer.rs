@@ -587,6 +587,7 @@ impl<'a, F: Clone + From<u32> + ContextFelt, C> TypeCheckerVisitorVisualizerInne
             }
             DefinitionNode::Trait(node) => {
                 writeln!(fmt, "Trait");
+                fmt.indent();
                 writeln!(fmt, "Name: {:?}", node.name);
                 writeln!(fmt, "Visibility: {:?}", node.visibility);
                 writeln!(fmt, "Associated Types");
@@ -744,5 +745,67 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisualizer<F, C> for TypeCheckerV
         let mut fmt = IndentFormatter::new();
         visualizer.debug_definition(def_id, &mut fmt);
         fmt.finish_without_new_line()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IndentFormatter;
+
+    #[test]
+    fn indent_formatter_tracks_nested_indentation() {
+        let mut formatter = IndentFormatter::new();
+        formatter.writeln("root");
+        formatter.indent();
+        formatter.writeln("child");
+        formatter.indent();
+        formatter.write("leaf");
+        formatter.dedent();
+        formatter.writeln("after");
+        formatter.dedent();
+        assert_eq!(formatter.finish(), "root\n    child\nleaf    after\n");
+    }
+
+    #[test]
+    fn indent_formatter_removes_trailing_newlines_only() {
+        let mut formatter = IndentFormatter::new();
+        formatter.writeln("  value  ");
+        assert_eq!(formatter.finish_without_new_line(), "  value  ");
+    }
+
+    #[test]
+    fn indent_formatter_write_indent_supports_multiple_levels() {
+        let mut formatter = IndentFormatter::new();
+        formatter.indent();
+        formatter.indent();
+        formatter.write_indent();
+        formatter.write("x");
+        assert_eq!(formatter.finish(), "        x");
+    }
+
+    #[test]
+    fn debug_expr_renders_path_segments() {
+        use psy_ast::{ExprNode, Identifier, Location, PathNode, Program, UncheckedType};
+        use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
+
+        use crate::{AstVisualizer, TypeCheckerVisitorContext};
+
+        let mut program = Program::<SymFeltRef>::new();
+        let location = Location::default();
+        let segment = UncheckedType::Basic(Identifier::new(program.interner.intern_ident("foo"), location));
+        let target = UncheckedType::Basic(Identifier::new(program.interner.intern_ident("bar"), location));
+        let path = PathNode {
+            root: None,
+            segments: vec![segment],
+            target,
+            is_ty: false,
+            location,
+        };
+        let expr_id = program.exprs.alloc_item(ExprNode::Path(path));
+
+        let ctx = TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(program);
+        let rendered = AstVisualizer::debug_expr(&ctx, expr_id);
+        assert!(rendered.contains("Segments"), "{rendered}");
+        assert!(rendered.contains("Root"), "{rendered}");
     }
 }

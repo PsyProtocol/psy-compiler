@@ -359,6 +359,15 @@ mod tests {
     use crate::Token;
 
     #[test]
+    fn token_display_matches_debug_output() {
+        // Format through a trait object so `Display::fmt` executes out-of-line.
+        let token: &dyn fmt::Display = &Token::KeywordLet;
+        assert_eq!(format!("{token}"), "KeywordLet");
+        let token: &dyn fmt::Display = &Token::Ident("counter");
+        assert_eq!(format!("{token}"), "Ident(\"counter\")");
+    }
+
+    #[test]
     fn test_lex_from_file() -> io::Result<()> {
         // 1. read file content
         let mut file = File::open(PathBuf::from("../tests/struct_fn_call_test.psy"))?;

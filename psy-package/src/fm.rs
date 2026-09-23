@@ -53,3 +53,20 @@ fn resolve_components<'a>(components: impl Iterator<Item = Component<'a>>) -> Pa
 
     normalized_path
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_removes_dot_and_resolves_parent_components() {
+        assert_eq!(PathBuf::from("a/./b/../c").normalize(), PathBuf::from("a/c"));
+        assert_eq!(Path::new("/a/../b/./c").normalize(), PathBuf::from("/b/c"));
+    }
+
+    #[test]
+    fn normalize_does_not_escape_relative_or_absolute_root() {
+        assert_eq!(PathBuf::from("../../a").normalize(), PathBuf::from("a"));
+        assert_eq!(PathBuf::from("/../../a").normalize(), PathBuf::from("/a"));
+    }
+}

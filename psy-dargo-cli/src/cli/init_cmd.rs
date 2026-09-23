@@ -65,3 +65,83 @@ authors = [""]
     };
     println!("Project successfully created! It is located at {}", package_dir.display());
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    fn temporary_project_dir(suffix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("psy-dargo-init-test-{}-{suffix}", std::process::id()))
+    }
+
+    #[test]
+    fn initialize_project_writes_binary_and_library_templates() {
+        for (suffix, package_type, entry) in [("bin", PackageType::Binary, "main.psy"), ("lib", PackageType::Library, "lib.psy")] {
+            let directory = temporary_project_dir(suffix);
+            let _ = fs::remove_dir_all(&directory);
+            initialize_project(directory.clone(), "demo".parse().unwrap(), package_type);
+
+            let manifest = fs::read_to_string(directory.join("Dargo.toml")).unwrap();
+            assert!(manifest.contains("name = \"demo\""));
+            assert!(manifest.contains(&format!("type = \"{package_type}\"")));
+            assert!(directory.join("src").join(entry).is_file());
+            fs::remove_dir_all(directory).unwrap();
+        }
+    }
+
+    #[test]
+    fn run_uses_the_explicit_name_and_the_requested_template() {
+        let directory = temporary_project_dir("run-explicit");
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+
+        run(
+            InitCommand { name: Some("demo".parse().unwrap()), lib: true, bin: false },
+            DargoConfig { program_dir: directory.clone(), target_dir: None },
+        )
+        .expect("explicit name with the lib flag must initialize a library project");
+
+        let manifest = fs::read_to_string(directory.join("Dargo.toml")).unwrap();
+        assert!(manifest.contains("name = \"demo\""));
+        assert!(manifest.contains("type = \"lib\""));
+        assert!(directory.join("src").join("lib.psy").is_file());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn run_derives_the_package_name_from_a_valid_directory_name() {
+        let root = std::env::temp_dir().join(format!("psy-dargo-init-test-{}-run-default", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let directory = root.join("derived_name");
+        fs::create_dir_all(&directory).unwrap();
+
+        run(
+            InitCommand { name: None, lib: false, bin: true },
+            DargoConfig { program_dir: directory.clone(), target_dir: None },
+        )
+        .expect("a valid directory name must initialize a binary project");
+
+        let manifest = fs::read_to_string(directory.join("Dargo.toml")).unwrap();
+        assert!(manifest.contains("name = \"derived_name\""));
+        assert!(manifest.contains("type = \"bin\""));
+        assert!(directory.join("src").join("main.psy").is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn run_rejects_a_directory_name_that_is_not_a_valid_package_name() {
+        // The temporary directory stem contains '-', which CrateName rejects.
+        let directory = temporary_project_dir("run-invalid");
+        fs::create_dir_all(&directory).unwrap();
+
+        let error = run(
+            InitCommand { name: None, lib: false, bin: false },
+            DargoConfig { program_dir: directory.clone(), target_dir: None },
+        )
+        .expect_err("an unparseable directory name must be rejected");
+        assert!(matches!(error, CliError::InvalidPackageName(name) if name.contains("run-invalid")));
+        fs::remove_dir_all(directory).unwrap();
+    }
+}

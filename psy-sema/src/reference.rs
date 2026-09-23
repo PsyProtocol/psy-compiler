@@ -285,3 +285,95 @@ pub fn offset_from_position(source: &str, position: &Position) -> usize {
 
     offset
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use psy_ast::{Location, Position, Program};
+    use psy_common::FileId;
+    use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
+
+    use super::{line_and_column_from_offset, offset_from_position, LocationIndices, ReferenceId};
+    use crate::TypeCheckerVisitorContext;
+
+    #[test]
+    fn line_and_column_conversion_handles_boundaries_and_newlines() {
+        let source = "ab\ncd";
+        assert_eq!(line_and_column_from_offset(source, 0), (1, 1));
+        assert_eq!(line_and_column_from_offset(source, 1), (1, 2));
+        assert_eq!(line_and_column_from_offset(source, 2), (2, 0));
+        assert_eq!(line_and_column_from_offset(source, source.len()), (2, 2));
+        assert_eq!(line_and_column_from_offset(source, source.len() + 10), (2, 2));
+    }
+
+    #[test]
+    fn offset_conversion_clamps_columns_and_out_of_range_lines() {
+        let source = "ab\ncd";
+        let position = |line, column| Position {
+            file_id: FileId(0),
+            line,
+            column,
+        };
+        assert_eq!(offset_from_position(source, &position(0, 0)), 0);
+        assert_eq!(offset_from_position(source, &position(0, 1)), 1);
+        assert_eq!(offset_from_position(source, &position(0, 99)), 2);
+        assert_eq!(offset_from_position(source, &position(1, 1)), 4);
+        assert_eq!(offset_from_position(source, &position(9, 0)), source.len());
+    }
+
+    #[test]
+    fn location_indices_skip_empty_spans_and_support_end_cursor_tolerance() {
+        let mut indices = LocationIndices::default();
+        let first = petgraph::graph::NodeIndex::new(1);
+        let second = petgraph::graph::NodeIndex::new(2);
+        indices.insert_span(Location::new(FileId(0), 4, 4), first);
+        assert!(indices.resolve_node_at(Location::new(FileId(0), 4, 4)).is_none());
+
+        indices.insert_span(Location::new(FileId(0), 4, 7), first);
+        indices.insert_span(Location::new(FileId(0), 10, 12), second);
+        assert_eq!(indices.resolve_node_at(Location::new(FileId(0), 4, 4)), Some(first));
+        assert_eq!(indices.resolve_node_at(Location::new(FileId(0), 7, 7)), Some(first));
+        assert_eq!(indices.resolve_node_at(Location::new(FileId(0), 10, 10)), Some(second));
+        assert!(indices.resolve_node_at(Location::new(FileId(1), 4, 4)).is_none());
+    }
+
+    #[test]
+    fn context_position_helpers_round_trip_file_locations() {
+        let mut program = Program::<SymFeltRef>::new();
+        let file_id = program.file_resolver.add_file(PathBuf::from("source.psy"), "ab\ncd");
+        let ctx = TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(program);
+        let location = Location::new(file_id, 3, 4);
+        let (start, end) = ctx.location_to_position(location).unwrap();
+        assert_eq!((start.line, start.column), (2, 1));
+        assert_eq!((end.line, end.column), (2, 2));
+        assert_eq!(ctx.position_to_location(Position { file_id, line: 0, column: 0 }).unwrap().start, 0);
+        assert_eq!(ctx.position_to_file_path(Position { file_id, line: 0, column: 0 }).unwrap(), "source.psy:0:0");
+        assert!(ctx.position_to_location(Position { file_id: FileId(99), line: 0, column: 0 }).is_none());
+    }
+
+    #[test]
+    fn reference_graph_supports_lookup_definition_and_filtered_reference_lists() {
+        let mut ctx = TypeCheckerVisitorContext::<SymFeltRef, QExecContext>::new(Program::new());
+        let target = Location::new(FileId(0), 0, 3);
+        let use_site = Location::new(FileId(0), 5, 8);
+        let self_use = Location::new(FileId(0), 10, 13);
+        let referenced = ReferenceId::Reference(target, false);
+
+        ctx.add_reference(referenced, use_site, false);
+        ctx.add_reference(referenced, self_use, true);
+
+        assert_eq!(ctx.goto_definition(use_site), Some(target));
+        assert_eq!(ctx.goto_definition(Location::new(FileId(0), 8, 8)), Some(target));
+        assert!(ctx.find_all_references(Location::new(FileId(0), 99, 99), true, false).is_none());
+
+        let all = ctx.find_all_references(use_site, true, false).unwrap();
+        assert_eq!(all, vec![target, use_site]);
+        let without_target = ctx.find_all_references(use_site, false, false).unwrap();
+        assert_eq!(without_target, vec![use_site]);
+        let with_self = ctx.find_all_references(use_site, true, true).unwrap();
+        assert_eq!(with_self, vec![target, self_use, use_site]);
+        assert!(ReferenceId::Reference(self_use, true).is_self_type_name());
+        assert!(!ReferenceId::Reference(use_site, false).is_self_type_name());
+    }
+}

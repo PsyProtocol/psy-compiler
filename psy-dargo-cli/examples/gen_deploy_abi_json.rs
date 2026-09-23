@@ -21,8 +21,9 @@
 ///     ../psy-precompiles/mining_rewards/target/mining_rewards.abi.json:mining_rewards
 use std::{env, fs, path::Path};
 
-// Same default genesis deployer as gen_deploy_json.
-const DEFAULT_DEPLOYER: &str = "f83aa03c3e21321421696202b90f4dab0a9f87237c231bbba58b8f93c799126e";
+// Same default genesis deployer user id as gen_deploy_json: 0 is reserved, so
+// genesis precompiles can never be updated by an on-chain deployer.
+const DEFAULT_DEPLOYER: u64 = 0;
 
 fn get_file_stem(path: &str) -> String {
     Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or("contract").to_string()
@@ -75,7 +76,7 @@ fn main() -> anyhow::Result<()> {
         precompiles.push(ManifestPrecompile {
             contract_id: i as u32,
             name,
-            deployer: DEFAULT_DEPLOYER.to_string(),
+            deployer: DEFAULT_DEPLOYER,
             abi_path: abi_filename,
             state_tree_height,
         });
@@ -102,7 +103,7 @@ fn state_tree_height_from_abi(abi: &serde_json::Value, input_path: &str) -> anyh
 struct ManifestPrecompile {
     contract_id: u32,
     name: String,
-    deployer: String,
+    deployer: u64,
     abi_path: String,
     state_tree_height: u8,
 }
@@ -119,7 +120,7 @@ fn build_manifest(precompiles: &[ManifestPrecompile]) -> String {
         out.push_str("    {\n");
         out.push_str(&format!("      \"contract_id\": {},\n", p.contract_id));
         out.push_str(&format!("      \"name\": \"{}\",\n", p.name));
-        out.push_str(&format!("      \"deployer\": \"{}\",\n", p.deployer));
+        out.push_str(&format!("      \"deployer\": {},\n", p.deployer));
         out.push_str(&format!("      \"abi_path\": \"{}\",\n", p.abi_path));
         out.push_str(&format!("      \"state_tree_height\": {}\n", p.state_tree_height));
         out.push_str(&format!("    }}{}\n", comma));

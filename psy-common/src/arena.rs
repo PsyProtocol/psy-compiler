@@ -129,3 +129,74 @@ macro_rules! define_arena_id {
         }
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    crate::define_arena_id!(TestId);
+
+    #[test]
+    fn empty_arena_reports_zero_length_and_first_index() {
+        let arena = Arena::<TestId, i32>::new();
+
+        assert_eq!(arena.len(), 0);
+        assert_eq!(arena.next_idx(), TestId(0));
+        assert_eq!(arena.iter().next(), None);
+    }
+
+    #[test]
+    fn allocation_replacement_and_mutation_preserve_indices() {
+        let mut arena = Arena::<TestId, i32>::new();
+        let ids = arena.alloc_items([10, 20, 30]);
+
+        assert_eq!(ids, vec![TestId(0), TestId(1), TestId(2)]);
+        assert_eq!(arena.next_idx(), TestId(3));
+        assert_eq!(arena.replace_item(TestId(1), 21), 20);
+        arena.modify_item(TestId(2), &|value| *value += 1);
+        arena[TestId(0)] = 11;
+
+        assert_eq!(arena.iter().copied().collect::<Vec<_>>(), vec![11, 21, 31]);
+    }
+
+    #[test]
+    fn owned_shared_and_mutable_iteration_cover_every_item_in_order() {
+        let mut arena = Arena::<TestId, i32>::default();
+        arena.alloc_items([1, 2, 3]);
+
+        for value in &mut arena {
+            *value *= 2;
+        }
+        assert_eq!((&arena).into_iter().copied().collect::<Vec<_>>(), vec![2, 4, 6]);
+        assert_eq!(arena.into_iter().collect::<Vec<_>>(), vec![2, 4, 6]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_index_panics_instead_of_aliasing_an_item() {
+        let arena = Arena::<TestId, i32>::new();
+        let _ = arena[TestId(usize::MAX)];
+    }
+
+    #[test]
+    fn allocating_an_empty_batch_leaves_the_arena_untouched() {
+        let mut arena = Arena::<TestId, i32>::new();
+
+        assert!(arena.alloc_items([]).is_empty());
+        assert_eq!(arena.len(), 0);
+        assert_eq!(arena.next_idx(), TestId(0));
+    }
+
+    #[test]
+    fn cloning_preserves_items_and_continues_indexing_from_the_copy() {
+        let mut arena = Arena::<TestId, &str>::new();
+        arena.alloc_items(["a", "b"]);
+
+        let clone = arena.clone();
+        arena.alloc_item("c");
+
+        assert_eq!(clone.iter().copied().collect::<Vec<_>>(), vec!["a", "b"]);
+        assert_eq!(clone.len(), 2);
+        assert_eq!(arena.iter().copied().collect::<Vec<_>>(), vec!["a", "b", "c"]);
+    }
+}

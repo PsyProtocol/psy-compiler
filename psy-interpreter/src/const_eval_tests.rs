@@ -9,8 +9,7 @@
 // unsupported const expressions hit `unreachable!()`/`todo!()` inside
 // `__interpret_expr__` instead of returning a clean error).
 //
-// The shared `STD_PRIMITIVE_SCOPE_ID` singleton is reset after every case so
-// the suite is hermetic. Every case is `#[serial]`.
+// Each case owns an independent symbol table and uniquely named temporary file.
 
 use std::{
     fs,
@@ -19,7 +18,6 @@ use std::{
 };
 
 use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
-use serial_test::serial;
 
 use super::*;
 
@@ -56,10 +54,6 @@ fn compile(source: &str, label: &str) -> Outcome {
     }));
 
     let _ = fs::remove_file(path);
-    #[allow(static_mut_refs)]
-    unsafe {
-        let _ = STD_PRIMITIVE_SCOPE_ID.take();
-    }
 
     match result {
         Ok(Ok((typechecker, ctx))) => Outcome::Accept(Compiled { interpreter, typechecker, ctx }),
@@ -155,51 +149,43 @@ fn expect_const_value(label: &str, source: &str, name: &str, want_variant: &str,
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c01_felt_add() {
     expect_const_value("c01_felt_add", "const A: Felt = 1 + 2;\nfn main() {}", "A", "Felt", 3);
 }
 
 #[test]
-#[serial]
 fn c02_felt_sub() {
     expect_const_value("c02_felt_sub", "const A: Felt = 10 - 3;\nfn main() {}", "A", "Felt", 7);
 }
 
 #[test]
-#[serial]
 fn c03_felt_mul() {
     expect_const_value("c03_felt_mul", "const A: Felt = 4 * 5;\nfn main() {}", "A", "Felt", 20);
 }
 
 #[test]
-#[serial]
 fn c04_felt_div() {
     expect_const_value("c04_felt_div", "const A: Felt = 20 / 4;\nfn main() {}", "A", "Felt", 5);
 }
 
 #[test]
-#[serial]
 fn c05_felt_mod() {
     expect_const_value("c05_felt_mod", "const A: Felt = 17 % 5;\nfn main() {}", "A", "Felt", 2);
 }
 
 #[test]
-#[serial]
 fn c06_felt_precedence_mul_before_add() {
     // 1 + 2 * 3 == 7, not 9
     expect_const_value("c06_felt_precedence", "const A: Felt = 1 + 2 * 3;\nfn main() {}", "A", "Felt", 7);
 }
 
 #[test]
-#[serial]
 fn c07_felt_parens_override_precedence() {
     // (1 + 2) * 3 == 9
     expect_const_value("c07_felt_parens", "const A: Felt = (1 + 2) * 3;\nfn main() {}", "A", "Felt", 9);
 }
 
 #[test]
-#[serial]
 fn c08_felt_nested_expr() {
     // ((2 + 3) * (4 - 1)) == 15
     expect_const_value("c08_felt_nested", "const A: Felt = (2 + 3) * (4 - 1);\nfn main() {}", "A", "Felt", 15);
@@ -210,7 +196,6 @@ fn c08_felt_nested_expr() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c09_const_references_const() {
     expect_const_value(
         "c09_const_refs",
@@ -220,7 +205,6 @@ fn c09_const_references_const() {
 }
 
 #[test]
-#[serial]
 fn c10_const_transitive_chain() {
     // A=2, B=A+3=5, C=B*B=25
     expect_const_value(
@@ -231,7 +215,6 @@ fn c10_const_transitive_chain() {
 }
 
 #[test]
-#[serial]
 fn c11_const_mixed_with_literal() {
     // A=5, B=A*2 + 1 = 11
     expect_const_value(
@@ -246,109 +229,91 @@ fn c11_const_mixed_with_literal() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c12_felt_eq_true() {
     expect_const_value("c12_felt_eq_true", "const A: bool = 3 == 3;\nfn main() {}", "A", "Bool", 1);
 }
 
 #[test]
-#[serial]
 fn c13_felt_eq_false() {
     expect_const_value("c13_felt_eq_false", "const A: bool = 3 == 4;\nfn main() {}", "A", "Bool", 0);
 }
 
 #[test]
-#[serial]
 fn c14_felt_neq() {
     expect_const_value("c14_felt_neq", "const A: bool = 5 != 5;\nfn main() {}", "A", "Bool", 0);
 }
 
 #[test]
-#[serial]
 fn c15_felt_lt() {
     expect_const_value("c15_felt_lt", "const A: bool = 2 < 3;\nfn main() {}", "A", "Bool", 1);
 }
 
 #[test]
-#[serial]
 fn c16_felt_gt() {
     expect_const_value("c16_felt_gt", "const A: bool = 3 > 2;\nfn main() {}", "A", "Bool", 1);
 }
 
 #[test]
-#[serial]
 fn c17_felt_lte() {
     expect_const_value("c17_felt_lte", "const A: bool = 3 <= 3;\nfn main() {}", "A", "Bool", 1);
 }
 
 #[test]
-#[serial]
 fn c18_felt_gte() {
     expect_const_value("c18_felt_gte", "const A: bool = 3 >= 4;\nfn main() {}", "A", "Bool", 0);
 }
 
 #[test]
-#[serial]
 fn c19_u32_add() {
     expect_const_value("c19_u32_add", "const A: u32 = 10u32 + 5u32;\nfn main() {}", "A", "U32", 15);
 }
 
 #[test]
-#[serial]
 fn c20_u32_mul() {
     expect_const_value("c20_u32_mul", "const A: u32 = 6u32 * 7u32;\nfn main() {}", "A", "U32", 42);
 }
 
 #[test]
-#[serial]
 fn c21_u32_sub() {
     expect_const_value("c21_u32_sub", "const A: u32 = 100u32 - 37u32;\nfn main() {}", "A", "U32", 63);
 }
 
 #[test]
-#[serial]
 fn c22_u32_div() {
     expect_const_value("c22_u32_div", "const A: u32 = 84u32 / 4u32;\nfn main() {}", "A", "U32", 21);
 }
 
 #[test]
-#[serial]
 fn c23_u32_mod() {
     expect_const_value("c23_u32_mod", "const A: u32 = 17u32 % 5u32;\nfn main() {}", "A", "U32", 2);
 }
 
 #[test]
-#[serial]
 fn c24_u32_eq() {
     expect_const_value("c24_u32_eq", "const A: bool = 7u32 == 7u32;\nfn main() {}", "A", "Bool", 1);
 }
 
 #[test]
-#[serial]
 fn c25_u32_lt() {
     expect_const_value("c25_u32_lt", "const A: bool = 2u32 < 9u32;\nfn main() {}", "A", "Bool", 1);
 }
 
 #[test]
-#[serial]
 fn c26_bool_and() {
     expect_const_value("c26_bool_and", "const A: bool = true && false;\nfn main() {}", "A", "Bool", 0);
 }
 
 #[test]
-#[serial]
 fn c27_bool_or() {
     expect_const_value("c27_bool_or", "const A: bool = true || false;\nfn main() {}", "A", "Bool", 1);
 }
 
 #[test]
-#[serial]
 fn c28_bool_not() {
     expect_const_value("c28_bool_not", "const A: bool = !true;\nfn main() {}", "A", "Bool", 0);
 }
 
 #[test]
-#[serial]
 fn c29_bool_from_comparison_chain() {
     // (3 < 5) && (5 > 2) == true
     expect_const_value(
@@ -363,7 +328,6 @@ fn c29_bool_from_comparison_chain() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c30_cross_module_pub_const() {
     // Child module `m` is predecl'd before the parent (post-order traversal),
     // so `m::C` is registered before `D` is evaluated.
@@ -375,7 +339,6 @@ fn c30_cross_module_pub_const() {
 }
 
 #[test]
-#[serial]
 fn c31_cross_module_transitive() {
     expect_const_value(
         "c31_cross_module_trans",
@@ -385,7 +348,6 @@ fn c31_cross_module_transitive() {
 }
 
 #[test]
-#[serial]
 fn c32_private_const_in_same_module() {
     // non-pub const usable within the same (root) module
     expect_const_value(
@@ -400,7 +362,6 @@ fn c32_private_const_in_same_module() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c33_forward_const_reference_rejected() {
     // B references A, but A is declared AFTER B. During predecl, definitions
     // are processed in source order, so A is not yet registered when B's value
@@ -418,7 +379,6 @@ fn c33_forward_const_reference_rejected() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c34_named_const_array_size_typechecks() {
     expect_accept(
         "c34_named_const_array_size",
@@ -427,13 +387,11 @@ fn c34_named_const_array_size_typechecks() {
 }
 
 #[test]
-#[serial]
 fn c35_literal_array_size_typechecks() {
     expect_accept("c35_literal_array_size", "fn main() {\n    let arr: [Felt; 4] = [0, 0, 0, 0];\n}");
 }
 
 #[test]
-#[serial]
 fn c36_named_const_array_size_value() {
     expect_accept(
         "c36_array_size_uses_const_value",
@@ -446,7 +404,6 @@ fn c36_named_const_array_size_value() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c37_turbofish_literal_const_arg() {
     // foo::<3u32>(x): literal u32 const arg via parse_monomorphization_ty.
     // Const generics are declared as `<N: u32>` (a u32-constrained type
@@ -458,7 +415,6 @@ fn c37_turbofish_literal_const_arg() {
 }
 
 #[test]
-#[serial]
 fn c38_turbofish_u32_literal_const_arg() {
     expect_accept(
         "c38_turbofish_u32_literal",
@@ -467,7 +423,6 @@ fn c38_turbofish_u32_literal_const_arg() {
 }
 
 #[test]
-#[serial]
 fn c39_turbofish_named_const_arg() {
     // foo::<N>(x) where N is a named const — parse_monomorphization_ty falls
     // through to parse_path_ty, resolving N to its Type::Const.
@@ -482,7 +437,6 @@ fn c39_turbofish_named_const_arg() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c40_struct_field_named_const_array_size() {
     expect_accept(
         "c40_struct_field_const_size",
@@ -491,7 +445,6 @@ fn c40_struct_field_named_const_array_size() {
 }
 
 #[test]
-#[serial]
 fn c41_struct_field_literal_array_size() {
     expect_accept(
         "c41_struct_field_literal_size",
@@ -504,19 +457,16 @@ fn c41_struct_field_literal_array_size() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c42_u32_const_value() {
     expect_const_value("c42_u32_const", "const C: u32 = 42u32;\nfn main() {}", "C", "U32", 42);
 }
 
 #[test]
-#[serial]
 fn c43_felt_const_value() {
     expect_const_value("c43_felt_const", "const C: Felt = 42;\nfn main() {}", "C", "Felt", 42);
 }
 
 #[test]
-#[serial]
 fn c44_u32_const_type_mismatch_rejected() {
     // Declaring a u32 const with a Felt literal value: `1` (no suffix) is a
     // Felt. unify(u32, felt) should fail.
@@ -524,7 +474,6 @@ fn c44_u32_const_type_mismatch_rejected() {
 }
 
 #[test]
-#[serial]
 fn c45_felt_const_type_mismatch_rejected() {
     // Declaring a Felt const with a u32 literal: `1u32` is u32. unify(felt, u32)
     // should fail.
@@ -532,7 +481,6 @@ fn c45_felt_const_type_mismatch_rejected() {
 }
 
 #[test]
-#[serial]
 fn c46_felt_const_used_as_array_size() {
     expect_accept(
         "c46_felt_const_array_size",
@@ -545,7 +493,6 @@ fn c46_felt_const_used_as_array_size() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c47_const_bool_in_if() {
     expect_accept(
         "c47_const_bool_in_if",
@@ -554,7 +501,6 @@ fn c47_const_bool_in_if() {
 }
 
 #[test]
-#[serial]
 fn c48_const_false_in_if() {
     expect_accept(
         "c48_const_false_in_if",
@@ -567,38 +513,32 @@ fn c48_const_false_in_if() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c49_felt_zero() {
     expect_const_value("c49_felt_zero", "const Z: Felt = 0;\nfn main() {}", "Z", "Felt", 0);
 }
 
 #[test]
-#[serial]
 fn c50_u32_zero() {
     expect_const_value("c50_u32_zero", "const Z: u32 = 0u32;\nfn main() {}", "Z", "U32", 0);
 }
 
 #[test]
-#[serial]
 fn c51_bool_false() {
     expect_const_value("c51_bool_false", "const F: bool = false;\nfn main() {}", "F", "Bool", 0);
 }
 
 #[test]
-#[serial]
 fn c52_bool_true() {
     expect_const_value("c52_bool_true", "const T: bool = true;\nfn main() {}", "T", "Bool", 1);
 }
 
 #[test]
-#[serial]
 fn c53_zero_identity_add() {
     // 0 + 5 == 5 (exercises the `b == 0` shortcut AND the constant fold)
     expect_const_value("c53_zero_add", "const A: Felt = 0 + 5;\nfn main() {}", "A", "Felt", 5);
 }
 
 #[test]
-#[serial]
 fn c54_zero_mul() {
     // 0 * 5 == 0
     expect_const_value("c54_zero_mul", "const A: Felt = 0 * 5;\nfn main() {}", "A", "Felt", 0);
@@ -609,7 +549,6 @@ fn c54_zero_mul() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c55_const_in_for_range_u32() {
     expect_accept(
         "c55_for_range_u32",
@@ -618,7 +557,6 @@ fn c55_const_in_for_range_u32() {
 }
 
 #[test]
-#[serial]
 fn c56_const_in_for_range_felt() {
     expect_accept(
         "c56_for_range_felt",
@@ -627,7 +565,6 @@ fn c56_const_in_for_range_felt() {
 }
 
 #[test]
-#[serial]
 fn c57_literal_for_range() {
     expect_accept("c57_for_range_literal", "fn main() {\n    for i in 0u32..5u32 {\n        let x = i;\n    }\n}");
 }
@@ -635,7 +572,6 @@ fn c57_literal_for_range() {
 /// Size positions can be nested: `fn f<N>(x: [[Felt; N]; 2])` — the
 /// literal must still promote N to a Const through the nesting.
 #[test]
-#[serial]
 fn c90_nested_array_size_position_promotes() {
     expect_accept(
         "c90_nested_size_position",
@@ -648,7 +584,6 @@ fn c90_nested_array_size_position_promotes() {
 /// *different* literals must infer `T = Felt`, not bind T to `Const(1)`
 /// and then reject the second literal (H3 regression).
 #[test]
-#[serial]
 fn c86_plain_generic_literals_do_not_promote() {
     expect_accept(
         "c86_plain_generic_literals",
@@ -667,7 +602,6 @@ fn c86_plain_generic_literals_do_not_promote() {
 /// The size-position promotion still works where it matters: the std
 /// `split_bits(x, 64)` wrapper binds N to `Const(64)` and evaluates.
 #[test]
-#[serial]
 fn c87_split_bits_const_length_still_works() {
     expect_accept(
         "c87_split_bits_const",
@@ -684,7 +618,6 @@ fn c87_split_bits_const_length_still_works() {
 /// is instantiated; rejecting `m: M` while checking the generic body is a
 /// regression from the pre-gate behavior.
 #[test]
-#[serial]
 fn c91_split_bits_const_generic_can_be_forwarded_through_user_wrapper() {
     expect_accept(
         "c91_split_bits_generic_wrapper",
@@ -696,7 +629,6 @@ fn c91_split_bits_const_generic_can_be_forwarded_through_user_wrapper() {
 /// A runtime length must be rejected during typechecking, before circuit
 /// interpretation can mistake a symbolic input index for a bit count (H4).
 #[test]
-#[serial]
 fn c88_split_bits_runtime_length_rejected_at_typecheck() {
     expect_reject(
         "c88_split_bits_runtime_rejected",
@@ -708,7 +640,6 @@ fn c88_split_bits_runtime_length_rejected_at_typecheck() {
 /// A negated literal length is rejected during typechecking rather than
 /// wrapping in the field and reaching an attempted huge allocation (H9).
 #[test]
-#[serial]
 fn c89_split_bits_negative_length_rejected_at_typecheck() {
     expect_reject(
         "c89_split_bits_negative_rejected",
@@ -722,7 +653,6 @@ fn c89_split_bits_negative_length_rejected_at_typecheck() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c58_const_plus_runtime_var() {
     expect_accept(
         "c58_const_plus_var",
@@ -731,7 +661,6 @@ fn c58_const_plus_runtime_var() {
 }
 
 #[test]
-#[serial]
 fn c59_runtime_var_times_const() {
     expect_accept(
         "c59_var_times_const",
@@ -740,7 +669,6 @@ fn c59_runtime_var_times_const() {
 }
 
 #[test]
-#[serial]
 fn c60_const_in_let_binding() {
     expect_accept(
         "c60_const_in_let",
@@ -749,7 +677,6 @@ fn c60_const_in_let_binding() {
 }
 
 #[test]
-#[serial]
 fn c61_const_as_fn_arg() {
     expect_accept(
         "c61_const_as_fn_arg",
@@ -758,7 +685,6 @@ fn c61_const_as_fn_arg() {
 }
 
 #[test]
-#[serial]
 fn c62_const_mixed_arithmetic_with_vars() {
     // CONST_A + CONST_B * 2 + runtime
     expect_accept(
@@ -768,7 +694,6 @@ fn c62_const_mixed_arithmetic_with_vars() {
 }
 
 #[test]
-#[serial]
 fn c63_u32_const_plus_runtime_u32() {
     expect_accept(
         "c63_u32_const_plus_var",
@@ -781,7 +706,6 @@ fn c63_u32_const_plus_runtime_u32() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c64_generic_param_as_array_size() {
     expect_accept(
         "c64_generic_param_array_size",
@@ -790,7 +714,6 @@ fn c64_generic_param_as_array_size() {
 }
 
 #[test]
-#[serial]
 fn c65_generic_param_array_size_in_struct_field() {
     expect_accept(
         "c65_generic_struct_field_array_size",
@@ -803,7 +726,6 @@ fn c65_generic_param_array_size_in_struct_field() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c66_large_felt_const() {
     expect_const_value(
         "c66_large_felt",
@@ -813,7 +735,6 @@ fn c66_large_felt_const() {
 }
 
 #[test]
-#[serial]
 fn c67_large_felt_arithmetic() {
     // 1_000_000_000 * 2 == 2_000_000_000
     expect_const_value(
@@ -824,7 +745,6 @@ fn c67_large_felt_arithmetic() {
 }
 
 #[test]
-#[serial]
 fn c68_felt_add_near_i64_max_no_panic() {
     // Felt arithmetic is modular over the Goldilocks prime (p = 2^64 - 2^32 + 1).
     // 2^63 + 1 is far under p, so the folded result equals the plain sum:
@@ -841,7 +761,6 @@ fn c68_felt_add_near_i64_max_no_panic() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c69_felt_bitxor_does_not_fold() {
     // FINDING (folding gap): `^` is BitXor, not Pow. Felt bitwise ops
     // (BitAnd/BitOr/BitXor/BitShl/BitShr) in interpret_binary (lib.rs:856-860)
@@ -867,7 +786,6 @@ fn c69_felt_bitxor_does_not_fold() {
 }
 
 #[test]
-#[serial]
 fn c70_u32_bitxor_folds() {
     // `^` is BitXor (not Pow): 2 XOR 3 == 1. u32 bitwise ops DO fold because
     // both operands are ConstantU32 (op_std_binary_op_u32, exec_context.rs:255).
@@ -875,7 +793,6 @@ fn c70_u32_bitxor_folds() {
 }
 
 #[test]
-#[serial]
 fn c71_neg_felt_const() {
     // -5 as a felt: op_neg(5). Felt is modular over the Goldilocks prime
     // p = 2^64 - 2^32 + 1, so -5 == p - 5.
@@ -889,7 +806,6 @@ fn c71_neg_felt_const() {
 }
 
 #[test]
-#[serial]
 fn c72_chained_subtraction() {
     // 100 - 30 - 20 == 50 (left-assoc)
     expect_const_value(
@@ -900,7 +816,6 @@ fn c72_chained_subtraction() {
 }
 
 #[test]
-#[serial]
 fn c73_div_then_mul_roundtrip() {
     // (20 / 4) * 4 == 20
     expect_const_value(
@@ -915,7 +830,6 @@ fn c73_div_then_mul_roundtrip() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c74_u32_as_felt_const_typechecks() {
     expect_accept(
         "c74_u32_as_felt_const",
@@ -924,7 +838,6 @@ fn c74_u32_as_felt_const_typechecks() {
 }
 
 #[test]
-#[serial]
 fn c75_u32_as_felt_const_value() {
     expect_const_value(
         "c75_u32_as_felt_value",
@@ -940,7 +853,6 @@ fn c75_u32_as_felt_const_value() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c76_mixed_u32_felt_add_no_panic() {
     // 1u32 + 1 : lhs u32, rhs felt literal (no suffix). Either a clean accept
     // or a clean reject is acceptable; a panic in the const interpreter is a
@@ -954,7 +866,6 @@ fn c76_mixed_u32_felt_add_no_panic() {
 }
 
 #[test]
-#[serial]
 fn c77_mixed_felt_u32_add_no_panic() {
     match compile("const A: Felt = 1 + 1u32;\nfn main() {}", "c77_mixed_add2") {
         Outcome::Accept(_) | Outcome::Reject(_) => {}
@@ -965,7 +876,6 @@ fn c77_mixed_felt_u32_add_no_panic() {
 }
 
 #[test]
-#[serial]
 fn c78_const_referencing_type_not_value_no_panic() {
     // const X: Felt = S (a struct type); sema should reject via TypeMismatch
     // before evaluate_expr can run, but if not it must not panic.
@@ -980,7 +890,6 @@ fn c78_const_referencing_type_not_value_no_panic() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c79_baseline_const_test_shape() {
     // Mirrors tests/const_test.psy: cross-module pub const + top-level const +
     // const used in a runtime expression with a parameter.
@@ -998,7 +907,6 @@ fn c79_baseline_const_test_shape() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[serial]
 fn c80_computed_felt_const_as_array_size() {
     // N folds to 5 at compile time; the array type [Felt; N] must accept a
     // 5-element literal. This proves the folded const value (not the
@@ -1010,7 +918,6 @@ fn c80_computed_felt_const_as_array_size() {
 }
 
 #[test]
-#[serial]
 fn c81_array_size_mismatch_rejected() {
     // FIXED: The unify for Type::Const now compares both the inner type AND
     // the actual constant value. A 4-element literal against a declared size
@@ -1023,7 +930,6 @@ fn c81_array_size_mismatch_rejected() {
 }
 
 #[test]
-#[serial]
 fn c82_const_array_size_checked_at_function_call() {
     expect_reject(
         "c82_const_size_function_arg",
@@ -1033,7 +939,6 @@ fn c82_const_array_size_checked_at_function_call() {
 }
 
 #[test]
-#[serial]
 fn c83_equal_const_array_sizes_pass_through_function_call() {
     expect_accept(
         "c83_equal_const_size_function_arg",
@@ -1042,7 +947,6 @@ fn c83_equal_const_array_sizes_pass_through_function_call() {
 }
 
 #[test]
-#[serial]
 fn c84_nested_const_array_inner_size_mismatch_rejected() {
     expect_reject(
         "c84_nested_const_inner_size",
@@ -1052,7 +956,6 @@ fn c84_nested_const_array_inner_size_mismatch_rejected() {
 }
 
 #[test]
-#[serial]
 fn c85_distinct_named_consts_with_equal_values_unify() {
     expect_accept(
         "c85_equal_named_const_values",
@@ -1065,7 +968,6 @@ fn c85_distinct_named_consts_with_equal_values_unify() {
 /// the first argument must be promoted to `Const(3)` before the deeply
 /// nested array argument is unified with the signature.
 #[test]
-#[serial]
 fn c90_const_size_position_beyond_sixteen_type_levels() {
     const WRAPPERS: usize = 17;
 

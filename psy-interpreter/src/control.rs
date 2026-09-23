@@ -50,3 +50,73 @@ impl<T> ControlState<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A pipeline using both `?` forms: propagating an early `Return` state and
+    /// converting a `Result` error into a `Return` state.
+    fn pipeline(control: ControlState<Result<u32, String>>) -> ControlState<Result<u32, String>> {
+        let result = control?;
+        let value = result?;
+        ControlState::from_output(Ok(value + 1))
+    }
+
+    #[test]
+    fn try_trait_continues_from_normal_output() {
+        assert_eq!(pipeline(ControlState::Normal(Ok(41))), ControlState::Normal(Ok(42)));
+    }
+
+    #[test]
+    fn try_trait_propagates_early_returns_unchanged() {
+        let early = ControlState::Return(Err("early".to_string()));
+        assert_eq!(pipeline(early.clone()), early);
+    }
+
+    #[test]
+    fn try_trait_converts_result_errors_into_returns() {
+        assert_eq!(
+            pipeline(ControlState::Normal(Err("boom".to_string()))),
+            ControlState::Return(Err("boom".to_string()))
+        );
+    }
+
+    #[test]
+    fn unwrap_yields_the_payload_of_both_variants() {
+        assert_eq!(ControlState::Normal(7).unwrap(), 7);
+        assert_eq!(ControlState::Return(8).unwrap(), 8);
+    }
+
+    #[test]
+    fn enum_accessors_distinguish_the_variants() {
+        let normal = ControlState::Normal(1);
+        let ret = ControlState::Return(2);
+        assert!(normal.is_normal() && !normal.is_return());
+        assert!(ret.is_return() && !ret.is_normal());
+        assert_eq!(normal.as_normal(), Some(&1));
+        assert_eq!(normal.as_return(), None);
+        assert_eq!(ret.as_return(), Some(&2));
+        assert_eq!(ret.as_normal(), None);
+    }
+
+    #[test]
+    fn mutable_and_consuming_accessors_round_trip() {
+        let mut normal = ControlState::Normal(1);
+        if let Some(value) = normal.as_normal_mut() {
+            *value += 1;
+        }
+        assert_eq!(normal.as_normal(), Some(&2));
+
+        let mut ret = ControlState::Return(3);
+        if let Some(value) = ret.as_return_mut() {
+            *value *= 2;
+        }
+        assert_eq!(ret.as_return(), Some(&6));
+
+        assert_eq!(ControlState::Normal(4).into_normal(), Ok(4));
+        assert_eq!(ControlState::Normal(4).into_return(), Err(ControlState::Normal(4)));
+        assert_eq!(ControlState::Return(5).into_return(), Ok(5));
+        assert_eq!(ControlState::Return(5).into_normal(), Err(ControlState::Return(5)));
+    }
+}

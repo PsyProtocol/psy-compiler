@@ -4,29 +4,24 @@
 // temporary `.psy` sources. Every case names the concrete visibility contract it
 // defends and asserts the exact accept/reject outcome plus error category.
 //
-// The shared `STD_PRIMITIVE_SCOPE_ID` singleton is reset after *every* case (via
-// [`check`], which tears down before the caller can panic) so the suite is
-// hermetic: a failing assertion can never leak global state into the next test.
+// Each case owns an independent symbol table and uniquely named temporary file.
 
 use std::{
     fs,
-    path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
-use serial_test::serial;
 
 use super::*;
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Typecheck `source` written to a throwaway temp file, then ALWAYS tear down
-/// the file and reset the shared primitive-scope singleton. Returns `None` if the
+/// Typecheck `source` written to a throwaway temp file, then tear it down. Returns `None` if the
 /// program typechecked, or `Some(formatted_error)` if it was rejected. Cleanup
 /// runs before the caller panics, so a failing assertion can never leak global
-/// state into the next `#[serial]` test.
+/// state into the next test.
 fn check(source: &str) -> Option<String> {
     let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -38,10 +33,6 @@ fn check(source: &str) -> Option<String> {
 
     // Tear down first, unconditionally.
     let _ = fs::remove_file(path);
-    #[allow(static_mut_refs)]
-    unsafe {
-        let _ = STD_PRIMITIVE_SCOPE_ID.take();
-    }
 
     match result {
         Ok(_) => None,
@@ -74,7 +65,6 @@ fn expect_accept(name: &str, source: &str) {
 // segments, so it flows through `resolve_module_type` -> `TypeNotPublic`
 // (psy-sema/src/resolver.rs:446), not `MemberNotPublic`.
 #[test]
-#[serial]
 fn private_fn_inaccessible_from_parent() {
     expect_reject(
         "private_fn_inaccessible_from_parent",
@@ -93,7 +83,6 @@ fn main() {
 
 // ---- (1b) private function is reachable from inside its own module ----
 #[test]
-#[serial]
 fn private_fn_accessible_within_own_module() {
     expect_accept(
         "private_fn_accessible_within_own_module",
@@ -115,7 +104,6 @@ fn main() {}
 // `inner::PrivateS { ... }` is a type-position path with no intermediate segments,
 // so it goes through `resolve_module_type` -> `TypeNotPublic` (resolver.rs:446).
 #[test]
-#[serial]
 fn private_struct_inaccessible_cross_module() {
     expect_reject(
         "private_struct_inaccessible_cross_module",
@@ -141,7 +129,6 @@ fn main() {
 // `access` is `pub` so `main` can call it; the reject comes from typechecking
 // `access`'s body.
 #[test]
-#[serial]
 fn private_inline_module_inaccessible_from_nondescendant() {
     expect_reject(
         "private_inline_module_inaccessible_from_nondescendant",
@@ -171,7 +158,6 @@ fn main() {
 // private yet visible to its sibling `far`, so a *public* item inside `outer` is
 // reachable from `far`. This is looser than Rust and worth flagging.
 #[test]
-#[serial]
 fn sibling_can_access_public_item_in_private_sibling_module() {
     expect_accept(
         "sibling_can_access_public_item_in_private_sibling_module",
@@ -197,7 +183,6 @@ fn main() {
 // resolve_use checks the target's type-key visibility -> `TypeNotPublic`
 // (resolver.rs:317).
 #[test]
-#[serial]
 fn use_of_private_fn_rejected() {
     expect_reject(
         "use_of_private_fn_rejected",
@@ -216,7 +201,6 @@ fn main() {}
 
 // ---- (4b) `use` of a private struct is rejected ----
 #[test]
-#[serial]
 fn use_of_private_struct_rejected() {
     expect_reject(
         "use_of_private_struct_rejected",
@@ -239,7 +223,6 @@ fn main() {}
 // traverse_path_segment -> is_module_visible fails -> `ModuleNotPublic`
 // (resolver.rs:359).
 #[test]
-#[serial]
 fn use_of_private_module_rejected() {
     expect_reject(
         "use_of_private_module_rejected",
@@ -258,7 +241,6 @@ fn main() {}
 
 // ---- (5) pub item accessible cross-module (positive control) ----
 #[test]
-#[serial]
 fn pub_item_accessible_cross_module() {
     expect_accept(
         "pub_item_accessible_cross_module",
@@ -286,7 +268,6 @@ fn main() {
 // `Felt` resolves via the prelude while the private user function stays
 // unreachable (`TypeNotPublic`, resolver.rs:446).
 #[test]
-#[serial]
 fn implicit_prelude_does_not_bypass_user_visibility() {
     expect_reject(
         "implicit_prelude_does_not_bypass_user_visibility",
@@ -309,7 +290,6 @@ fn main() {
 // function is rejected by `resolve_module_type` -> `TypeNotPublic` (resolver.rs:446).
 // There is no descendant exception for items.
 #[test]
-#[serial]
 fn child_cannot_access_parent_private_fn() {
     expect_reject(
         "child_cannot_access_parent_private_fn",
@@ -333,7 +313,6 @@ fn main() {}
 // (psy-sema/src/lib.rs:225), with the same-module escape handled by
 // `typecheck_member_access`.
 #[test]
-#[serial]
 fn private_struct_field_inaccessible_from_outside() {
     expect_reject(
         "private_struct_field_inaccessible_from_outside",
@@ -362,7 +341,6 @@ fn main() {
 
 // ---- (8b) public struct field is accessible from outside ----
 #[test]
-#[serial]
 fn public_struct_field_accessible_from_outside() {
     expect_accept(
         "public_struct_field_accessible_from_outside",
@@ -395,7 +373,6 @@ fn main() {
 // branch (resolver.rs:326-333). The outcome is correct (private stays private)
 // but, per (8d), this is the SAME import bug -- not a genuine visibility check.
 #[test]
-#[serial]
 fn use_of_private_enum_rejected() {
     expect_reject(
         "use_of_private_enum_rejected",
@@ -424,7 +401,6 @@ fn main() {}
 //   * enum visibility via `use` is effectively untested/unenforced today.
 // This test pins the current (defective) behavior so the bug is visible.
 #[test]
-#[serial]
 fn use_of_public_enum_also_rejected_bug() {
     expect_reject(
         "use_of_public_enum_also_rejected_bug",
@@ -448,7 +424,6 @@ fn main() {}
 // `TypeNotPublic` (resolver.rs:317), so the (public) trait method is never
 // reachable. ----
 #[test]
-#[serial]
 fn private_type_trait_impl_not_importable_publicly() {
     expect_reject(
         "private_type_trait_impl_not_importable_publicly",
@@ -481,7 +456,6 @@ fn main() {}
 
 // ---- (9b) a PUBLIC type's trait impl IS usable across modules ----
 #[test]
-#[serial]
 fn public_type_trait_impl_usable_across_modules() {
     expect_accept(
         "public_type_trait_impl_usable_across_modules",
@@ -520,7 +494,6 @@ fn main() {
 // rejected like a private function via `resolve_module_type` -> `TypeNotPublic`
 // (resolver.rs:446).
 #[test]
-#[serial]
 fn private_extern_fn_inaccessible_cross_module() {
     expect_reject(
         "private_extern_fn_inaccessible_cross_module",
@@ -539,7 +512,6 @@ fn main() {
 
 // ---- (10b) public extern fn is accessible cross-module ----
 #[test]
-#[serial]
 fn public_extern_fn_accessible_cross_module() {
     expect_accept(
         "public_extern_fn_accessible_cross_module",
@@ -560,7 +532,6 @@ fn main() {
 // ---- (U1) wildcard `use mod::*` imports only public items ----
 // resolve_use with target=None filters to public keys/types (resolver.rs:338).
 #[test]
-#[serial]
 fn wildcard_use_imports_only_public_items() {
     expect_accept(
         "wildcard_use_imports_only_public_items",
@@ -583,7 +554,6 @@ fn main() {
 // `private_fn` is filtered out by the public-only glob, so referencing it
 // afterwards is `UnresolvedType` (resolver.rs:151).
 #[test]
-#[serial]
 fn wildcard_use_does_not_import_private_items() {
     expect_reject(
         "wildcard_use_does_not_import_private_items",
@@ -607,7 +577,6 @@ fn main() {
 // `pub use a::f` re-inserts `f` into `c` with public visibility (lib.rs:3361), so
 // `use c::f` from the root succeeds.
 #[test]
-#[serial]
 fn pub_use_reexport_makes_item_public() {
     expect_accept(
         "pub_use_reexport_makes_item_public",
@@ -633,7 +602,6 @@ fn main() {
 // A non-`pub` `use a::f` re-inserts `f` into `c` as private (lib.rs:3361), so
 // `use c::f` from the root is rejected -> `TypeNotPublic` (resolver.rs:317).
 #[test]
-#[serial]
 fn private_use_reexport_not_public_to_others() {
     expect_reject(
         "private_use_reexport_not_public_to_others",
@@ -661,7 +629,6 @@ fn main() {
 // visible to the root, so `use a::b::f` is rejected at the `b` segment via
 // traverse_path_segment -> `ModuleNotPublic` (resolver.rs:359).
 #[test]
-#[serial]
 fn transitive_use_enforces_visibility_each_hop() {
     expect_reject(
         "transitive_use_enforces_visibility_each_hop",
@@ -684,7 +651,6 @@ fn main() {
 
 // ---- (U5b) transitive use through all-public modules succeeds ----
 #[test]
-#[serial]
 fn transitive_use_all_public_succeeds() {
     expect_accept(
         "transitive_use_all_public_succeeds",
@@ -708,7 +674,6 @@ fn main() {
 // `use inner::private_fn` is still rejected even though `use std::prelude::*` is
 // implicitly present in this module (psy-parser/src/lib.rs:172).
 #[test]
-#[serial]
 fn prelude_glob_does_not_shadow_user_visibility() {
     expect_reject(
         "prelude_glob_does_not_shadow_user_visibility",

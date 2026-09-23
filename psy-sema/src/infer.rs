@@ -5,7 +5,7 @@ use psy_vm::dpn::ops::context_trait::ContextFelt;
 
 use crate::{
     rewriter::Rewriter, CheckedArrayNode, CheckedFunctionSignature, CheckedStructField, CheckedStructNode, Constraint, Error, Implementer, Result,
-    ScopeId, Type, TypeChecker, TypeCheckerVisitorContext, TypeId,
+    Type, TypeChecker, TypeCheckerVisitorContext, TypeId,
 };
 
 #[derive(Debug)]
@@ -169,8 +169,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                     size_ty: self.substitute_all(array.size_ty, ctx)?,
                     scope_id: array.scope_id,
                 });
-                let type_id = ctx.symbols.get_or_add_type(Some(ScopeId::primitive()), ty.key(), ty)?;
-                let poly_ty = ctx.symbols.get_type_id(Some(ScopeId::primitive()), IdentId::TYPE_ARRAY).unwrap();
+                let type_id = ctx.symbols.get_or_add_type(Some(ctx.symbols.primitive_scope_id()), ty.key(), ty)?;
+                let poly_ty = ctx.symbols.get_type_id(Some(ctx.symbols.primitive_scope_id()), IdentId::TYPE_ARRAY).unwrap();
                 self.register_instance(type_id, poly_ty, ctx)?;
                 Ok(type_id)
             }
@@ -181,7 +181,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                     new_types.push(self.substitute_all(ty, ctx)?);
                 }
                 let ty = Type::Tuple(new_types);
-                ctx.symbols.get_or_add_type(Some(ScopeId::primitive()), ty.key(), ty)
+                ctx.symbols.get_or_add_type(Some(ctx.symbols.primitive_scope_id()), ty.key(), ty)
             }
 
             Type::FunctionSignature(sig) => {
@@ -290,5 +290,44 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
 
             _ => Ok(type_id),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use psy_vm::dpn::ops::sym_felt::SymFeltRef;
+
+    use super::*;
+
+    #[test]
+    fn equations_track_scopes_and_contexts() {
+        let mut infcx: InferCtxt<SymFeltRef, ()> = InferCtxt::new();
+        assert!(!infcx.has_equations(), "a fresh context has no equations");
+        assert!(infcx.get_equations().is_empty());
+        assert_eq!(infcx.probe(TypeId(0)), None, "nothing is bound yet");
+
+        infcx.equate(TypeId(0), TypeId(1));
+        assert!(infcx.has_equations());
+        assert_eq!(infcx.get_equations().get(&TypeId(0)), Some(&TypeId(1)));
+        assert_eq!(infcx.probe(TypeId(0)), Some(TypeId(1)), "innermost binding wins");
+        assert_eq!(infcx.probe(TypeId(1)), None, "reverse direction stays unbound");
+
+        // A nested scope shadows the outer binding; leaving the scope
+        // restores it.
+        infcx.enter_scope();
+        infcx.equate(TypeId(0), TypeId(2));
+        assert_eq!(infcx.probe(TypeId(0)), Some(TypeId(2)));
+        infcx.exit_scope();
+        assert_eq!(infcx.probe(TypeId(0)), Some(TypeId(1)));
+
+        // A nested context hides every outer equation; leaving the context
+        // brings them back.
+        infcx.enter_context();
+        assert!(!infcx.has_equations(), "a fresh context starts empty");
+        assert_eq!(infcx.probe(TypeId(0)), None);
+        infcx.equate(TypeId(0), TypeId(3));
+        assert_eq!(infcx.probe(TypeId(0)), Some(TypeId(3)));
+        infcx.exit_context();
+        assert_eq!(infcx.probe(TypeId(0)), Some(TypeId(1)));
     }
 }

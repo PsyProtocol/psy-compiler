@@ -600,6 +600,7 @@ pub fn call_contract(caller_id: u64, contract_id: u64, method_name: &str, args_j
             checkpoint_id: chain.checkpoint_id,
             nonce: chain.transaction_log.len() as u64,
             user_public_key_hash: [0; 4],
+            session_proof_tree_root: [0; 4],
         };
 
         let mut executor = VmExecutor::new(chain.state.clone());
@@ -767,6 +768,8 @@ struct ExecutionContextInput {
     nonce: Option<u64>,
     #[serde(default)]
     user_public_key_hash: Option<[u64; 4]>,
+    #[serde(default)]
+    session_proof_tree_root: Option<[u64; 4]>,
 }
 
 #[derive(Deserialize, Default)]
@@ -806,7 +809,7 @@ struct HashValueInput {
 #[derive(Deserialize)]
 struct DeployerInput {
     contract_id: u64,
-    deployer: [u64; 4],
+    deployer: u64,
 }
 
 #[derive(Deserialize)]
@@ -1227,6 +1230,7 @@ fn default_execution_context() -> ExecutionContext {
         checkpoint_id: 0,
         nonce: 0,
         user_public_key_hash: [0; 4],
+        session_proof_tree_root: [0; 4],
     }
 }
 
@@ -1239,6 +1243,7 @@ impl From<ExecutionContextInput> for ExecutionContext {
             checkpoint_id: value.checkpoint_id.unwrap_or(0),
             nonce: value.nonce.unwrap_or(0),
             user_public_key_hash: value.user_public_key_hash.unwrap_or([0; 4]),
+            session_proof_tree_root: value.session_proof_tree_root.unwrap_or([0; 4]),
         }
     }
 }
@@ -1290,6 +1295,9 @@ fn compute_state_tree_height(result: &mut psy_interpreter::InterpretResult) -> u
 }
 
 fn extract_error_offset(error_msg: &str, sources: &HashMap<String, Arc<str>>) -> Option<usize> {
+    let sanitized_error = strip_ansi_csi_sequences(error_msg);
+    let error_msg = sanitized_error.as_str();
+
     for pattern in ["at offset ", "offset "] {
         if let Some(pos) = error_msg.rfind(pattern) {
             let after = &error_msg[pos + pattern.len()..];
@@ -1303,15 +1311,66 @@ fn extract_error_offset(error_msg: &str, sources: &HashMap<String, Arc<str>>) ->
     extract_error_offset_from_line_col(error_msg, sources)
 }
 
+fn strip_ansi_csi_sequences(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\u{1b}' {
+            output.push(ch);
+            continue;
+        }
+        if chars.peek() != Some(&'[') {
+            output.push(ch);
+            continue;
+        }
+        chars.next();
+        for sequence_char in chars.by_ref() {
+            if ('@'..='~').contains(&sequence_char) {
+                break;
+            }
+        }
+    }
+    output
+}
+
 fn extract_error_offset_from_line_col(error_msg: &str, sources: &HashMap<String, Arc<str>>) -> Option<usize> {
     let marker = "[ ";
-    let start = error_msg.find(marker)? + marker.len();
-    let rest = &error_msg[start..];
-    let end = rest.find(" ]")?;
-    let location = &rest[..end];
-    let (path_text, line, column) = parse_location_triplet(location)?;
-    let source = sources.get(&path_text)?;
-    line_col_to_offset(source, line, column)
+    for (marker_start, _) in error_msg.match_indices(marker) {
+        let rest = &error_msg[marker_start + marker.len()..];
+        let Some(end) = rest.find(" ]") else {
+            continue;
+        };
+        let Some((path_text, line, column)) = parse_location_triplet(&rest[..end]) else {
+            continue;
+        };
+        let normalized_path = path_text.replace('\\', "/");
+        let source = sources.get(&path_text).or_else(|| {
+            sources
+                .iter()
+                .find(|(path, _)| path.replace('\\', "/") == normalized_path)
+                .map(|(_, source)| source)
+        });
+        if let Some(offset) = source.and_then(|source| line_col_to_offset(source, line, column)) {
+            return Some(offset);
+        }
+    }
+
+    if sources.len() == 1 {
+        let (_, line, column) = error_msg
+            .match_indices(marker)
+            .find_map(|(marker_start, _)| {
+                let rest = &error_msg[marker_start + marker.len()..];
+                let end = rest.find(" ]")?;
+                let (_, line, column) = parse_location_triplet(&rest[..end])?;
+                Some(((), line, column))
+            })?;
+        return sources
+            .values()
+            .next()
+            .and_then(|source| line_col_to_offset(source, line, column));
+    }
+
+    None
 }
 
 fn parse_location_triplet(location: &str) -> Option<(String, usize, usize)> {
@@ -1482,6 +1541,134 @@ mod tests {
     }
 
     #[test]
+    fn error_offset_parser_handles_ansi_colored_locations() {
+        let sources = HashMap::from([(
+            "/vfs/src/main.psy".to_string(),
+            Arc::<str>::from("a\nxyz"),
+        )]);
+        let error = "\u{1b}[31m[UnexpectedToken]\u{1b}[0m \u{1b}[38;5;246m╭─[\u{1b}[0m /vfs/src/main.psy:2:3 \u{1b}[38;5;246m]\u{1b}[0m";
+
+        assert_eq!(extract_error_offset(error, &sources), Some(4));
+    }
+
+    #[test]
+    fn ansi_stripping_preserves_plain_diagnostic_text() {
+        assert_eq!(
+            strip_ansi_csi_sequences("before \u{1b}[31mred\u{1b}[0m after"),
+            "before red after"
+        );
+    }
+
+    #[test]
+    fn ansi_stripping_does_not_drop_non_csi_escape_characters() {
+        assert_eq!(strip_ansi_csi_sequences("before \u{1b}x after"), "before \u{1b}x after");
+    }
+
+    #[test]
+    fn error_offset_parser_prefers_the_last_explicit_offset() {
+        let sources = HashMap::new();
+
+        assert_eq!(
+            extract_error_offset("inner error at offset 3; outer error at offset 17", &sources),
+            Some(17)
+        );
+        assert_eq!(extract_error_offset("offset not-a-number", &sources), None);
+    }
+
+    #[test]
+    fn error_offset_parser_accepts_windows_paths_and_normalized_source_keys() {
+        let sources = HashMap::from([(
+            "C:/project/src/main.psy".to_string(),
+            Arc::<str>::from("first\nsecond"),
+        )]);
+
+        assert_eq!(
+            extract_error_offset("[ C:\\project\\src\\main.psy:2:2 ]", &sources),
+            Some(7)
+        );
+    }
+
+    #[test]
+    fn error_offset_parser_uses_single_source_fallback_for_display_paths() {
+        let sources = HashMap::from([(
+            "/vfs/internal/main.psy".to_string(),
+            Arc::<str>::from("abc\ndef"),
+        )]);
+
+        assert_eq!(extract_error_offset("[ main.psy:2:1 ]", &sources), Some(4));
+    }
+
+    #[test]
+    fn line_column_offsets_are_byte_offsets_and_validate_boundaries() {
+        let source = "中a\nβ";
+
+        assert_eq!(line_col_to_offset(source, 1, 1), Some(0));
+        assert_eq!(line_col_to_offset(source, 1, 2), Some(3));
+        assert_eq!(line_col_to_offset(source, 2, 1), Some(5));
+        assert_eq!(line_col_to_offset(source, 2, 2), Some(source.len()));
+        assert_eq!(line_col_to_offset(source, 0, 1), None);
+        assert_eq!(line_col_to_offset(source, 1, 0), None);
+        assert_eq!(line_col_to_offset(source, 3, 1), None);
+    }
+
+    #[test]
+    fn malformed_location_triplets_are_rejected() {
+        assert_eq!(parse_location_triplet("main.psy:2:3"), Some(("main.psy".to_string(), 2, 3)));
+        assert_eq!(parse_location_triplet("C:\\src\\main.psy:2:3"), Some(("C:\\src\\main.psy".to_string(), 2, 3)));
+        assert_eq!(parse_location_triplet("main.psy:two:3"), None);
+        assert_eq!(parse_location_triplet("main.psy:2"), None);
+        assert_eq!(
+            parse_location_triplet("main.psy : 2 : 3"),
+            Some(("main.psy".to_string(), 2, 3))
+        );
+    }
+
+    #[test]
+    fn ansi_stripping_handles_truncated_and_parameterized_sequences() {
+        assert_eq!(strip_ansi_csi_sequences("end\u{1b}"), "end\u{1b}");
+        assert_eq!(strip_ansi_csi_sequences("end\u{1b}["), "end");
+        assert_eq!(strip_ansi_csi_sequences("\u{1b}[?25hvisible"), "visible");
+        assert_eq!(strip_ansi_csi_sequences("\u{1b}[38;5;196mX\u{1b}[0m"), "X");
+        assert_eq!(strip_ansi_csi_sequences("\u{1b}[ @"), "");
+    }
+
+    #[test]
+    fn explicit_offset_wins_over_location_triplets() {
+        let sources = HashMap::from([(
+            "main.psy".to_string(),
+            Arc::<str>::from("first\nsecond"),
+        )]);
+
+        assert_eq!(
+            extract_error_offset("failed [ main.psy:1:1 ] at offset 5", &sources),
+            Some(5)
+        );
+    }
+
+    #[test]
+    fn error_offset_line_col_arms_skip_unterminated_and_malformed_triplets() {
+        let sources = HashMap::from([(
+            "main.psy".to_string(),
+            Arc::<str>::from("first\nsecond"),
+        )]);
+
+        // A "[ " marker without a closing " ]" never yields a triplet.
+        assert_eq!(extract_error_offset("[ main.psy:2:1 never closed", &sources), None);
+        // Bracketed text that does not parse as path:line:column is skipped,
+        // including by the single-source fallback.
+        assert_eq!(extract_error_offset("[ not a triplet ]", &sources), None);
+        // A well-formed triplet outside the source bounds produces no offset.
+        assert_eq!(extract_error_offset("[ main.psy:9:9 ]", &sources), None);
+    }
+
+    #[test]
+    fn line_column_offsets_handle_empty_sources_and_crlf() {
+        assert_eq!(line_col_to_offset("", 1, 1), Some(0));
+        assert_eq!(line_col_to_offset("", 1, 2), None);
+        assert_eq!(line_col_to_offset("a\r\nb", 2, 1), Some(3));
+    }
+
+    #[test]
     #[serial]
     fn compile_source_succeeds() {
         let result = parse_result(&compile_source(
@@ -1515,7 +1702,7 @@ mod tests {
 
         assert!(!result.success, "expected constant out-of-bounds array write to fail compilation");
         assert!(
-            result.error.as_deref().unwrap_or_default().contains("index out of bounds"),
+            result.error.as_deref().unwrap_or_default().contains("IndexOutOfBounds"),
             "unexpected error: {:?}",
             result.error
         );
@@ -1618,7 +1805,11 @@ mod tests {
 
         assert!(!result.success, "expected compile failure");
         assert!(result.error.is_some());
-        assert!(result.error_offset.is_some(), "expected parse error offset");
+        assert!(
+            result.error_offset.is_some(),
+            "expected parse error offset; error was: {:?}",
+            result.error
+        );
     }
 
     #[test]
@@ -1645,12 +1836,13 @@ mod tests {
         assert!(result.success, "expected compile success, got {:?}", result.error);
 
         let contract_code = result.contract_code.expect("missing contract_code");
-        assert_eq!(contract_code["state_tree_height"].as_u64(), Some(4));
+        // A map with capacity 128 requires seven Merkle levels.
+        assert_eq!(contract_code["state_tree_height"].as_u64(), Some(7));
         assert!(contract_code["functions"].as_array().is_some_and(|items| !items.is_empty()));
 
         let abi = result.abi.expect("missing abi");
         assert_eq!(abi["contract"]["name"].as_str(), Some("MapContract"));
-        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(4));
+        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(7));
         let state = abi["contract"]["state"].as_array().expect("state array");
         assert!(!state.is_empty());
         assert_eq!(state[0]["name"].as_str(), Some("balances"));
@@ -1732,7 +1924,7 @@ mod tests {
         let abi = result.abi.expect("missing abi");
         assert_eq!(abi["schema_version"].as_str(), Some("2.0.0"));
         assert_eq!(abi["contract"]["name"].as_str(), Some("MapContract"));
-        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(4));
+        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(7));
 
         // State field should use TypeRef with kind: "map"
         let state = abi["contract"]["state"].as_array().expect("state array");
@@ -2329,5 +2521,768 @@ mod tests {
         reset_chain();
         let accounts_after_reset: serde_json::Value = serde_json::from_str(&get_accounts()).unwrap();
         assert_eq!(accounts_after_reset.as_array().map(|items| items.len()), Some(0));
+    }
+
+    #[test]
+    fn ide_module_parts_to_path_builds_frontend_entry_paths() {
+        assert_eq!(ide_module_parts_to_path(&[]), PathBuf::from("/vfs/src/main.psy"));
+        assert_eq!(
+            ide_module_parts_to_path(&["main".to_string()]),
+            PathBuf::from("/vfs/src/main.psy")
+        );
+        assert_eq!(
+            ide_module_parts_to_path(&["main.psy".to_string()]),
+            PathBuf::from("/vfs/src/main.psy")
+        );
+        assert_eq!(
+            ide_module_parts_to_path(&["grid".to_string()]),
+            PathBuf::from("/vfs/src/grid.psy")
+        );
+        assert_eq!(
+            ide_module_parts_to_path(&["mods".to_string(), "grid".to_string()]),
+            PathBuf::from("/vfs/src/mods/grid.psy")
+        );
+        assert_eq!(
+            ide_module_parts_to_path(&["mods".to_string(), "grid.psy".to_string()]),
+            PathBuf::from("/vfs/src/mods/grid.psy")
+        );
+    }
+
+    #[test]
+    fn execution_context_input_defaults_missing_fields_to_zero() {
+        let context = ExecutionContext::from(ExecutionContextInput {
+            user_id: None,
+            contract_id: None,
+            caller_contract_id: None,
+            checkpoint_id: None,
+            nonce: None,
+            user_public_key_hash: None,
+            session_proof_tree_root: None,
+        });
+        assert_eq!(context.user_id, 0);
+        assert_eq!(context.contract_id, 0);
+        assert_eq!(context.caller_contract_id, 0);
+        assert_eq!(context.checkpoint_id, 0);
+        assert_eq!(context.nonce, 0);
+        assert_eq!(context.user_public_key_hash, [0; 4]);
+
+        let context = ExecutionContext::from(ExecutionContextInput {
+            user_id: Some(7),
+            contract_id: Some(9),
+            caller_contract_id: Some(11),
+            checkpoint_id: Some(13),
+            nonce: Some(17),
+            user_public_key_hash: Some([1, 2, 3, 4]),
+            session_proof_tree_root: Some([5, 6, 7, 8]),
+        });
+        assert_eq!(context.user_id, 7);
+        assert_eq!(context.contract_id, 9);
+        assert_eq!(context.caller_contract_id, 11);
+        assert_eq!(context.checkpoint_id, 13);
+        assert_eq!(context.nonce, 17);
+        assert_eq!(context.user_public_key_hash, [1, 2, 3, 4]);
+        assert_eq!(context.session_proof_tree_root, [5, 6, 7, 8]);
+
+        let default = default_execution_context();
+        assert_eq!(default.user_id, 0);
+        assert_eq!(default.checkpoint_id, 0);
+    }
+
+    #[derive(serde::Deserialize)]
+    struct TestInterpretResult {
+        success: bool,
+        error: Option<String>,
+        error_offset: Option<usize>,
+        entry_path: Option<String>,
+        execution_result: Option<serde_json::Value>,
+        outputs: Option<Vec<u64>>,
+    }
+
+    #[test]
+    #[serial]
+    fn interpret_source_runs_main_with_inputs_and_outputs() {
+        let result: TestInterpretResult =
+            serde_json::from_str(&interpret_source("fn main(q: Felt) -> Felt { return q + 1; }", r#"{"inputs":[7]}"#)).unwrap();
+
+        assert!(result.success, "expected interpret success, got {:?}", result.error);
+        assert_eq!(result.entry_path.as_deref(), Some("/vfs/src/main.psy"));
+        let execution = result.execution_result.expect("missing execution_result");
+        assert!(execution["success"].as_bool().is_some_and(|ok| ok), "execution failed: {execution}");
+        assert_eq!(execution["outputs"].as_array().map(|items| items.len()), Some(1));
+        assert_eq!(execution["outputs"][0].as_u64(), Some(8));
+    }
+
+    #[test]
+    #[serial]
+    fn interpret_source_honors_execution_context_and_hydrates_every_initial_state_kind() {
+        let source = r#"
+            use std::prelude::*;
+
+            fn main() -> Felt {
+                return get_user_id();
+            }
+        "#;
+        let request = serde_json::json!({
+            "inputs": [],
+            "execution_context": { "user_id": 42 },
+            "initial_state": {
+                "slots": [{ "user_id": 1, "contract_id": 1, "slot_index": 0, "value": 7 }],
+                "hashes": [{ "user_id": 1, "contract_id": 1, "slot_index": 0, "value": [1, 2, 3, 4] }],
+                "deployers": [{ "contract_id": 1, "deployer": 7 }],
+                "checkpoint_stats": [{ "checkpoint_id": 1, "values": [1, 2] }],
+                "contract_leaves": [{ "contract_id": 1, "values": [1, 2, 3, 4] }],
+                "checkpoint_global_state_roots": [{ "checkpoint_id": 1, "values": [1, 2] }],
+                "imt": [{ "user_id": 1, "contract_id": 1, "key": [1, 2, 3, 4], "value": [5, 6, 7, 8] }]
+            }
+        });
+
+        let result: TestInterpretResult =
+            serde_json::from_str(&interpret_source(source, &request.to_string())).unwrap();
+
+        assert!(result.success, "expected interpret success, got {:?}", result.error);
+        let execution = result.execution_result.expect("missing execution_result");
+        assert_eq!(execution["outputs"][0].as_u64(), Some(42), "execution context user_id must reach the VM: {execution}");
+    }
+
+    #[test]
+    #[serial]
+    fn interpret_source_reports_invalid_requests_and_compile_errors() {
+        let result: TestInterpretResult = serde_json::from_str(&interpret_source("fn main() {}", "not json")).unwrap();
+        assert!(!result.success);
+        assert!(result.error.as_deref().unwrap_or_default().contains("Invalid interpret request JSON"), "{:?}", result.error);
+
+        let result: TestInterpretResult =
+            serde_json::from_str(&interpret_source("fn main( { }", r#"{"inputs":[]}"#)).unwrap();
+        assert!(!result.success, "expected the parse error to fail interpretation");
+        assert!(
+            result.error_offset.is_some(),
+            "expected a parse error offset; error was {:?}",
+            result.error
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn interpret_project_interprets_files_json_and_reports_invalid_input() {
+        let files = serde_json::json!({
+            "entry": ["main"],
+            "files": [[["main"], "fn main(q: Felt) -> Felt { return q * 2; }"]]
+        });
+
+        let result: TestInterpretResult =
+            serde_json::from_str(&interpret_project(&files.to_string(), r#"{"inputs":[21]}"#)).unwrap();
+        assert!(result.success, "expected interpret success, got {:?}", result.error);
+        let execution = result.execution_result.expect("missing execution_result");
+        assert_eq!(execution["outputs"][0].as_u64(), Some(42));
+
+        let result: TestInterpretResult = serde_json::from_str(&interpret_project("{ bad json", r#"{}"#)).unwrap();
+        assert!(!result.success);
+        assert!(result.error.as_deref().unwrap_or_default().contains("Invalid files JSON"), "{:?}", result.error);
+
+        let result: TestInterpretResult =
+            serde_json::from_str(&interpret_project(&files.to_string(), "{ bad json")).unwrap();
+        assert!(!result.success);
+        assert!(result.error.as_deref().unwrap_or_default().contains("Invalid interpret request JSON"), "{:?}", result.error);
+    }
+
+    #[test]
+    #[serial]
+    fn chain_contract_lifecycle_covers_deploy_call_state_and_log() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        // Deploying before any compile is rejected.
+        let result: serde_json::Value = serde_json::from_str(&deploy_contract(1)).unwrap();
+        assert_eq!(result["success"], false);
+        assert_eq!(result["error"].as_str(), Some("No compiled contract. Compile first."));
+
+        // A compiled contract with a writer and a reader method.
+        let compiled = parse_result(&compile_source(
+            r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct LifecycleContract {
+                pub value: Felt,
+            }
+
+            #[contract::write_method]
+            pub fn set_value(value: Felt) {
+                let c = LifecycleContractRef::new(ContractMetadata::current());
+                c.value = value;
+            }
+
+            #[contract::view_method]
+            pub fn get_value() -> Felt {
+                let c = LifecycleContractRef::new(ContractMetadata::current());
+                c.value.get()
+            }
+            "#,
+        ));
+        assert!(compiled.success, "fixture must compile, got {:?}", compiled.error);
+
+        let alice: serde_json::Value = serde_json::from_str(&create_account("Alice")).unwrap();
+        let alice_id = alice["user_id"].as_u64().unwrap();
+
+        // Deploying under an unknown account is rejected; under Alice it works.
+        let result: serde_json::Value = serde_json::from_str(&deploy_contract(999)).unwrap();
+        assert_eq!(result["success"], false);
+        assert_eq!(result["error"].as_str(), Some("Account with ID 999 not found"));
+
+        let result: serde_json::Value = serde_json::from_str(&deploy_contract(alice_id)).unwrap();
+        assert_eq!(result["success"], true, "{result}");
+        let contract_id = result["contract_id"].as_u64().unwrap();
+
+        let contracts: serde_json::Value = serde_json::from_str(&get_contracts()).unwrap();
+        let contracts = contracts.as_array().expect("contracts must be an array");
+        assert_eq!(contracts.len(), 1);
+        assert_eq!(contracts[0]["name"].as_str(), Some("LifecycleContract"));
+        assert_eq!(contracts[0]["deployer_id"].as_u64(), Some(alice_id));
+
+        let abi: serde_json::Value = serde_json::from_str(&get_contract_abi(contract_id)).unwrap();
+        assert_eq!(abi["contract"]["name"].as_str(), Some("LifecycleContract"));
+        let missing_abi: serde_json::Value = serde_json::from_str(&get_contract_abi(999)).unwrap();
+        assert!(missing_abi["error"].as_str().is_some_and(|msg| msg.contains("Contract 999 not found")));
+
+        // Invalid args JSON is rejected before execution.
+        let result: serde_json::Value =
+            serde_json::from_str(&call_contract(alice_id, contract_id, "set_value", "{bad json")).unwrap();
+        assert_eq!(result["success"], false);
+        assert!(result["error"].as_str().is_some_and(|msg| msg.contains("Invalid args")));
+
+        // Unknown contract / method names produce explicit errors.
+        let result: serde_json::Value = serde_json::from_str(&call_contract(alice_id, 999, "set_value", "[]")).unwrap();
+        assert!(result["error"].as_str().is_some_and(|msg| msg.contains("Contract 999 not found")));
+        let result: serde_json::Value =
+            serde_json::from_str(&call_contract(alice_id, contract_id, "missing_method", "[]")).unwrap();
+        assert!(result["error"].as_str().is_some_and(|msg| msg.contains("Method 'missing_method' not found")));
+
+        // Write, then read the value back through the view method.
+        let result: serde_json::Value = serde_json::from_str(&call_contract(alice_id, contract_id, "set_value", "[5]")).unwrap();
+        assert_eq!(result["success"], true, "set_value failed: {result}");
+
+        let result: serde_json::Value = serde_json::from_str(&call_contract(alice_id, contract_id, "get_value", "[]")).unwrap();
+        assert_eq!(result["success"], true, "get_value failed: {result}");
+        assert_eq!(
+            result["outputs"].as_array().and_then(|items| items.first().and_then(serde_json::Value::as_u64)),
+            Some(5),
+            "stored value must be readable: {result}"
+        );
+
+        // State inspection endpoints.
+        let entries: serde_json::Value = serde_json::from_str(&read_contract_state(contract_id, alice_id)).unwrap();
+        assert!(entries.is_array(), "state entries must be an array: {entries}");
+        let missing_state: serde_json::Value = serde_json::from_str(&read_contract_state(999, alice_id)).unwrap();
+        assert!(missing_state["error"].as_str().is_some_and(|msg| msg.contains("Contract 999 not found")));
+
+        let imt: serde_json::Value = serde_json::from_str(&read_imt_state(contract_id as u32, alice_id as u32)).unwrap();
+        assert!(imt.is_array(), "imt entries must be an array: {imt}");
+        let missing_imt: serde_json::Value = serde_json::from_str(&read_imt_state(999, 1)).unwrap();
+        assert!(missing_imt["error"].as_str().is_some_and(|msg| msg.contains("Contract 999 not found")));
+
+        // Both successful calls are recorded in order.
+        let log: serde_json::Value = serde_json::from_str(&get_transaction_log()).unwrap();
+        let log = log.as_array().expect("transaction log must be an array");
+        assert_eq!(log.len(), 2, "expected one record per call: {log:?}");
+        assert_eq!(log[0]["method_name"].as_str(), Some("set_value"));
+        assert_eq!(log[1]["method_name"].as_str(), Some("get_value"));
+        assert_eq!(log[0]["caller_name"].as_str(), Some("Alice"));
+        assert_eq!(log[0]["contract_name"].as_str(), Some("LifecycleContract"));
+        assert_eq!(log[0]["success"], true);
+    }
+
+    #[test]
+    #[serial]
+    fn chain_operations_require_initialization() {
+        *CHAIN.lock().unwrap() = None;
+
+        for result in [
+            serde_json::from_str::<serde_json::Value>(&get_contracts()).unwrap(),
+            serde_json::from_str::<serde_json::Value>(&get_transaction_log()).unwrap(),
+            serde_json::from_str::<serde_json::Value>(&get_contract_abi(1)).unwrap(),
+            serde_json::from_str::<serde_json::Value>(&read_imt_state(1, 1)).unwrap(),
+            serde_json::from_str::<serde_json::Value>(&create_account("Uninitialized")).unwrap(),
+            serde_json::from_str::<serde_json::Value>(&get_accounts()).unwrap(),
+        ] {
+            assert_eq!(
+                result["error"].as_str(),
+                Some("Chain not initialized. Call init_chain() first."),
+                "uninitialized chain must produce the explicit error: {result}"
+            );
+        }
+
+        // Restore a fresh chain for any test that runs afterwards.
+        init_chain();
+    }
+
+    fn dargo_project(source: &str) -> serde_json::Value {
+        serde_json::json!({
+            "root": "root",
+            "packages": [
+                {
+                    "id": "root",
+                    "manifest": "[package]\nname = \"root\"\ntype = \"bin\"\n",
+                    "files": { "src/main.psy": source },
+                    "dependencies": {}
+                }
+            ]
+        })
+    }
+
+    // NOTE: `main`/`init_logging`/`init_psy_ide` are deliberately NOT tested:
+    // they install wasm-only logger/tracing subscribers that abort the native
+    // test binary when any later `tracing::warn!` fires.
+
+    #[test]
+    fn compile_project_rejects_invalid_files_json() {
+        let result = parse_result(&compile_project("not json"));
+        assert!(!result.success);
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("Invalid files JSON"),
+            "{:?}",
+            result.error
+        );
+    }
+
+    #[test]
+    fn compile_dargo_project_reports_malformed_and_unresolvable_inputs() {
+        let result = parse_result(&compile_dargo_project("not json"));
+        assert!(!result.success);
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("Invalid dargo project JSON"),
+            "{:?}",
+            result.error
+        );
+
+        // Empty method list is rejected instead of silently compiling nothing.
+        let mut project = dargo_project("fn main() { assert_eq(1, 1, \"ok\"); }");
+        project["method_names"] = serde_json::json!([]);
+        let result = parse_result(&compile_dargo_project(&project.to_string()));
+        assert!(!result.success);
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("method_names must not be empty"),
+            "{:?}",
+            result.error
+        );
+
+        // A manifest whose entry file does not exist cannot resolve a workspace.
+        let mut missing_entry = dargo_project("");
+        missing_entry["packages"][0]["manifest"] =
+            serde_json::json!("[package]\nname = \"root\"\ntype = \"bin\"\nentry = \"src/missing.psy\"\n");
+        let result = parse_result(&compile_dargo_project(&missing_entry.to_string()));
+        assert!(!result.success, "a missing entry file must fail resolution");
+    }
+
+    #[test]
+    #[serial]
+    fn compile_dargo_project_reports_source_errors_with_an_offset() {
+        let project = dargo_project("fn main() -> Felt { return true; }");
+        let result = parse_result(&compile_dargo_project(&project.to_string()));
+        assert!(!result.success, "the type error must fail compilation");
+        assert!(
+            result.error_offset.is_some() || result.error.as_deref().unwrap_or_default().contains("TypeMismatch"),
+            "expected a diagnostic with an offset or type mismatch: {:?}",
+            result.error
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn compile_dargo_project_registers_dependency_packages_and_edges() {
+        // Two packages: the root depends on a library package. Registering the
+        // dependency exercises the resolver dependency loop and the crate-graph
+        // edge between the two entry files while still compiling successfully.
+        let project = serde_json::json!({
+            "root": "root",
+            "method_names": ["main"],
+            "packages": [
+                {
+                    "id": "root",
+                    "manifest": "[package]\nname = \"root\"\ntype = \"bin\"\n\n[dependencies]\ndep = { path = \"../dep\" }\n",
+                    "files": {
+                        "src/main.psy": "#[contract]\npub struct C {}\n#[contract::write_method]\nfn main() { assert_eq(1, 1, \"ok\"); }"
+                    },
+                    "dependencies": { "dep": "dep" }
+                },
+                {
+                    "id": "dep",
+                    "manifest": "[package]\nname = \"dep\"\ntype = \"lib\"\n",
+                    "files": { "src/lib.psy": "pub fn helper() {}" },
+                    "dependencies": {}
+                }
+            ]
+        });
+
+        let result = parse_result(&compile_dargo_project(&project.to_string()));
+        assert!(result.success, "dependency project must compile: {:?}", result.error);
+        assert!(
+            result.entry_path.as_deref().is_some_and(|path| path.contains("root")),
+            "the root package entry must be reported: {:?}",
+            result.entry_path
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn deploy_contract_requires_an_existing_account_even_after_compiling() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        let compiled = parse_result(&compile_source(
+            "#[contract]\npub struct C {}\n#[contract::write_method]\nfn main() { assert_eq(1, 1, \"ok\"); }",
+        ));
+        assert!(compiled.success, "fixture must compile, got {:?}", compiled.error);
+
+        let result: serde_json::Value = serde_json::from_str(&deploy_contract(9999)).unwrap();
+        assert_eq!(result["success"], false);
+        assert_eq!(
+            result["error"].as_str(),
+            Some("Account with ID 9999 not found"),
+            "deploying as a nonexistent account must be rejected: {result}"
+        );
+
+        *LAST_COMPILE.lock().unwrap() = None;
+    }
+
+    #[test]
+    #[serial]
+    fn interpret_project_reports_missing_method_and_input_mismatch() {
+        #[derive(serde::Deserialize)]
+        struct TestInterpretResult {
+            success: bool,
+            error: Option<String>,
+        }
+
+        let files = serde_json::json!({
+            "entry": ["main"],
+            "files": [[["main"], "fn main(q: Felt) -> Felt { return q * 2; }"]]
+        });
+
+        // A method name that matches no circuit fails interpretation with an
+        // "undefined function" diagnostic rather than an empty success.
+        let result: TestInterpretResult = serde_json::from_str(&interpret_project(
+            &files.to_string(),
+            r#"{"method_name": "does_not_exist", "inputs": []}"#,
+        ))
+        .unwrap();
+        assert!(!result.success, "unknown method must not interpret: {:?}", result.error);
+        assert!(
+            result.error.as_deref().unwrap_or_default().to_lowercase().contains("undefined function"),
+            "{:?}",
+            result.error
+        );
+
+        // A failing constant assertion is rejected before execution.
+        let failing = serde_json::json!({
+            "entry": ["main"],
+            "files": [[["main"], "fn main() { assert(false, \"boom\"); }"]]
+        });
+        let result: TestInterpretResult =
+            serde_json::from_str(&interpret_project(&failing.to_string(), r#"{"inputs": []}"#)).unwrap();
+        assert!(!result.success, "a failing assert must fail execution: {:?}", result.error);
+
+        // NOTE: a *runtime* assertion failure (e.g. `assert(q == 0)` with
+        // input 5) executes to Ok with a `failure` record inside
+        // execution_result — it does NOT take the executor error path, so it
+        // is deliberately not asserted as `success == false` here.
+    }
+
+    #[test]
+    fn interpret_project_reports_vfs_build_errors() {
+        #[derive(serde::Deserialize)]
+        struct TestInterpretResult {
+            success: bool,
+            error: Option<String>,
+        }
+
+        // A project without any files cannot build a VFS.
+        let empty = serde_json::json!({ "entry": ["main"], "files": [] });
+        let result: TestInterpretResult =
+            serde_json::from_str(&interpret_project(&empty.to_string(), r#"{"inputs": []}"#)).unwrap();
+        assert!(!result.success);
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("at least one file"),
+            "{:?}",
+            result.error
+        );
+
+        // An entry module that is not among the uploaded files is rejected.
+        let missing_entry = serde_json::json!({ "entry": ["main"], "files": [[["other"], "fn main() {}"]] });
+        let result: TestInterpretResult =
+            serde_json::from_str(&interpret_project(&missing_entry.to_string(), r#"{"inputs": []}"#)).unwrap();
+        assert!(!result.success);
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("entry file was not found"),
+            "{:?}",
+            result.error
+        );
+    }
+
+    // NOTE: circuit input arity is deliberately not asserted here — the VM
+    // executor tolerates both extra inputs and missing ones (defaults to 0),
+    // so `execute_circuit` only fails on genuine execution errors.
+
+    #[test]
+    #[serial]
+    fn deploy_contract_requires_a_cached_compile() {
+        init_chain();
+        let account: serde_json::Value = serde_json::from_str(&create_account("Carol")).unwrap();
+        let carol_id = account["user_id"].as_u64().unwrap();
+
+        *LAST_COMPILE.lock().unwrap() = None;
+        let result: serde_json::Value = serde_json::from_str(&deploy_contract(carol_id)).unwrap();
+        assert_eq!(result["success"], false);
+        assert_eq!(
+            result["error"].as_str(),
+            Some("No compiled contract. Compile first."),
+            "deploy without a compile must be rejected: {result}"
+        );
+    }
+
+    #[test]
+    fn serialize_result_adds_backward_compatible_aliases() {
+        let result = serialize_result(JsCompileResult {
+            success: true,
+            error: None,
+            error_offset: None,
+            entry_path: Some("main.psy".to_string()),
+            compile_results: Some(serde_json::json!([{ "name": "main" }])),
+            contract_code: Some(serde_json::json!({ "state_tree_height": 12 })),
+            abi: None,
+        });
+        let value: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(value["circuit_definitions"], serde_json::json!([{ "name": "main" }]));
+        assert_eq!(value["circuitDefinitions"], serde_json::json!([{ "name": "main" }]));
+        assert_eq!(value["method_count"], 1);
+        assert_eq!(value["methodCount"], 1);
+        assert_eq!(value["state_tree_height"], 12);
+        assert_eq!(value["stateTreeHeight"], 12);
+    }
+
+    #[test]
+    #[serial]
+    fn call_contract_reports_unknown_callers_and_runtime_failures() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        let compiled = parse_result(&compile_source(
+            r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct GuardContract {
+                pub value: Felt,
+            }
+
+            #[contract::write_method]
+            pub fn set_if_zero(value: Felt) {
+                assert(value == 0, "value must be zero");
+                let c = GuardContractRef::new(ContractMetadata::current());
+                c.value = value;
+            }
+            "#,
+        ));
+        assert!(compiled.success, "fixture must compile, got {:?}", compiled.error);
+
+        let alice: serde_json::Value = serde_json::from_str(&create_account("Alice")).unwrap();
+        let alice_id = alice["user_id"].as_u64().unwrap();
+        let result: serde_json::Value = serde_json::from_str(&deploy_contract(alice_id)).unwrap();
+        assert_eq!(result["success"], true, "{result}");
+        let contract_id = result["contract_id"].as_u64().unwrap();
+
+        // A caller without an account falls back to a synthesized name and the
+        // call still succeeds.
+        let result: serde_json::Value =
+            serde_json::from_str(&call_contract(999, contract_id, "set_if_zero", "[0]")).unwrap();
+        assert_eq!(result["success"], true, "zero input must pass the guard: {result}");
+
+        // A runtime assertion failure records a failure message instead of an error.
+        let result: serde_json::Value =
+            serde_json::from_str(&call_contract(alice_id, contract_id, "set_if_zero", "[5]")).unwrap();
+        assert_eq!(result["success"], false, "guard must reject five: {result}");
+        assert!(
+            result["failure_message"].as_str().is_some_and(|msg| msg.contains("value must be zero")),
+            "runtime failure must carry the assert message: {result}"
+        );
+
+        let log: serde_json::Value = serde_json::from_str(&get_transaction_log()).unwrap();
+        let log = log.as_array().expect("transaction log must be an array");
+        assert_eq!(log.len(), 2, "expected one record per call: {log:?}");
+        assert_eq!(log[0]["caller_name"].as_str(), Some("User 999"));
+        assert_eq!(log[0]["success"], true);
+        assert!(
+            log[1]["failure_message"]
+                .as_str()
+                .is_some_and(|msg| msg.contains("value must be zero")),
+            "log must record the runtime failure: {log:?}"
+        );
+        assert_eq!(log[1]["success"], false);
+    }
+
+    /// Regression: a tuple-typed entry parameter used to panic with
+    /// "primitive scope has not been initialized" because `to_input` still read
+    /// the retired process-global primitive scope instead of the symbol table.
+    #[test]
+    #[serial]
+    fn tuple_entry_inputs_compile() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        let result = parse_result(&compile_source(
+            "fn main(t: (Felt, Felt)) -> Felt { return t.0; }",
+        ));
+        assert!(result.success, "tuple entry input must compile: {:?}", result.error);
+        assert_eq!(result.method_count, Some(1));
+    }
+
+    #[test]
+    #[serial]
+    fn read_imt_state_lists_entries_written_by_contract_calls() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        let compiled = parse_result(&compile_source(
+            r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct RegistryContract {
+                pub padding: Felt,
+            }
+
+            #[contract::write_method]
+            pub fn register(key: Felt) {
+                let k: Hash = [key, 0, 0, 0];
+                let v: Hash = [key, 1, 2, 3];
+                let offset: Felt = 0;
+                let capacity: Felt = 128;
+                imt_set(k, v, offset, capacity);
+            }
+            "#,
+        ));
+        assert!(compiled.success, "fixture must compile, got {:?}", compiled.error);
+
+        let alice: serde_json::Value = serde_json::from_str(&create_account("Alice")).unwrap();
+        let alice_id = alice["user_id"].as_u64().unwrap();
+        let result: serde_json::Value = serde_json::from_str(&deploy_contract(alice_id)).unwrap();
+        assert_eq!(result["success"], true, "{result}");
+        let contract_id = result["contract_id"].as_u64().unwrap();
+
+        let result: serde_json::Value =
+            serde_json::from_str(&call_contract(alice_id, contract_id, "register", "[7001]")).unwrap();
+        assert_eq!(result["success"], true, "register must execute: {result}");
+
+        let imt: serde_json::Value = serde_json::from_str(&read_imt_state(contract_id as u32, alice_id as u32)).unwrap();
+        let entries = imt.as_array().expect("imt entries must be an array");
+        assert!(!entries.is_empty(), "imt write must be observable: {imt}");
+        assert_eq!(entries[0]["key"].as_array().and_then(|k| k.first()).and_then(serde_json::Value::as_u64), Some(7001));
+    }
+
+    /// Regression: a function-typed entry parameter used to panic the compiler
+    /// with "Unsupported type in to_input"; it must surface as a clean
+    /// diagnostic instead.
+    #[test]
+    #[serial]
+    fn fn_typed_entry_input_is_rejected_with_a_diagnostic() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        let result = parse_result(&compile_source(
+            "fn main(f: fn(Felt) -> Felt) -> Felt { return f(1); }",
+        ));
+        assert!(!result.success, "fn-typed entry input must be rejected, got error: {:?}", result.error);
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("UnsupportedEntryPointInput"),
+            "unexpected error: {:?}",
+            result.error
+        );
+    }
+
+    /// Regression: assertions under a *symbolic* branch condition (entry-input
+    /// dependent) are witness-gated and satisfiable — they must compile. The
+    /// eager constant-assert failure used to treat "not provably false" as
+    /// "definitely executes" and wrongly rejected programs like
+    /// `if a > b { assert(false) }`.
+    #[test]
+    #[serial]
+    fn asserts_under_symbolic_branches_stay_gated() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        // Witness-dependent arm: satisfiable by choosing a <= b.
+        let result = parse_result(&compile_source(
+            "fn main(a: Felt, b: Felt) -> Felt {\n    if a > b {\n        assert(false, \"only reachable when a > b\");\n    };\n    return a + b;\n}\n",
+        ));
+        assert!(result.success, "symbolic-branch assert must stay gated: {:?}", result.error);
+
+        // A provably dead arm nested under a symbolic arm cannot be proven
+        // dead either (the conjunction does not fold), so it stays gated too.
+        let result = parse_result(&compile_source(
+            "fn main(a: Felt, b: Felt) -> Felt {\n    if a > b {\n        if false {\n            assert(false, \"dead arm\");\n        };\n    };\n    return a + b;\n}\n",
+        ));
+        assert!(result.success, "nested dead-arm assert must stay gated: {:?}", result.error);
+
+        // A constant-false top-level arm stays gated (the original intent).
+        let result = parse_result(&compile_source(
+            "fn main() -> Felt {\n    if false {\n        assert(false, \"constant-false arm\");\n    };\n    return 1;\n}\n",
+        ));
+        assert!(result.success, "constant-false arm assert must stay gated: {:?}", result.error);
+    }
+
+    /// The eager failure itself must keep working where the branch IS provably
+    /// executed: top-level and constant-true arms fail at compile time.
+    #[test]
+    #[serial]
+    fn constant_asserts_in_definitely_executed_code_still_fail_eagerly() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        let result = parse_result(&compile_source(
+            "fn main() -> Felt {\n    assert(false, \"top level must fail\");\n    return 1;\n}\n",
+        ));
+        assert!(!result.success, "top-level assert(false) must fail compilation");
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("top level must fail"),
+            "unexpected error: {:?}",
+            result.error
+        );
+
+        let result = parse_result(&compile_source(
+            "fn main() -> Felt {\n    if 1 == 1 {\n        assert(false, \"constant-true arm must fail\");\n    };\n    return 1;\n}\n",
+        ));
+        assert!(!result.success, "constant-true arm assert(false) must fail compilation");
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("constant-true arm must fail"),
+            "unexpected error: {:?}",
+            result.error
+        );
+    }
+
+    /// Regression: monomorphized function references (`id::<Felt>` and
+    /// `mod::g::<Felt>` used as values) used to panic the compiler with
+    /// `unreachable!()` in sema's generic-type arm; they must surface as a
+    /// clean diagnostic instead.
+    #[test]
+    #[serial]
+    fn turbofish_function_references_are_rejected_with_a_diagnostic() {
+        init_chain();
+        *LAST_COMPILE.lock().unwrap() = None;
+
+        let result = parse_result(&compile_source(
+            "fn id(x: Felt) -> Felt { return x; }\nfn main() -> Felt {\n    let f = id::<Felt>;\n    return f(1);\n}\n",
+        ));
+        assert!(!result.success, "fn-ref turbofish must be rejected, not panic");
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("generic arguments"),
+            "unexpected error: {:?}",
+            result.error
+        );
+
+        let result = parse_result(&compile_source(
+            "pub mod m { pub fn g<T>(x: T) -> Felt { return 1; } }\nfn main() -> Felt {\n    let v = m::g::<Felt>;\n    return v(2);\n}\n",
+        ));
+        assert!(!result.success, "mod fn-ref turbofish must be rejected, not panic");
+        assert!(
+            result.error.as_deref().unwrap_or_default().contains("generic arguments"),
+            "unexpected error: {:?}",
+            result.error
+        );
     }
 }

@@ -248,3 +248,439 @@ impl<F> CheckedExprNode<F> {
         }
     }
 }
+
+#[cfg(test)]
+mod accessor_tests {
+    use indexmap::IndexMap;
+    use psy_ast::{ConstValue, ExprId, IdentId, Identifier, PathNode, UncheckedType};
+    use psy_common::FileId;
+
+    use super::*;
+    use crate::ScopeId;
+
+    fn loc(start: usize) -> Location {
+        Location::new(FileId(0), start, start + 1)
+    }
+
+    fn empty_path_node() -> PathNode {
+        PathNode {
+            root: None,
+            segments: vec![],
+            target: UncheckedType::Basic(Identifier { id: IdentId(0), location: loc(1) }),
+            is_ty: false,
+            location: loc(1),
+        }
+    }
+
+    #[test]
+    fn intrinsic_accessors_round_trip() {
+        let e = ExprId(0);
+        // One maker per `CheckedIntrinsicExprNode` variant; each receives the
+        // type id and location it must carry so the asserts below are real
+        // round-trips rather than tautologies.
+        let makers: Vec<Box<dyn Fn(usize, Location) -> CheckedIntrinsicExprNode>> = vec![
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetUserId { type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetContractId { type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetContractDeployer { contract_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetContractStateTreeHeight { contract_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetCallerContractId { type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetCheckpointId { type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetCheckpointStats { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetRegisterUsersRoot { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetGutasRoot { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetCheckpointUserTreeRoot { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetCheckpointContractTreeRoot { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetCheckpointDepositTreeRoot { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetCheckpointWithdrawalTreeRoot { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetCheckpointUserRegistrationTreeRoot { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetDeployContractsRoot { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetGutaFeesCollected { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetDaFeesCollected { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetUserOpsProcessed { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetTotalTransactions { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetSlotsModified { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetRegisterUsersCompleted { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetGutasCompleted { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetDeployContractsCompleted { checkpoint_id: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetLastNonce { type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetUserPublicKeyHash { type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetSessionProofTreeRoot { type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::GetStateHashAt { slot_index: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::ImtGet {
+                    key: e,
+                    base_offset: e,
+                    capacity: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::ImtGetOtherUser {
+                    contract_state_tree_height: e,
+                    user_id: e,
+                    contract_id: e,
+                    key: e,
+                    base_offset: e,
+                    capacity: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::ImtContainsOtherUser {
+                    contract_state_tree_height: e,
+                    user_id: e,
+                    contract_id: e,
+                    key: e,
+                    base_offset: e,
+                    capacity: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::GetOtherContractStateHashAt {
+                    contract_state_tree_height: e,
+                    contract_id: e,
+                    slot_index: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::GetOtherUserContractStateHashAt {
+                    contract_state_tree_height: e,
+                    user_id: e,
+                    contract_id: e,
+                    slot_index: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::CSetStateHashAt {
+                    slot_index: e,
+                    new_value: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::ImtSet {
+                    key: e,
+                    new_value: e,
+                    base_offset: e,
+                    capacity: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::ImtContains {
+                    key: e,
+                    base_offset: e,
+                    capacity: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::MemTransmute { data: e, target_type: TypeId(t), location: l }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::MemSizeOf {
+                    query_type: TypeId(t),
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::StorageRead {
+                    contract_state_tree_height: e,
+                    user_id: e,
+                    contract_id: e,
+                    offset: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::StorageReadRange {
+                    contract_state_tree_height: e,
+                    user_id: e,
+                    contract_id: e,
+                    offset: e,
+                    length: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::StorageWrite { offset: e, value: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::StorageWriteRange { offset: e, values: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::Hash { data: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::Keccak256 { data: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::HashTwoToOne { left: e, right: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::InvokeSync {
+                    contract_id: e,
+                    method_id: e,
+                    inputs: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::InvokeDeferred {
+                    contract_id: e,
+                    method_id: e,
+                    inputs: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::Secp256k1Verify {
+                    pub_key: e,
+                    msg: e,
+                    sig: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::SumBits { bits: e, type_id: TypeId(t), location: l }),
+            Box::new(|t, l| {
+                CheckedIntrinsicExprNode::SplitBits {
+                    target: e,
+                    num_bits: e,
+                    type_id: TypeId(t),
+                    location: l,
+                }
+            }),
+            Box::new(|t, l| CheckedIntrinsicExprNode::Emit { event_data: e, type_id: TypeId(t), location: l }),
+        ];
+
+        for (i, make) in makers.into_iter().enumerate() {
+            let type_id = TypeId(1000 + i);
+            let location = loc(2000 + i);
+            let node = CheckedExprNode::<u64>::Intrinsic(make(1000 + i, location));
+            assert_eq!(node.ty(), type_id, "ty() for intrinsic case {i}");
+            assert_eq!(node.location(), location, "location() for intrinsic case {i}");
+            assert_eq!(node.node_type(), NodeType::IntrinsicExpr, "node_type() for intrinsic case {i}");
+        }
+    }
+
+    #[test]
+    fn value_accessors_round_trip() {
+        let cases: Vec<(CheckedExprNode<u64>, TypeId, Location)> = vec![
+            (CheckedExprNode::Value(CheckedValueNode::Felt(7, loc(10))), FELT_TYPE, loc(10)),
+            (CheckedExprNode::Value(CheckedValueNode::Bool(1, loc(11))), BOOL_TYPE, loc(11)),
+            (CheckedExprNode::Value(CheckedValueNode::U32(9, loc(12))), U32_TYPE, loc(12)),
+            (
+                CheckedExprNode::Value(CheckedValueNode::Array(TypeId(20), vec![ExprId(0)], loc(13))),
+                TypeId(20),
+                loc(13),
+            ),
+            (
+                CheckedExprNode::Value(CheckedValueNode::ArrayRepeat(TypeId(21), ExprId(0), ConstValue::Felt(1), loc(14))),
+                TypeId(21),
+                loc(14),
+            ),
+            (
+                CheckedExprNode::Value(CheckedValueNode::Struct(TypeId(22), IndexMap::new(), loc(15))),
+                TypeId(22),
+                loc(15),
+            ),
+            (
+                CheckedExprNode::Value(CheckedValueNode::Tuple(TypeId(23), vec![(TypeId(1), ExprId(0))], loc(16))),
+                TypeId(23),
+                loc(16),
+            ),
+        ];
+        for (node, type_id, location) in cases {
+            assert_eq!(node.ty(), type_id);
+            assert_eq!(node.location(), location, "Value location for {type_id:?}");
+            assert_eq!(node.node_type(), NodeType::ValueExpr);
+        }
+
+        // `Type` values are unevaluated type references and deliberately have
+        // no location — only the type accessor is meaningful for them.
+        let type_value = CheckedExprNode::<u64>::Value(CheckedValueNode::Type(TypeId(24)));
+        assert_eq!(type_value.ty(), TypeId(24));
+        assert_eq!(type_value.node_type(), NodeType::ValueExpr);
+    }
+
+    #[test]
+    fn other_expr_accessors_round_trip() {
+        let e = ExprId(0);
+        let cases: Vec<(CheckedExprNode<u64>, TypeId, Location, NodeType)> = vec![
+            (
+                CheckedExprNode::Path(CheckedPathNode {
+                    variable: None,
+                    root: None,
+                    target: None,
+                    origin_path: empty_path_node(),
+                    type_id: TypeId(30),
+                    trait_ty: None,
+                    location: loc(30),
+                }),
+                TypeId(30),
+                loc(30),
+                NodeType::PathExpr,
+            ),
+            (
+                CheckedExprNode::Binary(CheckedBinaryNode {
+                    lhs: e,
+                    operator: psy_ast::BinaryOperator::Add,
+                    rhs: e,
+                    type_id: TypeId(31),
+                    location: loc(31),
+                }),
+                TypeId(31),
+                loc(31),
+                NodeType::BinaryExpr,
+            ),
+            (
+                CheckedExprNode::Unary(CheckedUnaryNode {
+                    operator: psy_ast::UnaryOperator::Not,
+                    rhs: e,
+                    type_id: TypeId(32),
+                    location: loc(32),
+                }),
+                TypeId(32),
+                loc(32),
+                NodeType::UnaryExpr,
+            ),
+            (
+                CheckedExprNode::Cast(CheckedCastNode {
+                    value: e,
+                    target_type: TypeId(33),
+                    location: loc(33),
+                }),
+                TypeId(33),
+                loc(33),
+                NodeType::CastExpr,
+            ),
+            (
+                CheckedExprNode::Call(CheckedCallNode {
+                    callee: e,
+                    generic_parameters: vec![],
+                    args: vec![],
+                    type_id: TypeId(34),
+                    location: loc(34),
+                }),
+                TypeId(34),
+                loc(34),
+                NodeType::CallExpr,
+            ),
+            (
+                CheckedExprNode::MemberCall(CheckedMemberCallNode {
+                    callee: e,
+                    receiver: e,
+                    generic_parameters: vec![],
+                    args: vec![],
+                    type_id: TypeId(35),
+                    location: loc(35),
+                }),
+                TypeId(35),
+                loc(35),
+                NodeType::MemberCallExpr,
+            ),
+            (
+                CheckedExprNode::IndexAccess(CheckedIndexAccessNode {
+                    target: e,
+                    index: e,
+                    type_id: TypeId(36),
+                    location: loc(36),
+                }),
+                TypeId(36),
+                loc(36),
+                NodeType::IndexAccessExpr,
+            ),
+            (
+                CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
+                    target: e,
+                    field: Identifier { id: IdentId(0), location: loc(1) },
+                    type_id: TypeId(37),
+                    location: loc(37),
+                }),
+                TypeId(37),
+                loc(37),
+                NodeType::MemberAccessExpr,
+            ),
+            (
+                CheckedExprNode::TupleAccess(CheckedTupleAccessNode {
+                    target: e,
+                    index: 0,
+                    type_id: TypeId(38),
+                    location: loc(38),
+                }),
+                TypeId(38),
+                loc(38),
+                NodeType::TupleAccessExpr,
+            ),
+            (
+                CheckedExprNode::LambdaFunction(CheckedLambdaFunctionNode {
+                    name: Identifier { id: IdentId(0), location: loc(1) },
+                    parameters: vec![],
+                    body: e,
+                    return_type: TypeId(39),
+                    return_type_path: None,
+                    scope_id: ScopeId(0),
+                    type_id: TypeId(39),
+                    location: loc(39),
+                }),
+                TypeId(39),
+                loc(39),
+                NodeType::LambdaFunctionExpr,
+            ),
+            (
+                CheckedExprNode::BlockExpr(CheckedBlockExprNode {
+                    stmts: vec![],
+                    expr: None,
+                    type_id: TypeId(40),
+                    scope_id: ScopeId(0),
+                    location: loc(40),
+                }),
+                TypeId(40),
+                loc(40),
+                NodeType::BlockExpr,
+            ),
+            (
+                CheckedExprNode::IfExpr(CheckedIfExprNode {
+                    if_branch: CheckedCase {
+                        predicate: e,
+                        type_id: TypeId(1),
+                        body: e,
+                    },
+                    elseif_branches: vec![],
+                    else_branch: None,
+                    type_id: TypeId(41),
+                    location: loc(41),
+                }),
+                TypeId(41),
+                loc(41),
+                NodeType::IfExpr,
+            ),
+            (
+                CheckedExprNode::Match(CheckedMatchNode {
+                    value: e,
+                    cases: vec![CheckedMatchArm {
+                        pattern: None,
+                        body: e,
+                        location: loc(1),
+                    }],
+                    type_id: TypeId(42),
+                    scope_id: ScopeId(0),
+                    location: loc(42),
+                }),
+                TypeId(42),
+                loc(42),
+                NodeType::MatchExpr,
+            ),
+        ];
+        for (node, type_id, location, kind) in cases {
+            assert_eq!(node.ty(), type_id, "ty() for {kind:?}");
+            assert_eq!(node.location(), location, "location() for {kind:?}");
+            assert_eq!(node.node_type(), kind);
+        }
+    }
+}

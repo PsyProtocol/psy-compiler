@@ -4,7 +4,12 @@ mod control;
 pub mod error;
 mod preprocess;
 
-use std::{collections::{HashMap, HashSet}, iter::once, path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    iter::once,
+    path::PathBuf,
+    sync::Arc,
+};
 
 use error::{Error, Result};
 use indexmap::IndexMap;
@@ -41,10 +46,8 @@ pub struct InterpretResult {
 }
 
 pub fn interpret(contract_name: Option<String>, method_names: Vec<String>, crate_path_graph: Graph<PathBuf>) -> anyhow::Result<InterpretResult> {
-    with_primitive_scope_reset(|| {
-        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
-        interpret_with_program(&mut interpreter, crate_path_graph, Program::new(), contract_name, method_names)
-    })
+    let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+    interpret_with_program(&mut interpreter, crate_path_graph, Program::new(), contract_name, method_names)
 }
 
 pub fn interpret_virtual_files(
@@ -53,14 +56,12 @@ pub fn interpret_virtual_files(
     crate_path_graph: Graph<PathBuf>,
     files: Vec<(PathBuf, Arc<str>)>,
 ) -> anyhow::Result<InterpretResult> {
-    with_primitive_scope_reset(|| {
-        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
-        let mut program = Program::new();
-        for (path, content) in files {
-            program.file_resolver.add_file(path, content);
-        }
-        interpret_with_program(&mut interpreter, crate_path_graph, program, contract_name, method_names)
-    })
+    let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+    let mut program = Program::new();
+    for (path, content) in files {
+        program.file_resolver.add_file(path, content);
+    }
+    interpret_with_program(&mut interpreter, crate_path_graph, program, contract_name, method_names)
 }
 
 pub fn interpret_vfs_files(
@@ -72,22 +73,8 @@ pub fn interpret_vfs_files(
     interpret_virtual_files(contract_name, method_names, crate_path_graph, files)
 }
 
+#[cfg(test)]
 fn with_primitive_scope_reset<T>(f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
-    struct PrimitiveScopeResetGuard;
-    impl Drop for PrimitiveScopeResetGuard {
-        fn drop(&mut self) {
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            }
-        }
-    }
-
-    #[allow(static_mut_refs)]
-    unsafe {
-        let _ = STD_PRIMITIVE_SCOPE_ID.take();
-    }
-    let _primitive_scope_guard = PrimitiveScopeResetGuard;
     f()
 }
 
@@ -180,11 +167,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
     /// Number of leaf input values a parameter type materializes.
     fn input_footprint(ty: TypeId, symbols: &SymbolTable<F>) -> u64 {
-        fn visit<F: ContextFelt + From<u32>>(
-            ty: TypeId,
-            symbols: &SymbolTable<F>,
-            active: &mut HashSet<TypeId>,
-        ) -> u64 {
+        fn visit<F: ContextFelt + From<u32>>(ty: TypeId, symbols: &SymbolTable<F>, active: &mut HashSet<TypeId>) -> u64 {
             // Type graphs can be recursive. Treat a cycle conservatively as
             // over-budget instead of imposing a nesting cutoff that lets a
             // deeply nested input count as zero.
@@ -192,29 +175,29 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 return u64::MAX;
             }
             let footprint = match &symbols[ty] {
-            Type::Array(arr) => {
-                let size = match &symbols[arr.size_ty] {
-                    Type::Const(const_node) => {
-                        let const_value_ref = &symbols[const_node.value];
-                        match &*const_value_ref.borrow() {
-                            // Felt and U32 constants carry their payload in
-                            // the felt; ContextFelt::get_u64 reads it without
-                            // needing the interpreter's context handle.
-                            CheckedValue::Felt(f) | CheckedValue::U32(f) => ContextFelt::get_u64(f),
-                            _ => 0,
+                Type::Array(arr) => {
+                    let size = match &symbols[arr.size_ty] {
+                        Type::Const(const_node) => {
+                            let const_value_ref = &symbols[const_node.value];
+                            match &*const_value_ref.borrow() {
+                                // Felt and U32 constants carry their payload in
+                                // the felt; ContextFelt::get_u64 reads it without
+                                // needing the interpreter's context handle.
+                                CheckedValue::Felt(f) | CheckedValue::U32(f) => ContextFelt::get_u64(f),
+                                _ => 0,
+                            }
                         }
-                    }
-                    _ => u64::MAX,
-                };
-                size.saturating_mul(visit(arr.inner_ty, symbols, active))
-            }
-            Type::Tuple(elements) => elements.iter().map(|&e| visit(e, symbols, active)).fold(0, u64::saturating_add),
-            Type::Struct(s) => s
-                .fields
-                .values()
-                .map(|field| visit(field.ty, symbols, active))
-                .fold(0, u64::saturating_add),
-            _ => 1,
+                        _ => u64::MAX,
+                    };
+                    size.saturating_mul(visit(arr.inner_ty, symbols, active))
+                }
+                Type::Tuple(elements) => elements.iter().map(|&e| visit(e, symbols, active)).fold(0, u64::saturating_add),
+                Type::Struct(s) => s
+                    .fields
+                    .values()
+                    .map(|field| visit(field.ty, symbols, active))
+                    .fold(0, u64::saturating_add),
+                _ => 1,
             };
             active.remove(&ty);
             footprint
@@ -239,14 +222,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     /// Create a fresh entry-point input after charging its complete type
     /// footprint. Internal function calls pass existing CheckedValueRefs and
     /// must not use this path.
-    fn materialize_input(
-        &mut self,
-        ty: TypeId,
-        symbols: &SymbolTable<F>,
-        location: Option<Location>,
-    ) -> Result<CheckedValueRef<F>> {
-        self.charge_materialized(Self::input_footprint(ty, symbols), location)?;
-        Ok(CheckedValueRef::new_rc(self.to_input(ty, symbols)))
+    fn materialize_input(&mut self, ty: TypeId, symbols: &SymbolTable<F>, location: Location) -> Result<CheckedValueRef<F>> {
+        self.charge_materialized(Self::input_footprint(ty, symbols), Some(location))?;
+        Ok(CheckedValueRef::new_rc(self.to_input(ty, symbols, location)?))
     }
 
     pub fn calculate_type_size(&mut self, type_id: TypeId, ctx: &TypeCheckerVisitorContext<F, C>) -> usize {
@@ -275,29 +253,34 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         }
     }
 
-    pub fn to_input(&mut self, ty: TypeId, symbols: &SymbolTable<F>) -> CheckedValue<F> {
+    pub fn to_input(&mut self, ty: TypeId, symbols: &SymbolTable<F>, location: Location) -> Result<CheckedValue<F>> {
         match symbols[ty].clone() {
-            Type::Felt => CheckedValue::Felt(self.context.add_input()),
-            Type::Bool => CheckedValue::Bool(self.context.add_bool_input()),
-            Type::U32 => CheckedValue::U32(self.context.add_u32_input()),
+            Type::Felt => Ok(CheckedValue::Felt(self.context.add_input())),
+            Type::Bool => Ok(CheckedValue::Bool(self.context.add_bool_input())),
+            Type::U32 => Ok(CheckedValue::U32(self.context.add_u32_input())),
             Type::Tuple(elements) => {
                 let mut result = Vec::new();
                 for element_type in elements {
-                    let value = CheckedValueRef::new_rc(self.to_input(element_type, symbols));
+                    let value = CheckedValueRef::new_rc(self.to_input(element_type, symbols, location)?);
 
                     result.push((element_type, value));
                 }
-                let type_id = symbols.get_type_id(Some(ScopeId::primitive()), symbols[ty].key()).unwrap();
+                // Tuples live in the primitive scope; read it from the symbol
+                // table (the process-global fallback is never set in production).
+                let type_id = symbols.get_type_id(Some(symbols.type_scope_id(ty)), symbols[ty].key()).unwrap();
 
-                CheckedValue::Tuple { type_id, elements: result }
+                Ok(CheckedValue::Tuple { type_id, elements: result })
             }
             Type::Struct(s) => {
                 let mut result = IndexMap::new();
                 for (field_name, field) in &s.fields {
-                    result.insert(field_name.clone(), CheckedValueRef::new_rc(self.to_input(field.ty.clone(), symbols)));
+                    result.insert(
+                        field_name.clone(),
+                        CheckedValueRef::new_rc(self.to_input(field.ty.clone(), symbols, location)?),
+                    );
                 }
                 let type_id = symbols.get_type_id(Some(s.scope_id), symbols[ty].key()).unwrap();
-                CheckedValue::Struct(type_id, result)
+                Ok(CheckedValue::Struct(type_id, result))
             }
             Type::Array(arr) => {
                 let size = match &symbols[arr.size_ty] {
@@ -306,22 +289,38 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         match &*const_value_ref.borrow() {
                             CheckedValue::Felt(f) => self.context.get_constant_value(f.clone()) as usize,
                             CheckedValue::U32(f) => self.context.get_constant_value(f.clone()) as usize,
-                            _ => panic!("Array size must be a numeric constant"),
+                            _ => {
+                                return Err(Error::UnsupportedEntryPointInput {
+                                    ty: format!("{:?}", symbols[ty]),
+                                    reason: "array size must be a numeric constant",
+                                    location,
+                                })
+                            }
                         }
                     }
-                    _ => panic!("Array size must be a const type"),
+                    _ => {
+                        return Err(Error::UnsupportedEntryPointInput {
+                            ty: format!("{:?}", symbols[ty]),
+                            reason: "array size must be a constant expression",
+                            location,
+                        })
+                    }
                 };
 
                 let mut elements = Vec::new();
                 for _ in 0..size {
-                    elements.push(CheckedValueRef::new_rc(self.to_input(arr.inner_ty.clone(), symbols)));
+                    elements.push(CheckedValueRef::new_rc(self.to_input(arr.inner_ty.clone(), symbols, location)?));
                 }
 
                 let type_id = symbols.get_type_id(Some(arr.scope_id), symbols[ty].key()).unwrap();
 
-                CheckedValue::Array(type_id, elements)
+                Ok(CheckedValue::Array(type_id, elements))
             }
-            other => panic!("Unsupported type in to_input: {:?}", other),
+            other => Err(Error::UnsupportedEntryPointInput {
+                ty: format!("{:?}", other),
+                reason: "this type cannot be passed as an entry-point input",
+                location,
+            }),
         }
     }
 
@@ -430,7 +429,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 // Bound input materialization by the type's element
                 // footprint BEFORE building it: `main(a: [Felt; 4_000_000])`
                 // previously allocated millions of inputs unchallenged (M4).
-                parameters.push(self.materialize_input(parameter.ty, &ctx.symbols, Some(node.location))?);
+                parameters.push(self.materialize_input(parameter.ty, &ctx.symbols, node.location)?);
             }
             let res = self.__interpret__(&typechecker.program, type_id, parameters, ctx)?;
             let compiled = compile_fn(&self.context, res);
@@ -653,14 +652,6 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     where
         F: 'static,
     {
-        // Each standalone source check owns a fresh symbol table. Clear the
-        // process-global primitive scope handle so names such as `Array` are
-        // resolved against this check's std primitive module, not a previous
-        // test or compilation.
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        }
         let mut crate_path_graph = Graph::new();
         crate_path_graph.add_node(file);
         self.typecheck(crate_path_graph)
@@ -694,7 +685,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
         let mut formatter = Formatter::new();
         formatter.visit_program(&mut default_visitor_context)?;
-        println!("formatted:\n{}", formatter.get_output());
+        tracing::debug!("formatted:\n{}", formatter.get_output());
 
         let mut typechecker_context = TypeCheckerVisitorContext::new(program);
         typechecker.visit_program(&mut typechecker_context).map_err(|err| {
@@ -871,6 +862,15 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 } => {
                     let lhs_value = self.interpret_expr(program, left.clone(), ctx)?;
                     let condition = lhs_value.to_bool();
+                    let condition_type = self.context.get_op_type(condition.clone());
+                    let condition_is_constant_false = condition_type == DPNOpType::ConstantFalse
+                        || (condition_type == DPNOpType::Constant && self.context.get_constant_value(condition.clone()) == 0);
+                    if condition_is_constant_false && self.current_branch_definitely_executes() {
+                        return Err(Error::AssertionFailure {
+                            message: message.clone().unwrap_or_default(),
+                            location: Some(*location),
+                        });
+                    }
                     self.context
                         .assert_true(condition, Box::leak(message.clone().unwrap_or_default().into_boxed_str()));
                 }
@@ -885,6 +885,16 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     let rhs_value = self.interpret_expr(program, right.clone(), ctx)?;
                     let lhs = lhs_value.to_value();
                     let rhs = rhs_value.to_value();
+
+                    let both_constant = self.is_constant(lhs.clone()) && self.is_constant(rhs.clone());
+                    let constants_differ =
+                        both_constant && self.context.get_constant_value(lhs.clone()) != self.context.get_constant_value(rhs.clone());
+                    if constants_differ && self.current_branch_definitely_executes() {
+                        return Err(Error::AssertionFailure {
+                            message: message.clone().unwrap_or_default(),
+                            location: Some(*location),
+                        });
+                    }
 
                     self.context
                         .assert_eq(lhs, rhs, Box::leak(message.clone().unwrap_or_default().into_boxed_str()));
@@ -1012,10 +1022,11 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         // operands. The VM's constant-folding path panics (assert!/integer div)
         // on these; surface them as clean compile/runtime errors instead.
         match (&*lhs_value.borrow(), &*rhs_value.borrow(), binary_node.operator) {
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), Div | Mod)
-            | (CheckedValue::U32(l), CheckedValue::U32(r), Div | Mod) => {
+            (CheckedValue::Felt(l), CheckedValue::Felt(r), Div | Mod) | (CheckedValue::U32(l), CheckedValue::U32(r), Div | Mod) => {
                 if self.is_constant(*l) && self.is_constant(*r) && self.context.get_constant_value(*r) == 0 {
-                    return Err(Error::DivisionByZero { location: Some(binary_node.location) });
+                    return Err(Error::DivisionByZero {
+                        location: Some(binary_node.location),
+                    });
                 }
             }
             (CheckedValue::U32(l), CheckedValue::U32(r), Add | Sub | Mul | Pow) => {
@@ -1034,7 +1045,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         _ => false,
                     };
                     if overflow {
-                        return Err(Error::ArithmeticOverflow { location: Some(binary_node.location) });
+                        return Err(Error::ArithmeticOverflow {
+                            location: Some(binary_node.location),
+                        });
                     }
                 }
             }
@@ -1173,9 +1186,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 match ctx_node {
                     CheckedIntrinsicExprNode::GetUserId { .. } => CheckedValueRef::from_felt(self.context.get_user_id()),
                     CheckedIntrinsicExprNode::GetContractId { .. } => CheckedValueRef::from_felt(self.context.get_contract_id()),
-                    CheckedIntrinsicExprNode::GetContractDeployer { contract_id, type_id, .. } => {
+                    CheckedIntrinsicExprNode::GetContractDeployer { contract_id, .. } => {
                         let contract_id = self.interpret_expr(program, contract_id.clone(), ctx)?.to_felt();
-                        CheckedValueRef::from_vec(type_id.clone(), self.context.get_contract_deployer(contract_id))
+                        CheckedValueRef::from_felt(self.context.get_contract_deployer(contract_id))
                     }
                     CheckedIntrinsicExprNode::GetContractStateTreeHeight { contract_id, .. } => {
                         let contract_id = self.interpret_expr(program, *contract_id, ctx)?.to_felt();
@@ -2147,6 +2160,19 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
         constant_types.contains(&self.context.get_op_type(value))
     }
+
+    /// Whether the interpreter is currently inside a branch that is statically
+    /// known to execute. Under symbolic execution both arms of an `if` are
+    /// interpreted, so this must be a *positive* proof: only a provably
+    /// constant-true condition (including the enclosing condition stack)
+    /// counts. A symbolic condition (e.g. `if a > b` on entry inputs) makes
+    /// the arm witness-dependent — its assertions stay gated and satisfiable,
+    /// so they must not be treated as compile time failures.
+    fn current_branch_definitely_executes(&self) -> bool {
+        let condition = self.context.get_current_condition();
+        let op_type = self.context.get_op_type(condition.clone());
+        op_type == DPNOpType::ConstantTrue || (op_type == DPNOpType::Constant && self.context.get_constant_value(condition) != 0)
+    }
 }
 
 #[cfg(test)]
@@ -2198,10 +2224,6 @@ mod tests {
         assert_eq!(result.compile_results.len(), 1);
         assert_eq!(result.compile_results[0].name, "main");
         println!("compile_result: {:?}", result.compile_results);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2210,10 +2232,6 @@ mod tests {
         psy_common::setup_logging().ok();
 
         insta::glob!("../../tests", "{struct*.psy,fn_test.psy,fn_chain_call_test.psy}", |path| {
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            }
             let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
             let (mut typechecker, mut ctx) = interpreter.typecheck_single(path.into()).unwrap();
 
@@ -2235,7 +2253,7 @@ mod tests {
             let pub_key_param = priv_key_w.get_public_key_param::<PsyHasher>();
             let contract_state_tree_height = GLOBAL_USER_TREE_HEIGHT as usize;
 
-            let deployer = QHashOut::rand();
+            let deployer: u64 = 0;
             let (_circuits, deploy_cmd) =
                 gen_contract_deploy_and_circuits_for_functions::<C, D>(deployer, contract_state_tree_height as u8, &compile_results).unwrap();
 
@@ -2283,10 +2301,6 @@ mod tests {
 
             println!("result_vm: {:?}", cfc_input.outputs);
             println!("result_events: {:?}", cfc_input.events);
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            };
 
             assert_snapshot!(ctx.debug_scope(ScopeId::root()))
         });
@@ -2298,18 +2312,9 @@ mod tests {
         psy_common::setup_logging().ok();
 
         insta::glob!("../../tests", "*_test.psy", |path| {
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            }
             let entry: PathBuf = path.into();
             let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
             let (_typechecker, mut ctx) = interpreter.typecheck_single(entry.clone()).unwrap();
-
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            };
 
             let formatted_content = ctx.format_file(&entry).unwrap();
 
@@ -2320,11 +2325,6 @@ mod tests {
 
             let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
             assert!(interpreter.typecheck_single(entry.clone()).is_ok(), "{}", entry.display());
-
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            };
         });
     }
 
@@ -2364,12 +2364,56 @@ fn main() {}
         );
 
         let _ = fs::remove_file(path);
-
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
+
+    #[test]
+    #[serial]
+    fn test_typecheck_storage_array_generates_read_at_and_write_at_impls() {
+        psy_common::setup_logging().ok();
+
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("psy_storage_array_{unique}.psy"));
+        // Mirrors tests/array_ref_struct_index_test.psy: an array field on a
+        // storage-derived contract drives StorageProcessor to synthesize the
+        // StorageAt (read_at/write_at) impls during preprocessing.
+        let source = r#"
+#[derive(Storage)]
+pub struct Person {
+    pub age: Felt,
+    pub score: Felt,
+}
+
+#[contract]
+#[derive(Storage)]
+pub struct C {
+    pub people: [Person; 2],
+}
+
+fn main() {
+    let c = CRef::new(ContractMetadata::current());
+    c.people[0] = Person {
+        age: 10,
+        score: 80,
+    };
+    let p1: Person::RefType = c.people[0];
+    p1.age += 1;
+    assert_eq(c.people[0].age, 11, "people[0].age after +=");
+    assert(p1 == Person {
+        age: 11,
+        score: 80,
+    }, "RefType from index should support ==");
+}
+"#;
+        fs::write(&path, source).unwrap();
+
+        let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+        interpreter
+            .typecheck_single(path.clone())
+            .expect("storage array contracts must preprocess and typecheck");
+
+        let _ = fs::remove_file(path);
+    }
+
     #[test]
     #[serial]
     fn test_rejects_raw_intrinsic_outside_std() {
@@ -2396,10 +2440,6 @@ fn main() -> bool {
         );
 
         let _ = fs::remove_file(path);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
     #[test]
     #[serial]
@@ -2433,12 +2473,7 @@ fn main() {}
         );
 
         let _ = fs::remove_file(path);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
-
 
     #[test]
     #[serial]
@@ -2472,10 +2507,6 @@ fn main() {}
         );
 
         let _ = fs::remove_file(path);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
 
     #[test]
@@ -2494,10 +2525,6 @@ fn main() -> bool {
         interpreter.typecheck_single(path.clone()).unwrap();
 
         let _ = fs::remove_file(path);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
 
     /// Every raw `__`-prefixed intrinsic family must be gated to the canonical
@@ -2543,10 +2570,6 @@ fn main() -> bool {
             );
 
             let _ = fs::remove_file(path);
-            #[allow(static_mut_refs)]
-            unsafe {
-                let _ = STD_PRIMITIVE_SCOPE_ID.take();
-            };
         }
     }
 
@@ -2588,10 +2611,6 @@ fn main() {
         assert_eq!(compile_results.len(), 1);
 
         let _ = fs::remove_file(path);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
     }
     #[test]
     #[serial]
@@ -2628,10 +2647,231 @@ fn main() {
         assert_eq!(compile_results[0].events.len(), 1, "derived Event::emit must compile one event record");
 
         let _ = fs::remove_file(path);
-        #[allow(static_mut_refs)]
-        unsafe {
-            let _ = STD_PRIMITIVE_SCOPE_ID.take();
-        };
+    }
+
+    /// The index-access desugaring (`a[i]` on a non-array) reports a specific
+    /// error for each reachable failure mode: a non-Felt index, and an
+    /// `index` member that does not resolve to a matching method. The
+    /// arity/parameter-mismatch arms are unreachable because `find_member`
+    /// already filters candidates by the same predicate.
+    /// Generic paths through constrained type variables resolve associated
+    /// members, and a member that is not provided by the declared trait
+    /// constraints is rejected with a TypeMismatch naming the implemented
+    /// traits.
+    #[test]
+    #[serial]
+    fn test_generic_type_variable_path_resolution() {
+        let cases: [(&str, &str, bool, &str); 3] = [
+            (
+                "unconstrained_member_access",
+                r#"
+pub trait Value {
+    pub fn value() -> Felt;
+}
+
+pub struct Two {}
+
+impl Value for Two {
+    pub fn value() -> Felt {
+        return 2;
+    }
+}
+
+fn unconstrained<T>(x: T) -> Felt {
+    return <T as Value>::value();
+}
+
+fn main() -> Felt {
+    return unconstrained(Two {});
+}
+"#,
+                false,
+                "Expected",
+            ),
+            (
+                "constrained_associated_type_field",
+                r#"
+pub trait Produces {
+    pub type Out;
+    pub fn make() -> Self::Out;
+}
+
+pub struct Maker {}
+
+impl Produces for Maker {
+    pub type Out = Felt;
+    pub fn make() -> Self::Out {
+        return 7;
+    }
+}
+
+struct Wrapper<T: Produces> {
+    pub payload: T::Out,
+}
+
+fn main() -> Felt {
+    let w = Wrapper::<Maker> { payload: 3 };
+    return w.payload;
+}
+"#,
+                true,
+                "",
+            ),
+            (
+                "constrained_static_method",
+                r#"
+pub trait Value {
+    pub fn value() -> Felt;
+}
+
+pub struct Two {}
+
+impl Value for Two {
+    pub fn value() -> Felt {
+        return 2;
+    }
+}
+
+fn measured<T: Value>(x: T) -> Felt {
+    return T::value();
+}
+
+fn main() -> Felt {
+    return measured(Two {});
+}
+"#,
+                true,
+                "",
+            ),
+        ];
+
+        for (index, (name, source, must_pass, expected_fragment)) in cases.into_iter().enumerate() {
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!("psy_generic_path_{index}_{unique}.psy"));
+            fs::write(&path, source).unwrap();
+
+            let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+            let result = interpreter.typecheck_single(path.clone());
+            let err_msg = match (&result, must_pass) {
+                (Ok(_), true) => String::new(),
+                (Ok(_), false) => panic!("expected `{name}` to be rejected"),
+                (Err(_), true) => panic!("expected `{name}` to typecheck: {:#}", result.err().unwrap()),
+                (Err(err), false) => format!("{err:#}"),
+            };
+            assert!(err_msg.contains(expected_fragment), "unexpected error for `{name}`: {err_msg}");
+
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_index_access_sugar_error_arms() {
+        let cases: [(&str, &str, bool, &str); 3] = [
+            (
+                "non_felt_index",
+                r#"
+fn main() {
+    let a: [Felt; 2] = [1, 2];
+    let v: Felt = a[true];
+}
+"#,
+                false,
+                "Expected pub Felt",
+            ),
+            (
+                "unresolved_index_member",
+                r#"
+struct Wrapper {
+    pub index: Felt,
+}
+
+fn main() {
+    let w = Wrapper { index: 1 };
+    let v: Felt = w[0];
+}
+"#,
+                false,
+                "Unresolved member index",
+            ),
+            (
+                "index_method_success",
+                r#"
+struct Wrapper {
+    pub pad: Felt,
+}
+
+impl Wrapper {
+    pub fn index(self: Self, i: Felt) -> Felt {
+        return self.pad + i;
+    }
+}
+
+fn main() -> Felt {
+    let w = Wrapper { pad: 1 };
+    return w[0];
+}
+"#,
+                true,
+                "",
+            ),
+        ];
+
+        for (index, (name, source, must_pass, expected_fragment)) in cases.into_iter().enumerate() {
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!("psy_index_sugar_{index}_{unique}.psy"));
+            fs::write(&path, source).unwrap();
+
+            let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+            let result = interpreter.typecheck_single(path.clone());
+            let err_msg = match (&result, must_pass) {
+                (Ok(_), true) => String::new(),
+                (Ok(_), false) => panic!("expected `{name}` to be rejected by the index sugar"),
+                (Err(_), true) => panic!("expected `{name}` to typecheck: {:#}", result.err().unwrap()),
+                (Err(err), false) => format!("{err:#}"),
+            };
+            assert!(err_msg.contains(expected_fragment), "unexpected error for `{name}`: {err_msg}");
+
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    /// The public intrinsics reject mismatched or non-const arguments where
+    /// the typechecker enforces them: `hash_two_to_one` requires Hash
+    /// operands, and `split_bits` requires a compile-time-const bit length.
+    #[test]
+    #[serial]
+    fn test_public_intrinsic_type_mismatch_arms() {
+        let cases = [
+            (
+                "hash_two_to_one_bad_first",
+                r#"fn main() { let h = hash_two_to_one(true, [1, 2, 3, 4]); }"#,
+            ),
+            (
+                "hash_two_to_one_bad_second",
+                r#"fn main() { let h = hash_two_to_one([1, 2, 3, 4], true); }"#,
+            ),
+            ("split_bits_non_const_length", r#"fn main(x: Felt) { let v = split_bits(15, x); }"#),
+        ];
+
+        for (index, (name, source)) in cases.into_iter().enumerate() {
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!("psy_pub_intrinsic_ty_{index}_{unique}.psy"));
+            fs::write(&path, source).unwrap();
+
+            let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+            let err = match interpreter.typecheck_single(path.clone()) {
+                Ok(_) => panic!("expected `{name}` to fail typechecking"),
+                Err(err) => err,
+            };
+            let err_msg = format!("{err:#}");
+            assert!(
+                err_msg.contains("TypeMismatch") || err_msg.contains("Expected"),
+                "unexpected error for `{name}`: {err_msg}"
+            );
+
+            let _ = fs::remove_file(path);
+        }
     }
 }
 
@@ -2668,4 +2908,44 @@ mod qa_fix_tests {
 #[cfg(test)]
 mod panic_fix_tests {
     include!("panic_fix_tests.rs");
+}
+
+#[cfg(test)]
+mod visualizer_tests {
+    include!("visualizer_tests.rs");
+}
+
+#[cfg(test)]
+mod generic_instantiation_tests {
+    include!("generic_instantiation_tests.rs");
+}
+
+#[cfg(test)]
+mod std_override_tests {
+    include!("std_override_tests.rs");
+}
+
+#[cfg(test)]
+mod interp_exec_tests {
+    include!("interp_exec_tests.rs");
+}
+
+#[cfg(test)]
+mod intrinsic_exec_tests {
+    include!("intrinsic_exec_tests.rs");
+}
+
+#[cfg(test)]
+mod sema_edge_tests {
+    include!("sema_edge_tests.rs");
+}
+
+#[cfg(test)]
+mod exec_edge_tests {
+    include!("exec_edge_tests.rs");
+}
+
+#[cfg(test)]
+mod random_graph_diff_tests {
+    include!("random_graph_diff_tests.rs");
 }

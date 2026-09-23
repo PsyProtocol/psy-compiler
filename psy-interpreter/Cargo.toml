@@ -35,3 +35,5 @@ psy_prover = { workspace = true }
 psy_common_circuit = { workspace = true }
 serial_test = { workspace = true }
 kvq = { workspace = true }
+tiny-keccak = { workspace = true }
+k256 = { workspace = true }
