@@ -43,22 +43,11 @@ fn load_config(precompiles_config_path: &Path) -> Result<PrecompilesBuildConfigG
 fn compile_one_contract(contract: &ContractConfigGoldilocks, manifest_dir: &str, out_path: &Path) -> Result<()> {
     let contract_dir = Path::new(manifest_dir).join(&contract.path);
 
-    if !contract_dir.exists() {
-        println!("cargo:warning=Contract directory {} does not exist", contract_dir.display());
-        return Ok(());
-    }
-
+    anyhow::ensure!(contract_dir.is_dir(), "Required contract directory {} does not exist", contract_dir.display());
     let dargo_toml = contract_dir.join("Dargo.toml");
-    if !dargo_toml.exists() {
-        println!("cargo:warning=Dargo.toml not found at {}", dargo_toml.display());
-        return Ok(());
-    }
-
+    anyhow::ensure!(dargo_toml.is_file(), "Required Dargo.toml not found at {}", dargo_toml.display());
     let main_psy = contract_dir.join("src/main.psy");
-    if !main_psy.exists() {
-        println!("cargo:warning=src/main.psy not found at {}", main_psy.display());
-        return Ok(());
-    }
+    anyhow::ensure!(main_psy.is_file(), "Required src/main.psy not found at {}", main_psy.display());
 
     use dargo::{
         cli::{with_workspace, DargoConfig},
@@ -90,20 +79,42 @@ fn compile_one_contract(contract: &ContractConfigGoldilocks, manifest_dir: &str,
                     &interpret_result.compile_results,
                 );
 
-                let state_tree_height = AbiExtractor::new(contract.contract_name.clone())
-                    .compute_state_tree_height(&mut interpret_result.ctx.program);
+                let extractor = AbiExtractor::new(contract.contract_name.clone());
+                let inferred_height = extractor.compute_state_tree_height(&mut interpret_result.ctx.program);
+                let state_tree_height = match contract.declared_state_tree_height {
+                    Some(declared) => {
+                        if inferred_height > u16::from(declared) || declared > 32 {
+                            return Err(anyhow::anyhow!("Invalid declared state tree height {} for {} (inferred {})", declared, contract.name, inferred_height).into());
+                        }
+                        u16::from(declared)
+                    }
+                    None => inferred_height,
+                };
+                if state_tree_height > 32 {
+                    return Err(anyhow::anyhow!("Invalid state tree height for {}", contract.name).into());
+                }
+                if interpret_result.compile_results.len() != contract.method_names.len()
+                    || contract.method_names.iter().any(|name| interpret_result.compile_results.iter().filter(|function| &function.name == name).count() != 1) {
+                    return Err(anyhow::anyhow!("Required precompile methods missing or duplicated for {}", contract.name).into());
+                }
+                let method_metadata = interpret_result.compile_results.iter()
+                    .map(|f| (f.name.clone(), (f.method_id, f.is_view_function())))
+                    .collect();
+                let abi = extractor.extract_abi(&mut interpret_result.ctx.program, state_tree_height, &method_metadata)?;
+                if abi.contract.state_tree_height != state_tree_height {
+                    return Err(anyhow::anyhow!("ABI/artifact state tree height mismatch for {}", contract.name).into());
+                }
                 let artifact = serde_json::json!({
                     "state_tree_height": state_tree_height,
                     "circuit_definitions": &interpret_result.compile_results,
+                    "abi": &abi,
                 });
-
                 use dargo::cli::save_build_artifact_to_file;
-                if let Err(e) = save_build_artifact_to_file(&artifact, &contract.name, &target_dir) {
-                    println!("cargo:warning=Failed to save build artifact to target dir for {}: {}", contract.name, e);
-                }
-                if let Err(e) = save_build_artifact_to_file(&artifact, &contract.name, out_path) {
-                    println!("cargo:warning=Failed to save build artifact to OUT_DIR for {}: {}", contract.name, e);
-                }
+                save_build_artifact_to_file(&artifact, &contract.name, &target_dir)?;
+                save_build_artifact_to_file(&artifact, &contract.name, out_path)?;
+                let abi_name = format!("{}.abi", contract.name);
+                save_build_artifact_to_file(&abi, &abi_name, &target_dir)?;
+                save_build_artifact_to_file(&abi, &abi_name, out_path)?;
                 Ok(())
             }
             Err(e) => {
@@ -127,11 +138,12 @@ fn generate_precompile_api(config: &PrecompilesBuildConfigGoldilocks, out_path: 
 // Runtime lazy loading for {{ contract.name }} contract
 fn load_{{ contract.name }}_functions() -> Vec<DPNFunctionCircuitDefinition> {
     let json_data = include_str!(concat!(env!("OUT_DIR"), "/{{ contract.name }}.json"));
-    serde_json::from_str::<serde_json::Value>(json_data)
-        .ok()
-        .and_then(|v| v.get("circuit_definitions").cloned())
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default()
+    let artifact: serde_json::Value = serde_json::from_str(json_data).expect("Invalid required precompile artifact");
+    assert_eq!(artifact["state_tree_height"], artifact["abi"]["contract"]["state_tree_height"]);
+    {% if contract.declared_state_tree_height is defined and contract.declared_state_tree_height is not none %}
+    assert_eq!(artifact["state_tree_height"], {{ contract.declared_state_tree_height }});
+    {% endif %}
+    serde_json::from_value(artifact["circuit_definitions"].clone()).expect("Invalid required precompile functions")
 }
 
 static {{ contract.name | upper }}_FUNCTIONS_ONCE: std::sync::OnceLock<Vec<DPNFunctionCircuitDefinition>> = std::sync::OnceLock::new();
