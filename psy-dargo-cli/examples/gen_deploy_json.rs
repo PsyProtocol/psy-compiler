@@ -2,19 +2,14 @@
 /// genesis_contracts.json (Vec<PQBCDeployContract>) for use in genesis config.
 ///
 /// Usage:
-///   cargo run --release --example gen_deploy_json -- <output.json>
-/// <input1.json>[:<deployer_user_id>[:<name>]]
-/// [<input2.json>[:<deployer_user_id>[:<name>]]] ...
-///
-/// Example:
 ///   cargo run --release --example gen_deploy_json -- \
 ///     --deployer-user-id <ASCII-decimal-u64> <output.json> \
 ///     <input1.json>[:<name>] [<input2.json>[:<name>]] ...
 ///
-/// Each input can optionally specify deployer and name as:
-/// path:deployer_user_id:name If only deployer is given (path:deployer_user_id),
-/// name defaults to the file stem If neither deployer nor name is given (path),
-/// both default to their defaults
+/// `--deployer-user-id` is the deployer for every contract. Each input is a
+/// path, or `path:name`; a bare path uses its file stem as the name. The text
+/// after `:` is a name, never a deployer id. Set `GEN_DEPLOY_JSON_COMPACT=1`
+/// to write compact JSON.
 use std::{env, fs, path::Path};
 
 use psy_data::config::store_config::{C, D};
@@ -22,9 +17,8 @@ use psy_prover::session::gen_contract_deploy_and_circuits_for_functions;
 use psy_vm::dpn::vm::def::DPNFunctionCircuitDefinition;
 use serde::Deserialize;
 
-// Default genesis deployer user id: 0 is reserved, so genesis precompiles can
-// never be updated by an on-chain deployer.
-const DEFAULT_DEPLOYER: u64 = 0;
+// Deployer user id 0 is reserved, so genesis precompiles can never be updated
+// by an on-chain deployer. The caller supplies it through `--deployer-user-id`.
 const DEFAULT_STATE_TREE_HEIGHT: u8 = 32;
 
 #[derive(Deserialize)]
@@ -47,35 +41,12 @@ fn get_file_stem(path: &str) -> String {
 fn main() -> anyhow::Result<()> {
     let compact = env_flag_enabled("GEN_DEPLOY_JSON_COMPACT");
     let args: Vec<String> = env::args().collect();
-
-    if args.len() < 3 {
-        eprintln!("Usage: gen_deploy_json <output.json> <input1.json>[:<deployer_user_id>[:<name>]] [<input2.json>[:<deployer_user_id>[:<name>]]] ...");
-        eprintln!();
-        eprintln!("Each input can optionally specify deployer and name as: path:deployer_user_id:name");
-        eprintln!("Set GEN_DEPLOY_JSON_COMPACT=1 to write compact JSON");
-        eprintln!("Default deployer user id: {}", DEFAULT_DEPLOYER);
-        eprintln!("Default name: file stem (e.g. token.json -> token)");
-        std::process::exit(1);
-    }
-
-    let output_path = &args[1];
-    let inputs = &args[2..];
+    let (deployer_user_id, output_path, inputs) = parse_generation_args(&args)?;
 
     let mut contract_objects = Vec::new();
 
     for (i, input_arg) in inputs.iter().enumerate() {
-        // Parse "path:deployer_user_id:name" or "path:deployer_user_id" or just "path"
-        let parts: Vec<&str> = input_arg.split(':').collect();
-        let input_path = parts[0];
-
-        let (deployer, name) = match parts.len() {
-            1 => (DEFAULT_DEPLOYER, get_file_stem(input_path)),
-            2 => (parse_deployer(parts[1], input_path)?, get_file_stem(input_path)),
-            3 => (parse_deployer(parts[1], input_path)?, parts[2].to_string()),
-            _ => {
-                anyhow::bail!("Invalid input format: {}. Use path:deployer_user_id:name", input_arg);
-            }
-        };
+        let (input_path, name) = input_path_and_name(input_arg);
 
         // New compiler artifacts carry the authoritative layout-derived height.
         // Continue accepting legacy bare definition arrays with the old default.
@@ -102,7 +73,7 @@ fn main() -> anyhow::Result<()> {
             defs.len(),
             state_tree_height,
             deploy_contract.function_whitelist.len(),
-            deployer
+            deployer_user_id
         );
 
         let mut contract_json: serde_json::Value = serde_json::to_value(&deploy_contract)?;
@@ -151,7 +122,7 @@ fn canonical_decimal_u64(value: &str) -> anyhow::Result<u64> {
     if !canonical {
         anyhow::bail!("deployer user id must be one canonical ASCII decimal u64");
     }
-    u64::from_str(value).map_err(|_| anyhow::anyhow!("deployer user id exceeds u64"))
+    value.parse::<u64>().map_err(|_| anyhow::anyhow!("deployer user id exceeds u64"))
 }
 
 fn env_flag_enabled(name: &str) -> bool {
@@ -160,7 +131,40 @@ fn env_flag_enabled(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn parse_deployer(raw: &str, input_path: &str) -> anyhow::Result<u64> {
-    raw.parse::<u64>()
-        .map_err(|e| anyhow::anyhow!("Invalid deployer user id `{}` for {}: {}", raw, input_path, e))
+fn input_path_and_name(input_arg: &str) -> (&str, String) {
+    match input_arg.split_once(':') {
+        Some((path, name)) => (path, name.to_string()),
+        None => (input_arg, get_file_stem(input_arg)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        std::iter::once("gen_deploy_json").chain(values.iter().copied()).map(str::to_string).collect()
+    }
+
+    #[test]
+    fn global_deployer_keeps_bare_stem_and_explicit_name() {
+        let argv = args(&["--deployer-user-id", "0", "genesis_contracts.json", "token.json", "mining_rewards.json:rewards"]);
+        let (deployer, output, inputs) = parse_generation_args(&argv).unwrap();
+        assert_eq!(deployer, 0);
+        assert_eq!(output, "genesis_contracts.json");
+        assert_eq!(inputs, ["token.json", "mining_rewards.json:rewards"]);
+        assert_eq!(input_path_and_name(&inputs[0]), ("token.json", "token".to_string()));
+        assert_eq!(input_path_and_name(&inputs[1]), ("mining_rewards.json", "rewards".to_string()));
+    }
+
+    #[test]
+    fn rejects_missing_flag_noncanonical_id_and_no_input() {
+        for values in [
+            &["genesis_contracts.json", "token.json"][..],
+            &["--deployer-user-id", "00", "genesis_contracts.json", "token.json"][..],
+            &["--deployer-user-id", "0", "genesis_contracts.json"][..],
+        ] {
+            assert!(parse_generation_args(&args(values)).is_err(), "{values:?}");
+        }
+    }
 }
