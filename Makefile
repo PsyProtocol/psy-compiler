@@ -276,7 +276,7 @@ gen-deploy-json: build \
 	compile-usdt-token-contract compile-mining-rewards-contract \
 	compile-deposit-tree-contract compile-withdrawal-tree-contract \
 	compile-faucet-contract compile-multisig-policy-contract
-	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
+	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit transfer claim batch_transfer_2 batch_transfer_5 burn claim_pow_rewards private_transfer private_claim
 	@mv $(TOKEN_CONTRACT_PATH)/target/token.json $(TOKEN_CONTRACT_PATH)/target/token.update.json
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn claim_pow_rewards private_transfer private_claim
 	@mkdir -p $(PSY_GENESIS) $(GENESIS_ABI_DIR)
