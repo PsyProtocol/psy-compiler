@@ -16,9 +16,8 @@
 ///     ../psy-precompiles/mining_rewards/target/mining_rewards.abi.json:mining_rewards
 use std::{env, fs, path::Path};
 
-// Same default genesis deployer user id as gen_deploy_json: 0 is reserved, so
-// genesis precompiles can never be updated by an on-chain deployer.
-const DEFAULT_DEPLOYER: u64 = 0;
+// Deployer user id 0 is reserved, so genesis precompiles can never be updated
+// by an on-chain deployer. The caller supplies it through `--deployer-user-id`.
 
 fn get_file_stem(path: &str) -> String {
     Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or("contract").to_string()
@@ -59,7 +58,7 @@ fn main() -> anyhow::Result<()> {
         precompiles.push(ManifestPrecompile {
             contract_id: i as u32,
             name,
-            deployer: DEFAULT_DEPLOYER,
+            deployer: deployer_user_id,
             abi_path: abi_filename,
             state_tree_height,
         });
@@ -91,7 +90,7 @@ fn canonical_decimal_u64(value: &str) -> anyhow::Result<u64> {
     if !canonical {
         anyhow::bail!("deployer user id must be one canonical ASCII decimal u64");
     }
-    u64::from_str(value).map_err(|_| anyhow::anyhow!("deployer user id exceeds u64"))
+    value.parse::<u64>().map_err(|_| anyhow::anyhow!("deployer user id exceeds u64"))
 }
 
 fn state_tree_height_from_abi(abi: &serde_json::Value, input_path: &str) -> anyhow::Result<u8> {
@@ -117,11 +116,11 @@ fn build_manifest(precompiles: &[ManifestPrecompile]) -> String {
     for (i, precompile) in precompiles.iter().enumerate() {
         let comma = if i + 1 == precompiles.len() { "" } else { "," };
         out.push_str("    {\n");
-        out.push_str(&format!("      \"contract_id\": {},\n", p.contract_id));
-        out.push_str(&format!("      \"name\": \"{}\",\n", p.name));
-        out.push_str(&format!("      \"deployer\": {},\n", p.deployer));
-        out.push_str(&format!("      \"abi_path\": \"{}\",\n", p.abi_path));
-        out.push_str(&format!("      \"state_tree_height\": {}\n", p.state_tree_height));
+        out.push_str(&format!("      \"contract_id\": {},\n", precompile.contract_id));
+        out.push_str(&format!("      \"name\": \"{}\",\n", precompile.name));
+        out.push_str(&format!("      \"deployer\": {},\n", precompile.deployer));
+        out.push_str(&format!("      \"abi_path\": \"{}\",\n", precompile.abi_path));
+        out.push_str(&format!("      \"state_tree_height\": {}\n", precompile.state_tree_height));
         out.push_str(&format!("    }}{}\n", comma));
     }
     out.push_str("  ],\n");
