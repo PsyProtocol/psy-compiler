@@ -330,7 +330,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 }
                 return Ok(CheckedExprNode::Intrinsic(CheckedIntrinsicExprNode::GetContractDeployer {
                     contract_id: self.program.exprs.alloc_item(contract_id),
-                    type_id: HASH_TYPE,
+                    type_id: FELT_TYPE,
                     location,
                 }));
             }

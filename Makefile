@@ -33,6 +33,7 @@ WITHDRAWAL_TREE_CONTRACT_PATH := $(PWD)/psy-precompiles/withdrawal_tree
 DEPOSIT_TREE_CONTRACT_PATH := $(PWD)/psy-precompiles/deposit_tree
 FAUCET_CONTRACT_PATH := $(PWD)/psy-precompiles/faucet
 COUNTER_CONTRACT_PATH := $(PWD)/psy-precompiles/counter
+MULTISIG_POLICY_CONTRACT_PATH := $(PWD)/psy-precompiles/multisig_policy
 
 ci:
 	# @$(DARGO_CLI_TEST) tests/in_mod_attr_test.psy
@@ -199,6 +200,12 @@ compile-faucet-contract:
 compile-faucet-contract-abi:
 	@cd $(FAUCET_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyFaucetContractRef --abi-name faucet --method-names faucet
 
+compile-multisig-policy-contract:
+	@cd $(MULTISIG_POLICY_CONTRACT_PATH) && $(DARGO) compile --contract-name=MultisigPolicyContractRef --method-names get_policy set_policy
+
+compile-multisig-policy-abi:
+	@cd $(MULTISIG_POLICY_CONTRACT_PATH) && $(DARGO) generate-abi -c MultisigPolicyContractRef --abi-name multisig_policy --output-dir $(ABI_OUTPUT_DIR) --method-names get_policy set_policy
+
 compile-counter-contract:
 	@cd $(COUNTER_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyCounterContractRef --method-names set_value increment
 
@@ -216,7 +223,7 @@ ABI_OUTPUT_DIR := $(PWD)/target/genesis_abi
 gen-deploy-json: build \
 	compile-usdt-token-contract compile-mining-rewards-contract \
 	compile-deposit-tree-contract compile-withdrawal-tree-contract \
-	compile-faucet-contract
+	compile-faucet-contract compile-multisig-policy-contract
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
 	@mv $(TOKEN_CONTRACT_PATH)/target/token.json $(TOKEN_CONTRACT_PATH)/target/token.update.json
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit simple_mint simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
@@ -226,14 +233,17 @@ gen-deploy-json: build \
 	@cp $(TOKEN_CONTRACT_PATH)/target/token.json $(PSY_GENESIS)/token.json
 	@cp $(TOKEN_CONTRACT_PATH)/target/token.update.json $(PSY_GENESIS)/token.update.json
 	@echo "refreshed $(PSY_GENESIS)/token.json and token.update.json from compiled token artifacts"
+	@test -n "$(GENESIS_DEPLOYER_USER_ID)" || { echo "GENESIS_DEPLOYER_USER_ID is required" >&2; exit 1; }
 	@cargo run --release --package dargo --example gen_deploy_json -- \
+		--deployer-user-id "$(GENESIS_DEPLOYER_USER_ID)" \
 		$(GENESIS_CONTRACTS_FILE) \
 		$(TOKEN_CONTRACT_PATH)/target/token.json \
 		$(MINING_REWARDS_CONTRACT_PATH)/target/mining_rewards.json \
 		$(DEPOSIT_TREE_CONTRACT_PATH)/target/deposit_tree.json \
 		$(WITHDRAWAL_TREE_CONTRACT_PATH)/target/withdrawal_tree.json \
 		$(USDT_TOKEN_CONTRACT_PATH)/target/usdt_token.json \
-		$(FAUCET_CONTRACT_PATH)/target/faucet.json
+		$(FAUCET_CONTRACT_PATH)/target/faucet.json \
+		$(MULTISIG_POLICY_CONTRACT_PATH)/target/multisig_policy.json
 	@# Regenerate ABI files to a separate dir (avoids overwriting compiled .json)
 	@mkdir -p $(ABI_OUTPUT_DIR)
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyTokenContractRef --abi-name token --output-dir $(ABI_OUTPUT_DIR) --method-names withdraw claim_deposit simple_mint simple_transfer simple_claim batch_simple_transfer_2 batch_simple_transfer_5 simple_burn simple_claim_pow_rewards private_transfer private_claim
@@ -242,14 +252,17 @@ gen-deploy-json: build \
 	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyDepositTreeContractRef --abi-name deposit_tree --output-dir $(ABI_OUTPUT_DIR) --method-names get_root get_chain_root is_known_root_hash is_known_root set_chain_root append_leaf append_deposit batch_append_deposits_2 batch_append_deposits_5
 	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyWithdrawalTreeContractRef --abi-name withdrawal_tree --output-dir $(ABI_OUTPUT_DIR) --method-names get_root get_chain_root append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
 	@cd $(FAUCET_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyFaucetContractRef --abi-name faucet --output-dir $(ABI_OUTPUT_DIR) --method-names faucet
+	@cd $(MULTISIG_POLICY_CONTRACT_PATH) && $(DARGO) generate-abi -c MultisigPolicyContractRef --abi-name multisig_policy --output-dir $(ABI_OUTPUT_DIR) --method-names get_policy set_policy
 	@# `compile` does not emit .abi.json — always source it from the freshly generated $(ABI_OUTPUT_DIR)
 	@cargo run --release --package dargo --example gen_deploy_abi_json -- \
+		--deployer-user-id "$(GENESIS_DEPLOYER_USER_ID)" \
 		$(GENESIS_ABI_DIR) \
 		$(ABI_OUTPUT_DIR)/token.abi.json:token \
 		$(ABI_OUTPUT_DIR)/mining_rewards.abi.json:mining_rewards \
 		$(ABI_OUTPUT_DIR)/deposit_tree.abi.json:deposit_tree \
 		$(ABI_OUTPUT_DIR)/withdrawal_tree.abi.json:withdrawal_tree \
 		$(ABI_OUTPUT_DIR)/usdt_token.abi.json:usdt \
-		$(ABI_OUTPUT_DIR)/faucet.abi.json:faucet
+		$(ABI_OUTPUT_DIR)/faucet.abi.json:faucet \
+		$(ABI_OUTPUT_DIR)/multisig_policy.abi.json:multisig_policy
 	@node -e 'const fs=require("fs"),cp=require("child_process"),crypto=require("crypto"),path=require("path"); const compilerRevision=cp.execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(); const isSource=relativePath=>{const normalized=relativePath.replace(/\\/g,"/"); const lower=normalized.toLowerCase(); if(normalized===".compiler-artifact.json")return false; if(["Cargo.toml","Cargo.lock","rust-toolchain.toml","Makefile"].includes(normalized))return true; if(["build.rs","precompiles.json","package.json"].includes(path.posix.basename(normalized)))return true; return [".rs",".psy",".toml",".lock"].some(extension=>lower.endsWith(extension));}; const entries=cp.execFileSync("git",["ls-tree","-r","--full-tree",compilerRevision],{encoding:"utf8"}).trim().split("\n").filter(Boolean).map(line=>{const match=line.match(/^[0-9]+ blob ([0-9a-f]+)\t(.+)$$/); if(!match)throw new Error(`invalid tree entry: $${line}`); return {blob:match[1],path:match[2]};}).filter(entry=>isSource(entry.path)).sort((a,b)=>Buffer.compare(Buffer.from(a.path),Buffer.from(b.path))); const hash=crypto.createHash("sha256"); for(const entry of entries){const blob=cp.execFileSync("git",["cat-file","blob",entry.blob]); hash.update(entry.path); hash.update("\0"); hash.update(blob); hash.update("\0");} const digest=file=>{const bytes=fs.readFileSync(file); return {sha256:crypto.createHash("sha256").update(bytes).digest("hex"),byteSize:bytes.length};}; const genesis=digest("$(GENESIS_CONTRACTS_FILE)"),token=digest("$(PSY_GENESIS)/token.json"),tokenUpdate=digest("$(PSY_GENESIS)/token.update.json"); const sidecar={compilerRevision,compilerSourcesHash:hash.digest("hex"),artifactSha256:genesis.sha256,artifactByteSize:genesis.byteSize,tokenArtifactSha256:token.sha256,tokenArtifactByteSize:token.byteSize,tokenUpdateArtifactSha256:tokenUpdate.sha256,tokenUpdateArtifactByteSize:tokenUpdate.byteSize}; fs.writeFileSync("$(PSY_GENESIS)/.genesis_contracts.compiler-artifact.json",JSON.stringify(sidecar,null,2)+"\n");'
 	@echo "psy-genesis contract artifact + genesis_abi/ + compiler provenance regenerated"

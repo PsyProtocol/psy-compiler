@@ -85,6 +85,15 @@
       "method_names": [
         "faucet"
       ]
+    },
+    {
+      "name": "multisig_policy",
+      "path": "multisig_policy",
+      "contract_name": "MultisigPolicyContractRef",
+      "method_names": [
+        "get_policy",
+        "set_policy"
+      ]
     }
   ]
 }

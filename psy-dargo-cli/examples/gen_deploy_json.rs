@@ -1,33 +1,20 @@
 /// Tool to convert one or more compiled contract JSON artifacts into
-/// genesis_contracts.json
-/// (Vec<PQBCDeployContract>) for use in genesis config.
+/// genesis_contracts.json (Vec<PQBCDeployContract>) for use in genesis config.
 ///
 /// Usage:
-///   cargo run --release --example gen_deploy_json -- <output.json>
-/// <input1.json>[:<deployer_hex>[:<name>]]
-/// [<input2.json>[:<deployer_hex>[:<name>]]] ...
-///
-/// Example:
 ///   cargo run --release --example gen_deploy_json -- \
-///     ../../psy-genesis/genesis_contracts.json \
-///     ../psy-precompiles/token/target/token.json:token \
-///     ../psy-precompiles/mining_rewards/target/mining_rewards.json:
-/// mining_rewards
+///     --deployer-user-id <ASCII-decimal-u64> <output.json> \
+///     <input1.json>[:<name>] [<input2.json>[:<name>]] ...
 ///
-/// Each input can optionally specify deployer and name as:
-/// path:deployer_hex:name If only deployer is given (path:deployer_hex), name
-/// defaults to the file stem If neither deployer nor name is given (path), both
-/// default to their defaults
+/// The deployer user id applies to every contract. No default or per-artifact
+/// deployer is accepted. Set GEN_DEPLOY_JSON_COMPACT=1 to write compact JSON.
 use std::{env, fs, path::Path, str::FromStr};
 
-use psy_common::data::qhashout::QHashOut;
 use psy_data::config::store_config::{C, D};
 use psy_prover::session::gen_contract_deploy_and_circuits_for_functions;
 use psy_vm::dpn::vm::def::DPNFunctionCircuitDefinition;
 use serde::Deserialize;
 
-// Default genesis deployer (from existing genesis_contracts.json)
-const DEFAULT_DEPLOYER: &str = "f83aa03c3e21321421696202b90f4dab0a9f87237c231bbba58b8f93c799126e";
 const DEFAULT_STATE_TREE_HEIGHT: u8 = 32;
 
 #[derive(Deserialize)]
@@ -50,40 +37,17 @@ fn get_file_stem(path: &str) -> String {
 fn main() -> anyhow::Result<()> {
     let compact = env_flag_enabled("GEN_DEPLOY_JSON_COMPACT");
     let args: Vec<String> = env::args().collect();
-
-    if args.len() < 3 {
-        eprintln!("Usage: gen_deploy_json <output.json> <input1.json>[:<deployer_hex>[:<name>]] [<input2.json>[:<deployer_hex>[:<name>]]] ...");
-        eprintln!();
-        eprintln!("Each input can optionally specify deployer and name as: path:deployer_hex:name");
-        eprintln!("Set GEN_DEPLOY_JSON_COMPACT=1 to write compact JSON");
-        eprintln!("Default deployer: {}", DEFAULT_DEPLOYER);
-        eprintln!("Default name: file stem (e.g. token.json -> token)");
-        std::process::exit(1);
-    }
-
-    let output_path = &args[1];
-    let inputs = &args[2..];
+    let (deployer_user_id, output_path, inputs) = parse_generation_args(&args)?;
 
     let mut contract_objects = Vec::new();
 
     for (i, input_arg) in inputs.iter().enumerate() {
-        // Parse "path:deployer_hex:name" or "path:deployer_hex" or just "path"
-        let parts: Vec<&str> = input_arg.split(':').collect();
-        let input_path = parts[0];
-
-        let (deployer_hex, name) = match parts.len() {
-            1 => (DEFAULT_DEPLOYER, get_file_stem(input_path)),
-            2 => (parts[1], get_file_stem(input_path)),
-            3 => (parts[1], parts[2].to_string()),
-            _ => {
-                anyhow::bail!("Invalid input format: {}. Use path:deployer_hex:name", input_arg);
-            }
+        let (input_path, name) = match input_arg.split_once(':') {
+            Some((path, name)) if !name.is_empty() && !name.contains(':') => (path, name.to_string()),
+            None => (input_arg.as_str(), get_file_stem(input_arg)),
+            Some(_) => anyhow::bail!("Invalid input format: {}. Use path[:name]", input_arg),
         };
 
-        let deployer = QHashOut::from_str(deployer_hex).map_err(|e| anyhow::anyhow!("Invalid deployer hex for {}: {}", input_path, e))?;
-
-        // New compiler artifacts carry the authoritative layout-derived height.
-        // Continue accepting legacy bare definition arrays with the old default.
         let input_json = fs::read_to_string(input_path).map_err(|e| anyhow::anyhow!("Failed to read {}: {}", input_path, e))?;
         let artifact: CompilationArtifactInput =
             serde_json::from_str(&input_json).map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", input_path, e))?;
@@ -96,20 +60,20 @@ fn main() -> anyhow::Result<()> {
             CompilationArtifactInput::Legacy(defs) => (DEFAULT_STATE_TREE_HEIGHT, defs),
         };
 
-        let (_circuits, deploy_contract) = gen_contract_deploy_and_circuits_for_functions::<C, D>(deployer, state_tree_height, &defs)?;
+        let (_circuits, deploy_contract) =
+            gen_contract_deploy_and_circuits_for_functions::<C, D>(deployer_user_id, state_tree_height, &defs)?;
 
         println!(
-            "[{}] contract={} name={} functions={} state_tree_height={} whitelist={} deployer={}",
+            "[{}] contract={} name={} functions={} state_tree_height={} whitelist={} deployer_user_id={}",
             i,
             input_path,
             name,
             defs.len(),
             state_tree_height,
             deploy_contract.function_whitelist.len(),
-            deployer_hex
+            deployer_user_id
         );
 
-        // Serialize deploy_contract and wrap with name
         let mut contract_json: serde_json::Value = serde_json::to_value(&deploy_contract)?;
         contract_json["name"] = serde_json::json!(name);
 
@@ -131,7 +95,6 @@ fn main() -> anyhow::Result<()> {
     } else {
         serde_json::to_string_pretty(&contract_objects)?
     };
-    // Write zstd-compressed output (74x smaller than raw JSON for contract bytecode)
     let compressed = zstd::encode_all(output_json.as_bytes(), 3)
         .map_err(|e| anyhow::anyhow!("Failed to zstd-compress output: {}", e))?;
     fs::write(output_path, &compressed).map_err(|e| anyhow::anyhow!("Failed to write {}: {}", output_path, e))?;
@@ -140,6 +103,24 @@ fn main() -> anyhow::Result<()> {
     println!("Written {} contract(s) to {}", contract_objects.len(), output_path);
 
     Ok(())
+}
+
+fn parse_generation_args(args: &[String]) -> anyhow::Result<(u64, &str, &[String])> {
+    if args.len() >= 5 && args[1] == "--deployer-user-id" {
+        let deployer_user_id = canonical_decimal_u64(&args[2])?;
+        return Ok((deployer_user_id, &args[3], &args[4..]));
+    }
+    anyhow::bail!(
+        "Usage: gen_deploy_json --deployer-user-id <ASCII-decimal-u64> <output.json> <input1.json>[:<name>] [<input2.json>[:<name>]] ..."
+    )
+}
+
+fn canonical_decimal_u64(value: &str) -> anyhow::Result<u64> {
+    let canonical = value == "0" || (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) && !value.starts_with('0'));
+    if !canonical {
+        anyhow::bail!("deployer user id must be one canonical ASCII decimal u64");
+    }
+    u64::from_str(value).map_err(|_| anyhow::anyhow!("deployer user id exceeds u64"))
 }
 
 fn env_flag_enabled(name: &str) -> bool {

@@ -8,7 +8,7 @@ pub fn get_contract_id() -> Felt {
     __ctx_get_contract_id()
 }
 
-pub fn get_contract_deployer(contract_id: Felt) -> Hash {
+pub fn get_contract_deployer(contract_id: Felt) -> Felt {
     __ctx_get_contract_deployer(contract_id)
 }
 

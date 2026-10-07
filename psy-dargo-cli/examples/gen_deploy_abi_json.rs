@@ -1,28 +1,14 @@
 /// Tool to gather generated contract ABI JSON files into a genesis ABI directory.
 ///
-/// Mirrors `gen_deploy_json`: it reads each generated `<name>.abi.json`,
-/// copies it into `<output_dir>/<ContractName>.json` (using the contract name
-/// embedded inside the ABI), and writes an `abi_list.json` manifest describing
-/// the precompiles (contract_id, name, deployer, abi_path, state_tree_height)
-/// for use in genesis config.
-///
 /// Usage:
-///   cargo run --release --example gen_deploy_abi_json -- <output_dir> \
+///   cargo run --release --example gen_deploy_abi_json -- \
+///     --deployer-user-id <ASCII-decimal-u64> <output_dir> \
 ///     <input1.abi.json>[:<name>] [<input2.abi.json>[:<name>]] ...
 ///
 /// Each input copies `<ContractName>.json` (read from the ABI's `contract.name`)
-/// into <output_dir>. The optional `<name>` is the friendly name recorded in
-/// abi_list.json (defaults to the input file stem).
-///
-/// Example:
-///   cargo run --release --example gen_deploy_abi_json -- \
-///     ../../psy-genesis/genesis_abi \
-///     ../psy-precompiles/token/target/token.abi.json:token \
-///     ../psy-precompiles/mining_rewards/target/mining_rewards.abi.json:mining_rewards
-use std::{env, fs, path::Path};
-
-// Same default genesis deployer as gen_deploy_json.
-const DEFAULT_DEPLOYER: &str = "f83aa03c3e21321421696202b90f4dab0a9f87237c231bbba58b8f93c799126e";
+/// into <output_dir>. The optional `<name>` is recorded in abi_list.json.
+/// The deployer user id applies to every entry. No default is accepted.
+use std::{env, fs, path::Path, str::FromStr};
 
 fn get_file_stem(path: &str) -> String {
     Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or("contract").to_string()
@@ -30,18 +16,7 @@ fn get_file_stem(path: &str) -> String {
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();
-
-    if args.len() < 3 {
-        eprintln!("Usage: gen_deploy_abi_json <output_dir> <input1.abi.json>[:<name>] [<input2.abi.json>[:<name>]] ...");
-        eprintln!();
-        eprintln!("Each input copies <ContractName>.json (read from the ABI) into <output_dir>.");
-        eprintln!("The optional `<name>` is recorded in abi_list.json (default: input file stem).");
-        eprintln!("Default deployer: {}", DEFAULT_DEPLOYER);
-        std::process::exit(1);
-    }
-
-    let output_dir = &args[1];
-    let inputs = &args[2..];
+    let (deployer_user_id, output_dir, inputs) = parse_generation_args(&args)?;
 
     fs::create_dir_all(output_dir)
         .map_err(|e| anyhow::anyhow!("Failed to create {}: {}", output_dir, e))?;
@@ -50,11 +25,10 @@ fn main() -> anyhow::Result<()> {
 
     for (i, input_arg) in inputs.iter().enumerate() {
         let (input_path, name) = match input_arg.split_once(':') {
-            Some((path, n)) => (path, n.to_string()),
+            Some((path, name)) => (path, name.to_string()),
             None => (input_arg.as_str(), get_file_stem(input_arg)),
         };
 
-        // Read the ABI verbatim so its exact byte layout is preserved on copy.
         let raw = fs::read_to_string(input_path)
             .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", input_path, e))?;
         let abi: serde_json::Value = serde_json::from_str(&raw)
@@ -75,7 +49,7 @@ fn main() -> anyhow::Result<()> {
         precompiles.push(ManifestPrecompile {
             contract_id: i as u32,
             name,
-            deployer: DEFAULT_DEPLOYER.to_string(),
+            deployer_user_id,
             abi_path: abi_filename,
             state_tree_height,
         });
@@ -92,6 +66,24 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn parse_generation_args(args: &[String]) -> anyhow::Result<(u64, &str, &[String])> {
+    if args.len() >= 5 && args[1] == "--deployer-user-id" {
+        let deployer_user_id = canonical_decimal_u64(&args[2])?;
+        return Ok((deployer_user_id, &args[3], &args[4..]));
+    }
+    anyhow::bail!(
+        "Usage: gen_deploy_abi_json --deployer-user-id <ASCII-decimal-u64> <output_dir> <input1.abi.json>[:<name>] [<input2.abi.json>[:<name>]] ..."
+    )
+}
+
+fn canonical_decimal_u64(value: &str) -> anyhow::Result<u64> {
+    let canonical = value == "0" || (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) && !value.starts_with('0'));
+    if !canonical {
+        anyhow::bail!("deployer user id must be one canonical ASCII decimal u64");
+    }
+    u64::from_str(value).map_err(|_| anyhow::anyhow!("deployer user id exceeds u64"))
+}
+
 fn state_tree_height_from_abi(abi: &serde_json::Value, input_path: &str) -> anyhow::Result<u8> {
     let height = abi["contract"]["state_tree_height"]
         .as_u64()
@@ -102,26 +94,24 @@ fn state_tree_height_from_abi(abi: &serde_json::Value, input_path: &str) -> anyh
 struct ManifestPrecompile {
     contract_id: u32,
     name: String,
-    deployer: String,
+    deployer_user_id: u64,
     abi_path: String,
     state_tree_height: u8,
 }
 
-/// Build abi_list.json by hand so the key order is deterministic regardless of
-/// serde_json's `preserve_order` feature.
 fn build_manifest(precompiles: &[ManifestPrecompile]) -> String {
     let mut out = String::new();
     out.push_str("{\n");
     out.push_str("  \"users\": [],\n");
     out.push_str("  \"precompiles\": [\n");
-    for (i, p) in precompiles.iter().enumerate() {
+    for (i, precompile) in precompiles.iter().enumerate() {
         let comma = if i + 1 == precompiles.len() { "" } else { "," };
         out.push_str("    {\n");
-        out.push_str(&format!("      \"contract_id\": {},\n", p.contract_id));
-        out.push_str(&format!("      \"name\": \"{}\",\n", p.name));
-        out.push_str(&format!("      \"deployer\": \"{}\",\n", p.deployer));
-        out.push_str(&format!("      \"abi_path\": \"{}\",\n", p.abi_path));
-        out.push_str(&format!("      \"state_tree_height\": {}\n", p.state_tree_height));
+        out.push_str(&format!("      \"contract_id\": {},\n", precompile.contract_id));
+        out.push_str(&format!("      \"name\": \"{}\",\n", precompile.name));
+        out.push_str(&format!("      \"deployer\": {},\n", precompile.deployer_user_id));
+        out.push_str(&format!("      \"abi_path\": \"{}\",\n", precompile.abi_path));
+        out.push_str(&format!("      \"state_tree_height\": {}\n", precompile.state_tree_height));
         out.push_str(&format!("    }}{}\n", comma));
     }
     out.push_str("  ],\n");

@@ -90,11 +90,20 @@ fn compile_one_contract(contract: &ContractConfigGoldilocks, manifest_dir: &str,
                     &interpret_result.compile_results,
                 );
 
-                let state_tree_height = AbiExtractor::new(contract.contract_name.clone())
-                    .compute_state_tree_height(&mut interpret_result.ctx.program);
+                let extractor = AbiExtractor::new(contract.contract_name.clone());
+                let state_tree_height = extractor.compute_state_tree_height(&mut interpret_result.ctx.program);
+                let method_metadata: std::collections::HashMap<String, (u32, bool)> = interpret_result
+                    .compile_results
+                    .iter()
+                    .map(|function| (function.name.clone(), (function.method_id, function.is_view_function())))
+                    .collect();
+                let abi = extractor
+                    .extract_abi(&mut interpret_result.ctx.program, state_tree_height, &method_metadata)
+                    .map_err(|error| anyhow::anyhow!("Failed to extract ABI for {}: {}", contract.name, error))?;
                 let artifact = serde_json::json!({
                     "state_tree_height": state_tree_height,
                     "circuit_definitions": &interpret_result.compile_results,
+                    "abi": abi,
                 });
 
                 use dargo::cli::save_build_artifact_to_file;
