@@ -4,26 +4,23 @@
 // temporary `.psy` sources. Every case names the concrete contract it defends
 // and asserts the exact accept/reject outcome.
 //
-// The shared `STD_PRIMITIVE_SCOPE_ID` singleton is reset after *every* case
+// The primitive scope is owned by each typecheck symbol table
 // (via `check`, which tears down before the caller can panic) so the suite
 // is hermetic.
 
 use std::{
     fs,
-    path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use psy_vm::dpn::ops::{exec_context::QExecContext, sym_felt::SymFeltRef};
-use serial_test::serial;
 
 use super::*;
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Typecheck `source` written to a throwaway temp file, then ALWAYS tear down
-/// the file and reset the shared primitive-scope singleton. Returns `None` if
+/// Typecheck `source` written to a throwaway temp file, then tear it down. Returns `None` if
 /// the program typechecked, or `Some(formatted_error)` if it was rejected.
 fn check(source: &str) -> Option<String> {
     let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
@@ -35,10 +32,6 @@ fn check(source: &str) -> Option<String> {
     let result = interpreter.typecheck_single(path.clone());
 
     let _ = fs::remove_file(path);
-    #[allow(static_mut_refs)]
-    unsafe {
-        let _ = STD_PRIMITIVE_SCOPE_ID.take();
-    }
 
     match result {
         Ok(_) => None,
@@ -74,7 +67,6 @@ fn expect_reject(name: &str, source: &str, needle: &str) {
 /// Defends: `visit_trait_impl` (lib.rs:2844-2875) unifies the trait's associated
 /// type variable with the impl's concrete type.
 #[test]
-#[serial]
 fn at01_assoc_type_decl_and_override_typechecks() {
     expect_accept(
         "at01_assoc_type_decl_and_override_typechecks",
@@ -98,7 +90,6 @@ fn main() {}
 /// Defends: the unification at lib.rs:2857 enforces trait constraints on the
 /// associated type override.
 #[test]
-#[serial]
 fn at02_assoc_type_override_with_wrong_constraint_rejected() {
     expect_reject(
         "at02_assoc_type_override_with_wrong_constraint_rejected",
@@ -122,7 +113,6 @@ fn main() {}
 
 /// Trait with no associated type, impl also has none — typechecks.
 #[test]
-#[serial]
 fn at03_trait_no_assoc_type_typechecks() {
     expect_accept(
         "at03_trait_no_assoc_type_typechecks",
@@ -145,7 +135,6 @@ fn main() {}
 /// Defends: resolve_path trait-cast branch (resolver.rs:24-91) with no
 /// segments resolves the associated type via find_member_with_flags.
 #[test]
-#[serial]
 fn at04_trait_cast_assoc_type_in_type_position() {
     expect_accept(
         "at04_trait_cast_assoc_type_in_type_position",
@@ -162,7 +151,6 @@ fn main() {
 
 /// `<Foo as HasTy>::Ty` where Ty is overridden to a struct type.
 #[test]
-#[serial]
 fn at05_trait_cast_assoc_type_to_struct_type() {
     expect_accept(
         "at05_trait_cast_assoc_type_to_struct_type",
@@ -182,7 +170,6 @@ fn main() {
 /// Defends: Self type is bound to the implementor (lib.rs:2840), and
 /// Self::Ty resolves through find_associated_type on the implementor.
 #[test]
-#[serial]
 fn at06_self_assoc_type_in_impl_method() {
     expect_accept(
         "at06_self_assoc_type_in_impl_method",
@@ -211,7 +198,6 @@ fn main() {}
 /// Defends: resolve_path with root=Some(Type), no segments, target=method
 /// (resolver.rs:94-114) resolves through find_member on the impl.
 #[test]
-#[serial]
 fn at07_inherent_method_call() {
     expect_accept(
         "at07_inherent_method_call",
@@ -230,7 +216,6 @@ fn main() {
 /// `<Foo as Trait>::method()` — trait method dispatch.
 /// Defends: resolve_path trait-cast with no segments (resolver.rs:71-91).
 #[test]
-#[serial]
 fn at08_trait_method_dispatch() {
     expect_accept(
         "at08_trait_method_dispatch",
@@ -261,7 +246,6 @@ fn main() {
 /// discards the trait (lib.rs:3327), then calls `find_member` directly
 /// without the trait implementation check.
 #[test]
-#[serial]
 fn at09_trait_method_on_non_implementor_rejected() {
     expect_reject(
         "at09_trait_method_on_non_implementor_rejected",
@@ -283,7 +267,6 @@ fn main() {
 
 /// Associated function with no self parameter (static method) via trait cast.
 #[test]
-#[serial]
 fn at10_trait_static_method_via_cast() {
     expect_accept(
         "at10_trait_static_method_via_cast",
@@ -309,7 +292,6 @@ fn main() {
 /// Defends: visit_trait_impl (lib.rs:2909-2922) copies unimplemented trait
 /// methods as generated default methods.
 #[test]
-#[serial]
 fn at11_default_method_not_overridden_typechecks() {
     expect_accept(
         "at11_default_method_not_overridden_typechecks",
@@ -330,7 +312,6 @@ fn main() {
 /// Defends: visit_trait_impl (lib.rs:2881-2907) matches override methods by
 /// name and removes them from unimplemented_methods.
 #[test]
-#[serial]
 fn at12_default_method_overridden_typechecks() {
     expect_accept(
         "at12_default_method_overridden_typechecks",
@@ -353,7 +334,6 @@ fn main() {
 /// associated type, which is resolved when the default is copied into the impl.
 /// Based on trait_default_associated_type_test.psy pattern.
 #[test]
-#[serial]
 fn at13_default_method_using_assoc_type() {
     expect_accept(
         "at13_default_method_using_assoc_type",
@@ -381,7 +361,6 @@ fn main() {
 /// Default method using Self::Item without overriding make — relies on the
 /// trait's default body being copied into the impl.
 #[test]
-#[serial]
 fn at14_default_method_not_overridden_with_assoc_type() {
     expect_accept(
         "at14_default_method_not_overridden_with_assoc_type",
@@ -415,7 +394,6 @@ fn main() {
 /// Defends: visit_trait_impl (lib.rs:2797-2838) unifies trait and impl generic
 /// parameters, and the associated type value G resolves in the impl scope.
 #[test]
-#[serial]
 fn at15_generic_trait_assoc_type_substitution() {
     expect_accept(
         "at15_generic_trait_assoc_type_substitution",
@@ -434,7 +412,6 @@ fn main() {}
 
 /// Generic trait with concrete instantiation — `impl Container<Felt> for Box`.
 #[test]
-#[serial]
 fn at16_generic_trait_concrete_assoc_type() {
     expect_accept(
         "at16_generic_trait_concrete_assoc_type",
@@ -453,7 +430,6 @@ fn main() {}
 
 /// Generic trait associated type accessed via trait cast with concrete generic.
 #[test]
-#[serial]
 fn at17_generic_trait_assoc_type_access() {
     expect_accept(
         "at17_generic_trait_assoc_type_access",
@@ -486,7 +462,6 @@ fn main() {
 /// Defends: the RefType associated type pattern used by Storage derive
 /// (preprocess.rs:155-170) works when written manually.
 #[test]
-#[serial]
 fn at18_manual_reftype_pattern_typechecks() {
     expect_accept(
         "at18_manual_reftype_pattern_typechecks",
@@ -510,7 +485,6 @@ fn main() {}
 /// Defends: resolve_member_type (resolver.rs:420-424) skips visibility for
 /// is_ty paths, so a private associated type is accessible in type position.
 #[test]
-#[serial]
 fn at19_private_reftype_in_type_annotation() {
     expect_accept(
         "at19_private_reftype_in_type_annotation",
@@ -527,7 +501,6 @@ fn main() {
 }
 
 #[test]
-#[serial]
 fn at19b_ambiguous_associated_type_rejected() {
     expect_reject(
         "at19b_ambiguous_associated_type",
@@ -553,7 +526,6 @@ fn main() { let value: S::Item = 1; }
 /// Defends: resolve_path trait-cast with segments (resolver.rs:40-70) resolves
 /// Ty via find_member, then get_a via find_member_with_flags.
 #[test]
-#[serial]
 fn at20_chained_assoc_type_method_call() {
     expect_accept(
         "at20_chained_assoc_type_method_call",
@@ -581,7 +553,6 @@ fn main() {
 /// Chained access with generic types — `<Number<Felt> as Trait>::Ty::get_a()`.
 /// Based on path_test.psy:110 with generics.
 #[test]
-#[serial]
 fn at21_chained_assoc_type_with_generics() {
     expect_accept(
         "at21_chained_assoc_type_with_generics",
@@ -615,7 +586,6 @@ fn main() {
 /// is_ty paths (resolver.rs:423).
 /// Defends: the is_ty visibility skip at resolver.rs:423.
 #[test]
-#[serial]
 fn at22_private_assoc_type_accessible_in_type_position() {
     expect_accept(
         "at22_private_assoc_type_accessible_in_type_position",
@@ -636,7 +606,6 @@ fn main() {
 /// type resolution in find_associated_type does not check visibility.
 /// The visibility check in resolve_member_type only applies to non-is_ty paths.
 #[test]
-#[serial]
 fn at23_private_assoc_type_method_still_resolves() {
     expect_accept(
         "at23_private_assoc_type_method_still_resolves",
@@ -662,7 +631,6 @@ fn main() {
 /// Associated type used as function parameter type via Self::Ty.
 /// Defends: Self::Ty resolves in the impl method signature context.
 #[test]
-#[serial]
 fn at24_assoc_type_as_param_type() {
     expect_accept(
         "at24_assoc_type_as_param_type",
@@ -683,7 +651,6 @@ fn main() {}
 
 /// Associated type used as return type via Self::Ty.
 #[test]
-#[serial]
 fn at25_assoc_type_as_return_type() {
     expect_accept(
         "at25_assoc_type_as_return_type",
@@ -711,7 +678,6 @@ fn main() {}
 /// Defends: visit_trait_impl (lib.rs:2845-2849) returns MissingAssociatedType
 /// when the impl doesn't override a declared associated type.
 #[test]
-#[serial]
 fn at26_missing_assoc_type_rejected() {
     expect_reject(
         "at26_missing_assoc_type_rejected",
@@ -732,7 +698,6 @@ fn main() {}
 
 /// Multiple associated types declared, one missing — error names the missing one.
 #[test]
-#[serial]
 fn at27_partial_missing_assoc_type_rejected() {
     expect_reject(
         "at27_partial_missing_assoc_type_rejected",
@@ -762,7 +727,6 @@ fn main() {}
 /// Defends: resolve_path on a type variable root with constraint, resolving
 /// the associated type through get_trait_member (implementer.rs:207-213).
 #[test]
-#[serial]
 fn at28_assoc_type_in_struct_field() {
     expect_accept(
         "at28_assoc_type_in_struct_field",
@@ -786,7 +750,6 @@ fn main() {}
 /// Defends: find_member on a type variable (implementer.rs:328-335) resolves
 /// the associated type through the trait constraint.
 #[test]
-#[serial]
 fn at29_assoc_type_in_generic_fn_body() {
     expect_accept(
         "at29_assoc_type_in_generic_fn_body",
@@ -812,7 +775,6 @@ fn main() {
 
 /// Generic function returning T::AssocTy.
 #[test]
-#[serial]
 fn at30_generic_fn_return_assoc_type() {
     expect_accept(
         "at30_generic_fn_return_assoc_type",
@@ -840,7 +802,6 @@ fn main() {
 /// `T::get()` where `T: HasTy`. This uses the constraint-based method lookup
 /// (implementer.rs:328-335).
 #[test]
-#[serial]
 fn at31_generic_type_method_via_constraint() {
     expect_accept(
         "at31_generic_type_method_via_constraint",
@@ -873,7 +834,6 @@ fn main() {
 /// Defends: visit_trait_impl (lib.rs:2890-2904) matches impl methods against
 /// trait methods by name and errors if no match.
 #[test]
-#[serial]
 fn at32_impl_method_not_in_trait_rejected() {
     expect_reject(
         "at32_impl_method_not_in_trait_rejected",
@@ -898,7 +858,6 @@ fn main() {}
 
 /// Associated type overridden with a generic struct type.
 #[test]
-#[serial]
 fn at33_assoc_type_override_with_generic_struct() {
     expect_accept(
         "at33_assoc_type_override_with_generic_struct",
@@ -917,7 +876,6 @@ fn main() {
 /// Associated type overridden with a generic type parameter of the impl.
 /// `impl<T> HasTy for Foo<T> { pub type Ty = T; }`
 #[test]
-#[serial]
 fn at34_assoc_type_override_with_impl_generic() {
     expect_accept(
         "at34_assoc_type_override_with_impl_generic",
@@ -940,7 +898,6 @@ fn main() {
 
 /// Trait with multiple associated types, all overridden.
 #[test]
-#[serial]
 fn at35_multiple_assoc_types_all_overridden() {
     expect_accept(
         "at35_multiple_assoc_types_all_overridden",
@@ -969,7 +926,6 @@ fn main() {}
 
 /// Default method body uses Self::AssocTy as a local variable type.
 #[test]
-#[serial]
 fn at36_default_body_uses_assoc_type_as_local() {
     expect_accept(
         "at36_default_body_uses_assoc_type_as_local",
@@ -1003,7 +959,6 @@ fn main() {
 /// not found on Foo) rather than `TypeMismatch` (trait B not implemented).
 /// The call is correctly rejected; the error category is misleading.
 #[test]
-#[serial]
 fn at37_trait_cast_wrong_trait_rejected() {
     expect_reject(
         "at37_trait_cast_wrong_trait_rejected",
@@ -1029,7 +984,6 @@ fn main() {
 /// Defends: visit_const (lib.rs:2538-2569) typechecks the LHS and RHS and
 /// unifies them.
 #[test]
-#[serial]
 fn con01_basic_const_felt_typechecks() {
     expect_accept(
         "con01_basic_const_felt_typechecks",
@@ -1042,7 +996,6 @@ fn main() {}
 
 /// Const declaration with bool type.
 #[test]
-#[serial]
 fn con02_const_bool_typechecks() {
     expect_accept(
         "con02_const_bool_typechecks",
@@ -1059,7 +1012,6 @@ fn main() {}
 /// has type Felt, so `const C: u32 = 42;` fails with TypeMismatch. You must
 /// write `42u32` explicitly.
 #[test]
-#[serial]
 fn con03_const_u32_typechecks() {
     expect_accept(
         "con03_const_u32_typechecks",
@@ -1073,7 +1025,6 @@ fn main() {}
 /// Const with type mismatch — bool value declared as Felt.
 /// Defends: visit_const unifies lhs_ty and rhs_ty (lib.rs:2545).
 #[test]
-#[serial]
 fn con04_const_type_mismatch_rejected() {
     expect_reject(
         "con04_const_type_mismatch_rejected",
@@ -1087,7 +1038,6 @@ fn main() {}
 
 /// Const with u32 value declared as Felt — type mismatch.
 #[test]
-#[serial]
 fn con05_const_u32_as_felt_rejected() {
     expect_reject(
         "con05_const_u32_as_felt_rejected",
@@ -1104,7 +1054,6 @@ fn main() {}
 /// including user-defined types, Self, paths, and generics.
 /// A const of a struct type should fail at parse time.
 #[test]
-#[serial]
 fn con06_const_non_primitive_type_rejected() {
     expect_reject(
         "con06_const_non_primitive_type_rejected",
@@ -1123,7 +1072,6 @@ fn main() {}
 /// TypeBool, TypeU32 — not TypeSelf. (Note: parse_const_type used in casts
 /// DOES accept Self, but the const declaration path does not.)
 #[test]
-#[serial]
 fn con07_const_self_type_rejected() {
     // Self is not valid at top level anyway, so this should error.
     // The point is that parse_const_declaration_type is more restrictive
@@ -1142,7 +1090,6 @@ fn main() {}
 /// The const is registered as a Type::Const with name C (lib.rs:2567), and
 /// resolve_path finds it via get_type_id.
 #[test]
-#[serial]
 fn con08_const_in_expression_typechecks() {
     expect_accept(
         "con08_const_in_expression_typechecks",
@@ -1157,7 +1104,6 @@ fn main() {
 
 /// Const used in a binary expression — `let x = C + 1;`.
 #[test]
-#[serial]
 fn con09_const_in_binary_expression_typechecks() {
     expect_accept(
         "con09_const_in_binary_expression_typechecks",
@@ -1175,7 +1121,6 @@ fn main() {
 /// ident (ty.rs:172-183). Sema typechecks this by unifying the array's
 /// size_ty (a type variable with Felt constraint) with N's type.
 #[test]
-#[serial]
 fn con10_const_as_array_size_typechecks() {
     expect_accept(
         "con10_const_as_array_size_typechecks",
@@ -1191,7 +1136,6 @@ fn main() {
 /// Const with computed expression value — `const C: Felt = 1 + 2;`.
 /// visit_const evaluates the expression (lib.rs:2553).
 #[test]
-#[serial]
 fn con11_const_computed_expression_typechecks() {
     expect_accept(
         "con11_const_computed_expression_typechecks",
@@ -1204,7 +1148,6 @@ fn main() {}
 
 /// Public const accessible cross-module via use.
 #[test]
-#[serial]
 fn con12_public_const_cross_module_typechecks() {
     expect_accept(
         "con12_public_const_cross_module_typechecks",
@@ -1223,7 +1166,6 @@ fn main() {
 /// Private const inaccessible cross-module.
 /// Defends: resolve_use (resolver.rs:316-322) checks type visibility.
 #[test]
-#[serial]
 fn con13_private_const_cross_module_rejected() {
     expect_reject(
         "con13_private_const_cross_module_rejected",
@@ -1240,7 +1182,6 @@ fn main() {}
 
 /// Private const accessible within its own module.
 #[test]
-#[serial]
 fn con14_private_const_within_module_typechecks() {
     expect_accept(
         "con14_private_const_within_module_typechecks",
@@ -1260,7 +1201,6 @@ fn main() {}
 /// Defends: typecheck_generic_parameter (lib.rs:3343-3344) accepts a single
 /// Felt/Bool/U32 constraint as a const generic parameter.
 #[test]
-#[serial]
 fn con15_const_generic_param_typechecks() {
     expect_accept(
         "con15_const_generic_param_typechecks",
@@ -1274,7 +1214,6 @@ fn main() {}
 /// Const generic used in array type inside generic function.
 /// `[Felt; N]` where N is a const generic param.
 #[test]
-#[serial]
 fn con16_const_generic_in_array_typechecks() {
     expect_accept(
         "con16_const_generic_in_array_typechecks",
@@ -1291,7 +1230,6 @@ fn main() {}
 /// Defends: populate_constant (lib.rs:3128) creates a Type::Const from a
 /// ConstValue when used as a generic argument.
 #[test]
-#[serial]
 fn con17_const_turbofish_arg_typechecks() {
     expect_accept(
         "con17_const_turbofish_arg_typechecks",
@@ -1306,7 +1244,6 @@ fn main() {
 
 /// Const felt turbofish argument — `f::<42>()`.
 #[test]
-#[serial]
 fn con18_felt_const_turbofish_typechecks() {
     expect_accept(
         "con18_felt_const_turbofish_typechecks",
@@ -1321,7 +1258,6 @@ fn main() {
 
 /// Bool const turbofish argument — `f::<true>()`.
 #[test]
-#[serial]
 fn con19_bool_const_turbofish_typechecks() {
     expect_accept(
         "con19_bool_const_turbofish_typechecks",
@@ -1338,7 +1274,6 @@ fn main() {
 /// Defends: parse_function_definition (item.rs:262-264) handles the const
 /// qualifier on functions.
 #[test]
-#[serial]
 fn con20_const_fn_qualifier_typechecks() {
     expect_accept(
         "con20_const_fn_qualifier_typechecks",
@@ -1355,7 +1290,6 @@ fn main() {}
 /// `const A: [Felt; 3] = ...` should fail at parse time because
 /// parse_const_declaration_type only accepts Felt/Bool/u32.
 #[test]
-#[serial]
 fn con21_const_array_type_rejected() {
     expect_reject(
         "con21_const_array_type_rejected",
@@ -1369,7 +1303,6 @@ fn main() {}
 
 /// LIMITATION: const declaration does not accept generic types.
 #[test]
-#[serial]
 fn con22_const_generic_type_rejected() {
     expect_reject(
         "con22_const_generic_type_rejected",
@@ -1385,7 +1318,6 @@ fn main() {}
 /// Const used in cast expression — `x as u32` where the cast target is a
 /// primitive type (parse_const_type accepts these).
 #[test]
-#[serial]
 fn con23_cast_to_u32_typechecks() {
     expect_accept(
         "con23_cast_to_u32_typechecks",
@@ -1400,7 +1332,6 @@ fn main() {
 
 /// Cast from u32 to Felt — requires u32 source value (`42u32`).
 #[test]
-#[serial]
 fn con24_cast_u32_to_felt_typechecks() {
     expect_accept(
         "con24_cast_u32_to_felt_typechecks",
@@ -1420,7 +1351,6 @@ fn main() {
 /// (error.rs:69-70) is defined but NEVER used — it is dead code. The cast IS
 /// correctly rejected, but with the wrong error category.
 #[test]
-#[serial]
 fn con25_cast_to_struct_rejected() {
     expect_reject(
         "con25_cast_to_struct_rejected",
@@ -1438,7 +1368,6 @@ fn main() {
 /// Two consts with the same name in the same module — should fail.
 /// Defends: add_type_id (lib.rs:2567) should detect duplicate type names.
 #[test]
-#[serial]
 fn con26_duplicate_const_rejected() {
     expect_reject(
         "con26_duplicate_const_rejected",
@@ -1455,7 +1384,6 @@ fn main() {}
 /// This may or may not work depending on whether the evaluator can resolve
 /// a const-path expression at const evaluation time.
 #[test]
-#[serial]
 fn con27_const_referencing_another_const() {
     // This is a probe — it may pass or fail. The evaluator (lib.rs:2553)
     // evaluates the expression; if it can resolve a const-path expression,
@@ -1473,7 +1401,6 @@ fn main() {}
 /// Const used as an array literal size in a generic struct —
 /// `struct S<T, N: Felt> { pub arr: [T; N] }`.
 #[test]
-#[serial]
 fn con28_const_generic_in_struct_field_typechecks() {
     expect_accept(
         "con28_const_generic_in_struct_field_typechecks",
@@ -1491,7 +1418,6 @@ fn main() {}
 /// so InvalidGenericConstraint.
 /// Defends: typecheck_generic_parameter (lib.rs:3343-3347).
 #[test]
-#[serial]
 fn con29_invalid_generic_constraint_rejected() {
     expect_reject(
         "con29_invalid_generic_constraint_rejected",
@@ -1509,7 +1435,6 @@ fn main() {}
 /// Defends: typecheck_generic_parameter (lib.rs:3343-3344) requires either ALL
 /// constraints are traits OR exactly one primitive constraint.
 #[test]
-#[serial]
 fn con30_mixed_constraint_rejected() {
     expect_reject(
         "con30_mixed_constraint_rejected",
@@ -1524,7 +1449,6 @@ fn main() {}
 
 /// Multiple primitive constraints rejected — only one primitive allowed.
 #[test]
-#[serial]
 fn con31_multiple_primitive_constraints_rejected() {
     expect_reject(
         "con31_multiple_primitive_constraints_rejected",
@@ -1542,7 +1466,6 @@ fn main() {}
 /// Defends: parse_function_definition (item.rs:262-267) handles const then
 /// extern qualifiers in sequence.
 #[test]
-#[serial]
 fn con32_const_extern_fn_typechecks() {
     expect_accept(
         "con32_const_extern_fn_typechecks",
@@ -1557,7 +1480,6 @@ fn main() {}
 /// parameter values, so this is not applicable. Instead, test a const used
 /// as a standalone expression statement.
 #[test]
-#[serial]
 fn con33_const_as_expression_statement() {
     expect_accept(
         "con33_const_as_expression_statement",
@@ -1572,7 +1494,6 @@ fn main() {
 
 /// Const with a felt literal that is a large number.
 #[test]
-#[serial]
 fn con34_const_large_felt_typechecks() {
     expect_accept(
         "con34_const_large_felt_typechecks",
@@ -1585,7 +1506,6 @@ fn main() {}
 
 /// Const zero value.
 #[test]
-#[serial]
 fn con35_const_zero_value_typechecks() {
     expect_accept(
         "con35_const_zero_value_typechecks",
@@ -1598,7 +1518,6 @@ fn main() {}
 
 /// Const false value.
 #[test]
-#[serial]
 fn con36_const_false_typechecks() {
     expect_accept(
         "con36_const_false_typechecks",
@@ -1611,7 +1530,6 @@ fn main() {}
 
 /// Const used in an if condition.
 #[test]
-#[serial]
 fn con37_const_in_if_condition_typechecks() {
     expect_accept(
         "con37_const_in_if_condition_typechecks",
@@ -1631,7 +1549,6 @@ fn main() {
 /// The for-loop check (lib.rs:2579-2580) requires both start and end to be
 /// the same type (both Felt or both u32).
 #[test]
-#[serial]
 fn con38_const_u32_in_for_range_typechecks() {
     expect_accept(
         "con38_const_u32_in_for_range_typechecks",
@@ -1648,7 +1565,6 @@ fn main() {
 
 /// Const Felt used in a for-loop range.
 #[test]
-#[serial]
 fn con39_const_felt_in_for_range_typechecks() {
     expect_accept(
         "con39_const_felt_in_for_range_typechecks",
@@ -1666,7 +1582,6 @@ fn main() {
 /// LIMITATION: const declaration type does not accept path types.
 /// `const C: mod::Type = ...` should fail at parse time.
 #[test]
-#[serial]
 fn con40_const_path_type_rejected() {
     expect_reject(
         "con40_const_path_type_rejected",
@@ -1683,7 +1598,6 @@ fn main() {}
 
 /// LIMITATION: const declaration type does not accept tuple types.
 #[test]
-#[serial]
 fn con41_const_tuple_type_rejected() {
     expect_reject(
         "con41_const_tuple_type_rejected",
@@ -1697,7 +1611,6 @@ fn main() {}
 
 /// Const used in assert_eq — `assert_eq(C, 42, "msg")`.
 #[test]
-#[serial]
 fn con42_const_in_assert_typechecks() {
     expect_accept(
         "con42_const_in_assert_typechecks",
@@ -1712,7 +1625,6 @@ fn main() {
 
 /// Const used as a struct field initializer.
 #[test]
-#[serial]
 fn con43_const_in_struct_literal_typechecks() {
     expect_accept(
         "con43_const_in_struct_literal_typechecks",
@@ -1728,7 +1640,6 @@ fn main() {
 
 /// Const used in a function call argument.
 #[test]
-#[serial]
 fn con44_const_in_call_arg_typechecks() {
     expect_accept(
         "con44_const_in_call_arg_typechecks",
@@ -1744,7 +1655,6 @@ fn main() {
 
 /// Const generic with felt constraint — `fn f<N: Felt>()`.
 #[test]
-#[serial]
 fn con45_const_generic_felt_constraint_typechecks() {
     expect_accept(
         "con45_const_generic_felt_constraint_typechecks",
@@ -1757,7 +1667,6 @@ fn main() {}
 
 /// Const generic with bool constraint — `fn f<N: bool>()`.
 #[test]
-#[serial]
 fn con46_const_generic_bool_constraint_typechecks() {
     expect_accept(
         "con46_const_generic_bool_constraint_typechecks",
@@ -1772,7 +1681,6 @@ fn main() {}
 /// `f::<3u32>()` where `fn f<N: u32>()` — requires `3u32` (not bare `3`
 /// which defaults to Felt and fails to unify with the u32 constraint).
 #[test]
-#[serial]
 fn con47_const_generic_turbofish_u32_typechecks() {
     expect_accept(
         "con47_const_generic_turbofish_u32_typechecks",
@@ -1788,7 +1696,6 @@ fn main() {
 /// Multiple const generic parameters.
 /// `fn f<N: u32, M: u32>()`.
 #[test]
-#[serial]
 fn con48_multiple_const_generics_typechecks() {
     expect_accept(
         "con48_multiple_const_generics_typechecks",
@@ -1802,7 +1709,6 @@ fn main() {}
 /// Mixed generic and const generic parameters.
 /// `fn f<T, N: u32>()`.
 #[test]
-#[serial]
 fn con49_mixed_generic_and_const_generic_typechecks() {
     expect_accept(
         "con49_mixed_generic_and_const_generic_typechecks",
@@ -1816,7 +1722,6 @@ fn main() {}
 /// Struct with both type generic and const generic parameters.
 /// `struct S<T, N: Felt> { pub arr: [T; N] }` instantiated with turbofish.
 #[test]
-#[serial]
 fn con50_struct_mixed_generics_instantiated_typechecks() {
     expect_accept(
         "con50_struct_mixed_generics_instantiated_typechecks",
@@ -1834,7 +1739,6 @@ fn main() {
 /// Const used in array type inside a struct field with a named const.
 /// `const N: Felt = 3; struct S { pub arr: [Felt; N] }`.
 #[test]
-#[serial]
 fn con51_named_const_in_struct_array_field_typechecks() {
     expect_accept(
         "con51_named_const_in_struct_array_field_typechecks",
@@ -1857,7 +1761,6 @@ fn main() {}
 /// This is by design (lexer regex `(?:0|[1-9]\d*)u32` for u32, bare integers
 /// are U64 → Felt), but it's a common gotcha.
 #[test]
-#[serial]
 fn con52_bare_int_defaults_to_felt_not_u32() {
     expect_reject(
         "con52_bare_int_defaults_to_felt_not_u32",
@@ -1872,7 +1775,6 @@ fn main() {}
 /// Both `const extern fn` and `extern const fn` are accepted; the parser
 /// accepts qualifiers in any order (item.rs loop-based parsing).
 #[test]
-#[serial]
 fn con53_extern_before_const_typechecks() {
     expect_accept(
         "con53_extern_before_const_typechecks",
@@ -1887,7 +1789,6 @@ fn main() {}
 /// even when the value fits. The array size must be Felt, and a u32 const
 /// cannot be used (type mismatch on the array's size_ty unification).
 #[test]
-#[serial]
 fn con54_u32_const_as_array_size_rejected() {
     expect_reject(
         "con54_felt_const_as_array_size_rejected",
@@ -1903,7 +1804,6 @@ fn main() {
 
 /// Const with negative value — Felt supports negative literals.
 #[test]
-#[serial]
 fn con55_const_negative_felt_typechecks() {
     expect_accept(
         "con55_const_negative_felt_typechecks",
@@ -1916,7 +1816,6 @@ fn main() {}
 
 /// Associated type override with an array type.
 #[test]
-#[serial]
 fn at38_assoc_type_override_with_array_type() {
     expect_accept(
         "at38_assoc_type_override_with_array_type",
@@ -1933,7 +1832,6 @@ fn main() {
 
 /// Associated type override with a tuple type.
 #[test]
-#[serial]
 fn at39_assoc_type_override_with_tuple_type() {
     expect_accept(
         "at39_assoc_type_override_with_tuple_type",
@@ -1951,7 +1849,6 @@ fn main() {
 /// Trait with associated type used in a method signature cross-referencing
 /// another associated type — `fn convert(x: Self::A) -> Self::B`.
 #[test]
-#[serial]
 fn at40_cross_assoc_type_in_method_sig() {
     expect_accept(
         "at40_cross_assoc_type_in_method_sig",

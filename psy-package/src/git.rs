@@ -71,9 +71,40 @@ fn dargo_crates() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use url::Url;
 
-    use super::resolve_folder_name;
+    use super::{clone_git_repo, dargo_crates, git_dep_location, git_dep_location_from_url, resolve_folder_name};
+
+    #[test]
+    #[serial_test::serial]
+    fn clone_git_repo_reuses_existing_checkouts_and_reports_spawn_failures() {
+        let saved_home = std::env::var("HOME").ok();
+        let saved_path = std::env::var("PATH").ok();
+        let temp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("HOME", temp.path()) };
+        // With an empty PATH git cannot even spawn, so any Ok below proves the
+        // pre-existing directory short-circuits the clone.
+        unsafe { std::env::set_var("PATH", "") };
+
+        let url = "https://github.com/PsyProtocol/psy-bigint.git";
+        let loc = git_dep_location_from_url(url, "v0.1.17");
+        std::fs::create_dir_all(&loc).unwrap();
+        assert_eq!(clone_git_repo(url, "v0.1.17"), Ok(loc));
+
+        let result = clone_git_repo("https://github.com/PsyProtocol/definitely-missing.git", "v9.9.9");
+        assert!(
+            result.as_deref().err().is_some_and(|msg| msg.contains("Failed to run git")),
+            "missing checkout with empty PATH must report the spawn failure: {result:?}"
+        );
+
+        unsafe { std::env::set_var("PATH", saved_path.unwrap_or_default()) };
+        match saved_home {
+            Some(home) => unsafe { std::env::set_var("HOME", home) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
+    }
 
     #[test]
     fn test_resolve_folder_name() {
@@ -84,5 +115,34 @@ mod tests {
         };
         test_fixture("https://github.com/PsyProtocol/psy-bigint/");
         test_fixture("https://github.com/PsyProtocol/psy-bigint");
+    }
+
+    #[test]
+    fn dependency_locations_support_https_ssh_and_malformed_urls() {
+        let https = git_dep_location_from_url("https://github.com/PsyProtocol/psy-bigint.git", "main");
+        assert_eq!(
+            https,
+            dargo_crates().join("github.com/PsyProtocol/psy-bigint.git/main")
+        );
+
+        let ssh = git_dep_location_from_url("git@github.com:PsyProtocol/psy-bigint.git", "v1");
+        assert_eq!(
+            ssh,
+            dargo_crates().join("github.com/PsyProtocol/psy-bigint.git/v1")
+        );
+
+        let malformed = git_dep_location_from_url("not a valid url %", "tag");
+        assert_eq!(malformed.parent(), Some(dargo_crates().as_path()));
+        assert!(malformed.file_name().unwrap().to_string_lossy().starts_with("ssh-"));
+        assert!(malformed.file_name().unwrap().to_string_lossy().ends_with("-tag"));
+    }
+
+    #[test]
+    fn dependency_location_uses_domain_path_and_tag() {
+        let url = Url::parse("https://example.test/org/repository").unwrap();
+        assert_eq!(
+            git_dep_location(&url, "release"),
+            dargo_crates().join(PathBuf::from("example.test/org/repository/release"))
+        );
     }
 }

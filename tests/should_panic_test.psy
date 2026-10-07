@@ -1,6 +1,6 @@
 #[test]
 #[should_panic]
-fn test_simple_panic() {
+fn test_panic() {
     // Directly assert false to trigger a panic
     assert(false, "This assertion is deliberately false to test should_panic");
 }

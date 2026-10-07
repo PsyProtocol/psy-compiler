@@ -86,12 +86,15 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                                 path.location,
                             ));
                         } else {
-                            let path_target = path.target.as_basic().unwrap();
+                            let path_target = path.target.basic_target().ok_or(Error::InvalidPathSegment {
+                                location: path.location,
+                                segment: format!("{:?}", path.target),
+                            })?;
                             let member_ty_id = self.find_member_with_flags(
                                 impl_ty_id,
                                 Some(trait_type_id),
                                 Some(path_target.location),
-                                path_target,
+                                &path_target,
                                 None,
                                 is_function,
                                 ctx,
@@ -108,7 +111,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                         };
                     }
 
-                    let path_target = path.target.as_basic().unwrap();
+                    let path_target = path.target.basic_target().ok_or(Error::InvalidPathSegment {
+                        location: path.location,
+                        segment: format!("{:?}", path.target),
+                    })?;
 
                     let mut root_type_id = self.typecheck(ty, ctx)?;
                     let root_type_id_clone = root_type_id;

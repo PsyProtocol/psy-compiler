@@ -54,8 +54,10 @@ fn compile_abi(package: &str, contract_name: &str, methods: &[&str]) -> (Abi, Ha
             )
         })
         .collect::<HashMap<_, _>>();
-    let abi = AbiExtractor::new(contract_name.to_string())
-        .extract_abi(&mut result.ctx.program, 1, &metadata)
+    let extractor = AbiExtractor::new(contract_name.to_string());
+    let state_tree_height = extractor.compute_state_tree_height(&mut result.ctx.program);
+    let abi = extractor
+        .extract_abi(&mut result.ctx.program, state_tree_height, &metadata)
         .expect("extract canonical ABI");
     (abi, metadata)
 }

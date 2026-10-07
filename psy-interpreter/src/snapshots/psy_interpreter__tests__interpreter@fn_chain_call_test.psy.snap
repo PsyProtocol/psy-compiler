@@ -1,6 +1,5 @@
 ---
 source: psy-interpreter/src/lib.rs
-assertion_line: 2175
 expression: "ctx.debug_scope(ScopeId::root())"
 input_file: tests/fn_chain_call_test.psy
 ---
@@ -427,7 +426,7 @@ ScopeId(0) (Module)
         pub fn get_contract_deployer (TypeId(73))
             Parameters:
                 Felt contract_id (Identifier { id: IdentId(55), location: Location { file_id: FileId(5), start: 179, end: 190 } }, TypeId(73))
-            Return Type: Array (TypeId(9))
+            Return Type: Felt (TypeId(3))
             Body: ExprId(1531)
         pub fn get_contract_state_tree_height (TypeId(74))
             Parameters:

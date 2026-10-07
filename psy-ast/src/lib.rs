@@ -14,6 +14,9 @@ mod r#type;
 mod value;
 mod visibility;
 
+#[cfg(test)]
+mod api_edge_tests;
+
 pub use arena::*;
 pub use comment::*;
 pub use definition::*;

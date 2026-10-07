@@ -40,9 +40,9 @@ impl MiningRewardMerkleProof {
         let mut nullifier_level_start_index_multiplier = 1;
 
         let index = self.index;
-        let max_index = 4294967296;
+        let max_index = 1 << proof_height;
 
-        assert(index < max_index, "index out of range");
+        assert(index < max_index, "index exceeds proof height");
 
         // Step 1: Compute leaf hash from three components
         // hash(hash(leaf_left, leaf_right), leaf_tag)
@@ -245,6 +245,46 @@ impl PsyPOWMiningRewardsClaimContractRef {
         let mut last_checkpoint = initial_persistent_state.last_claimed_checkpoint_id;
 
         for i in 0u32..5u32 {
+            let idx = i as Felt;
+            let checkpoint_id = checkpoints[idx];
+            let proof = proofs[idx];
+            let proposed_reward = proposed_rewards[idx];
+
+            if checkpoint_id != last_checkpoint {
+                if last_checkpoint != initial_persistent_state.last_sealed_checkpoint_id {
+                    Self::end_session(last_checkpoint);
+                };
+                Self::start_session(checkpoint_id);
+                last_checkpoint = checkpoint_id;
+            };
+
+            assert(checkpoint_id > initial_persistent_state.last_sealed_checkpoint_id, "checkpoint is sealed");
+
+            Self::claim_single_guta_reward(checkpoint_id, proof, proposed_reward);
+            total_rewards_claimed = total_rewards_claimed + proposed_reward;
+        }
+
+        let final_persistent_state = c.persistent_state.get();
+        c.persistent_state = PersistentState {
+            last_claimed_checkpoint_id: last_checkpoint,
+            claimed_rewards: final_persistent_state.claimed_rewards + total_rewards_claimed,
+            last_sealed_checkpoint_id: final_persistent_state.last_sealed_checkpoint_id,
+        };
+    }
+
+    #[contract_method]
+    pub fn claim_guta_rewards_10(
+        checkpoints: [Felt; 10],
+        proofs: [MiningRewardMerkleProof; 10],
+        proposed_rewards: [Felt; 10]
+    ) {
+        let c = PsyPOWMiningRewardsClaimContractRef::new(ContractMetadata::current());
+        let initial_persistent_state = c.persistent_state.get();
+
+        let mut total_rewards_claimed = 0;
+        let mut last_checkpoint = initial_persistent_state.last_claimed_checkpoint_id;
+
+        for i in 0u32..10u32 {
             let idx = i as Felt;
             let checkpoint_id = checkpoints[idx];
             let proof = proofs[idx];

@@ -3,7 +3,7 @@ struct Contract {
 }
 
 impl Contract {
-    pub fn simple_mint(
+    pub fn mint(
         amount: Felt,
     ) -> Felt {
         let self_user_leaf: Hash = get_state_hash_at(get_user_id());
@@ -21,7 +21,7 @@ impl Contract {
         new_balance
     }
 
-    pub fn simple_transfer(
+    pub fn transfer(
         recipient: Felt,
         amount: Felt,
     ) -> Felt {
@@ -58,7 +58,7 @@ impl Contract {
         current_balance
     }
 
-    pub fn simple_claim(
+    pub fn claim(
         sender: Felt,
     ) -> Felt {
         let self_user_id: Felt = get_user_id();

@@ -206,7 +206,7 @@ impl ContractRef {
     }
 
     #[contract_method]
-    pub fn claim_simple_reward(claim_checkpoint_id: Felt, proposed_reward: Felt) {
+    pub fn claim_reward(claim_checkpoint_id: Felt, proposed_reward: Felt) {
         let c = ContractRef::new(ContractMetadata::current());
         let current_checkpoint = get_checkpoint_id();
         let claim_rewards_cooldown = 2;

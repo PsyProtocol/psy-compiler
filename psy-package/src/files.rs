@@ -108,7 +108,10 @@ mod tests {
         str::FromStr,
     };
 
-    use crate::{errors::ManifestError, files::find_file_manifest_root};
+    use crate::{
+        errors::ManifestError,
+        files::{find_file_manifest, find_file_manifest_root, find_package_manifest, get_package_manifest, path_root},
+    };
 
     /// Test that `find_file_manifest_root` handles all kinds of prefixes.
     #[test]
@@ -210,5 +213,52 @@ mod tests {
         assert_ok("project/foo/src", "project/foo");
         assert_err("project/baz");
         assert_err("project/baz/src");
+    }
+
+    #[test]
+    fn manifest_helpers_distinguish_nearest_and_workspace_manifests() {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let package = workspace.join("member");
+        let source = package.join("src/nested");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(workspace.join("Dargo.toml"), "").unwrap();
+        std::fs::write(package.join("Dargo.toml"), "").unwrap();
+
+        assert_eq!(find_file_manifest(&source), Some(package.join("Dargo.toml")));
+        assert_eq!(get_package_manifest(&package).unwrap(), package.join("Dargo.toml"));
+        assert_eq!(
+            find_package_manifest(&workspace, &source).unwrap(),
+            workspace.join("Dargo.toml")
+        );
+    }
+
+    #[test]
+    fn manifest_helpers_report_boundary_and_missing_errors() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        assert!(matches!(
+            find_package_manifest(&root, &outside).unwrap_err(),
+            ManifestError::NoCommonAncestor { root: error_root, current }
+                if error_root == root && current == outside
+        ));
+        assert!(matches!(
+            find_package_manifest(&root, &root).unwrap_err(),
+            ManifestError::MissingFile(path) if path == root
+        ));
+        assert!(matches!(
+            get_package_manifest(&root).unwrap_err(),
+            ManifestError::MissingFile(path) if path == root
+        ));
+    }
+
+    #[test]
+    fn path_root_handles_absolute_and_relative_paths() {
+        assert_eq!(path_root(Path::new("/one/two")), PathBuf::from("/"));
+        assert_eq!(path_root(Path::new("one/two")), PathBuf::new());
     }
 }

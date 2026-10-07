@@ -145,27 +145,13 @@ impl PsyWithdrawalTreeContractRef {
     fn get_chain_count_value(chain_index: Felt) -> Felt {
         assert(chain_index < 256, "chain index out of range");
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
-        let mut out: Felt = 0;
-        for i in 0u32..256u32 {
-            let idx = i as Felt;
-            if idx == chain_index {
-                out = c.chain_counts[idx].get();
-            };
-        }
-        out
+        c.chain_counts[chain_index].get()
     }
 
     fn get_chain_root_value(chain_index: Felt) -> [u32; 8] {
         assert(chain_index < 256, "chain index out of range");
         let c = PsyWithdrawalTreeContractRef::new(ContractMetadata::current());
-        let mut out: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
-        for i in 0u32..256u32 {
-            let idx = i as Felt;
-            if idx == chain_index {
-                out = c.chain_roots[idx].get();
-            };
-        }
-        out
+        c.chain_roots[chain_index].get()
     }
 
     fn get_global_count_value() -> Felt {

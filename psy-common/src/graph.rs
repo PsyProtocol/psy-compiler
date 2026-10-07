@@ -253,4 +253,112 @@ mod tests {
 
         assert_eq!(visited, vec!["root", "left", "shared", "right"]);
     }
+
+    #[test]
+    fn empty_graph_has_no_roots_and_all_traversals_are_noops() {
+        let graph = Graph::<&str>::new();
+        let mut dfs_count = 0;
+        let mut bfs_count = 0;
+
+        graph.dfs(&mut |_, _| dfs_count += 1);
+        graph.bfs::<Error>(&mut |_| {
+            bfs_count += 1;
+            Ok(())
+        }).unwrap();
+
+        assert!(graph.nodes().is_empty());
+        assert!(graph.starting_nodes().is_empty());
+        assert_eq!((dfs_count, bfs_count), (0, 0));
+    }
+
+    #[test]
+    fn self_edges_are_ignored_and_duplicate_edges_are_deduplicated() {
+        let mut graph = Graph::new();
+        graph.add_edge("A", "A");
+        graph.add_edge("A", "B");
+        graph.add_edge("A", "B");
+
+        assert_eq!(graph.nodes(), vec![&"A", &"B"]);
+        assert_eq!(graph.edges(&"A").unwrap().iter().collect::<Vec<_>>(), vec![&"B"]);
+        assert!(graph.edges(&"B").unwrap().is_empty());
+        assert_eq!(graph.starting_nodes(), vec![&"A"]);
+    }
+
+    #[test]
+    fn bfs_visits_a_shared_node_once_and_propagates_visitor_errors() {
+        let mut graph = Graph::new();
+        graph.add_edge("root-a", "shared");
+        graph.add_edge("root-b", "shared");
+
+        let mut visited = Vec::new();
+        let result = graph.bfs::<Error>(&mut |node| {
+            visited.push(*node);
+            if *node == "root-b" {
+                return Err(Error::CycleGraph);
+            }
+            Ok(())
+        });
+
+        assert!(matches!(result, Err(Error::CycleGraph)));
+        assert_eq!(visited, vec!["root-a", "shared", "root-b"]);
+    }
+
+    #[test]
+    fn contains_node_and_edges_reflect_insertions_and_misses() {
+        let mut graph = Graph::new();
+        graph.add_edge("A", "B");
+
+        assert!(graph.contains_node(&"A"));
+        assert!(graph.contains_node(&"B"));
+        assert!(!graph.contains_node(&"C"));
+        assert_eq!(graph.edges(&"C"), None);
+    }
+
+    #[test]
+    fn add_node_is_idempotent_for_existing_nodes() {
+        let mut graph = Graph::new();
+        graph.add_edge("A", "B");
+        graph.add_node("A");
+        graph.add_node("A");
+
+        assert_eq!(graph.nodes(), vec![&"A", &"B"]);
+        assert_eq!(graph.edges(&"A").unwrap().iter().collect::<Vec<_>>(), vec![&"B"]);
+    }
+
+    #[test]
+    fn topological_sort_propagates_visitor_errors() {
+        let mut graph = Graph::new();
+        graph.add_edge("A", "B");
+
+        let mut visited = Vec::new();
+        let result = graph.ts::<Error>(&mut |node| {
+            visited.push(*node);
+            if *node == "B" {
+                return Err(Error::CycleGraph);
+            }
+            Ok(())
+        });
+
+        assert!(matches!(result, Err(Error::CycleGraph)));
+        assert_eq!(visited, vec!["B"]);
+    }
+
+    #[test]
+    fn bfs_skips_pure_cycles_because_they_have_no_starting_node() {
+        // Unlike `dfs`, which iterates every node, `bfs` only walks from
+        // `starting_nodes()`. A component that is entirely cyclic therefore
+        // contributes no starting node and is silently skipped.
+        let mut graph = Graph::new();
+        graph.add_edge("A", "B");
+        graph.add_edge("B", "A");
+        graph.add_edge("root", "A");
+
+        let mut visited = Vec::new();
+        graph.bfs::<Error>(&mut |node| {
+            visited.push(*node);
+            Ok(())
+        }).unwrap();
+
+        assert_eq!(visited, vec!["root", "A", "B"]);
+    }
 }

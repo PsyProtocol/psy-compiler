@@ -2,19 +2,29 @@
 /// genesis_contracts.json (Vec<PQBCDeployContract>) for use in genesis config.
 ///
 /// Usage:
+///   cargo run --release --example gen_deploy_json -- <output.json>
+/// <input1.json>[:<deployer_user_id>[:<name>]]
+/// [<input2.json>[:<deployer_user_id>[:<name>]]] ...
+///
+/// Example:
 ///   cargo run --release --example gen_deploy_json -- \
 ///     --deployer-user-id <ASCII-decimal-u64> <output.json> \
 ///     <input1.json>[:<name>] [<input2.json>[:<name>]] ...
 ///
-/// The deployer user id applies to every contract. No default or per-artifact
-/// deployer is accepted. Set GEN_DEPLOY_JSON_COMPACT=1 to write compact JSON.
-use std::{env, fs, path::Path, str::FromStr};
+/// Each input can optionally specify deployer and name as:
+/// path:deployer_user_id:name If only deployer is given (path:deployer_user_id),
+/// name defaults to the file stem If neither deployer nor name is given (path),
+/// both default to their defaults
+use std::{env, fs, path::Path};
 
 use psy_data::config::store_config::{C, D};
 use psy_prover::session::gen_contract_deploy_and_circuits_for_functions;
 use psy_vm::dpn::vm::def::DPNFunctionCircuitDefinition;
 use serde::Deserialize;
 
+// Default genesis deployer user id: 0 is reserved, so genesis precompiles can
+// never be updated by an on-chain deployer.
+const DEFAULT_DEPLOYER: u64 = 0;
 const DEFAULT_STATE_TREE_HEIGHT: u8 = 32;
 
 #[derive(Deserialize)]
@@ -37,17 +47,38 @@ fn get_file_stem(path: &str) -> String {
 fn main() -> anyhow::Result<()> {
     let compact = env_flag_enabled("GEN_DEPLOY_JSON_COMPACT");
     let args: Vec<String> = env::args().collect();
-    let (deployer_user_id, output_path, inputs) = parse_generation_args(&args)?;
+
+    if args.len() < 3 {
+        eprintln!("Usage: gen_deploy_json <output.json> <input1.json>[:<deployer_user_id>[:<name>]] [<input2.json>[:<deployer_user_id>[:<name>]]] ...");
+        eprintln!();
+        eprintln!("Each input can optionally specify deployer and name as: path:deployer_user_id:name");
+        eprintln!("Set GEN_DEPLOY_JSON_COMPACT=1 to write compact JSON");
+        eprintln!("Default deployer user id: {}", DEFAULT_DEPLOYER);
+        eprintln!("Default name: file stem (e.g. token.json -> token)");
+        std::process::exit(1);
+    }
+
+    let output_path = &args[1];
+    let inputs = &args[2..];
 
     let mut contract_objects = Vec::new();
 
     for (i, input_arg) in inputs.iter().enumerate() {
-        let (input_path, name) = match input_arg.split_once(':') {
-            Some((path, name)) if !name.is_empty() && !name.contains(':') => (path, name.to_string()),
-            None => (input_arg.as_str(), get_file_stem(input_arg)),
-            Some(_) => anyhow::bail!("Invalid input format: {}. Use path[:name]", input_arg),
+        // Parse "path:deployer_user_id:name" or "path:deployer_user_id" or just "path"
+        let parts: Vec<&str> = input_arg.split(':').collect();
+        let input_path = parts[0];
+
+        let (deployer, name) = match parts.len() {
+            1 => (DEFAULT_DEPLOYER, get_file_stem(input_path)),
+            2 => (parse_deployer(parts[1], input_path)?, get_file_stem(input_path)),
+            3 => (parse_deployer(parts[1], input_path)?, parts[2].to_string()),
+            _ => {
+                anyhow::bail!("Invalid input format: {}. Use path:deployer_user_id:name", input_arg);
+            }
         };
 
+        // New compiler artifacts carry the authoritative layout-derived height.
+        // Continue accepting legacy bare definition arrays with the old default.
         let input_json = fs::read_to_string(input_path).map_err(|e| anyhow::anyhow!("Failed to read {}: {}", input_path, e))?;
         let artifact: CompilationArtifactInput =
             serde_json::from_str(&input_json).map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", input_path, e))?;
@@ -71,7 +102,7 @@ fn main() -> anyhow::Result<()> {
             defs.len(),
             state_tree_height,
             deploy_contract.function_whitelist.len(),
-            deployer_user_id
+            deployer
         );
 
         let mut contract_json: serde_json::Value = serde_json::to_value(&deploy_contract)?;
@@ -127,4 +158,9 @@ fn env_flag_enabled(name: &str) -> bool {
     env::var(name)
         .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"))
         .unwrap_or(false)
+}
+
+fn parse_deployer(raw: &str, input_path: &str) -> anyhow::Result<u64> {
+    raw.parse::<u64>()
+        .map_err(|e| anyhow::anyhow!("Invalid deployer user id `{}` for {}: {}", raw, input_path, e))
 }

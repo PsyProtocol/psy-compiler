@@ -74,3 +74,59 @@ pub enum CommentPosition {
     /// Comments before a closing delimiter or EOF — attach to preceding node.
     Trailing,
 }
+
+#[cfg(test)]
+mod tests {
+    use psy_common::FileId;
+
+    use super::*;
+
+    fn cursor(src: &str) -> TokenCursor<'_> {
+        let tokens = psy_lexer::lex_all(src).unwrap();
+        TokenCursor::new(tokens, FileId(0))
+    }
+
+    #[test]
+    fn leading_comments_are_collected_and_the_cursor_advances() {
+        let mut c = cursor("// lead\n/* block */\nlet");
+        let comments = collect_leading_comments(&mut c);
+        assert_eq!(comments.len(), 2);
+        assert!(matches!(comments[0], Comment::Line { .. }));
+        assert!(matches!(comments[1], Comment::Block { .. }));
+        assert!(comments[0].content().contains("lead"), "line comment content: {}", comments[0].content());
+        assert!(comments[1].content().contains("block"), "block comment content: {}", comments[1].content());
+        assert_eq!(c.peek(), Some(&psy_lexer::Token::KeywordLet));
+    }
+
+    #[test]
+    fn trailing_comments_collect_until_the_closing_delimiter() {
+        let mut c = cursor("// one\n/* two */\n}");
+        let comments = collect_trailing_comments_until_close(&mut c);
+        assert_eq!(comments.len(), 2);
+        assert!(comments[0].content().contains("one"), "line comment content: {}", comments[0].content());
+        assert!(comments[1].content().contains("two"), "block comment content: {}", comments[1].content());
+        assert_eq!(c.peek(), Some(&psy_lexer::Token::RBrace));
+
+        // No comments to consume leaves the cursor untouched.
+        let mut c = cursor("let");
+        assert!(collect_trailing_comments_until_close(&mut c).is_empty());
+        assert_eq!(c.peek(), Some(&psy_lexer::Token::KeywordLet));
+    }
+
+    #[test]
+    fn close_delimiter_detection_skips_comments() {
+        assert!(at_close_delimiter(&cursor("// c\n}")));
+        assert!(at_close_delimiter(&cursor(")")));
+        assert!(at_close_delimiter(&cursor("]")));
+        assert!(!at_close_delimiter(&cursor("// c\nlet")));
+        assert!(!at_close_delimiter(&cursor("")));
+    }
+
+    #[test]
+    fn comment_classification_splits_leading_from_trailing() {
+        assert_eq!(classify_comments(&cursor("// c\n}")), CommentPosition::Trailing);
+        assert_eq!(classify_comments(&cursor(")")), CommentPosition::Trailing);
+        assert_eq!(classify_comments(&cursor("")), CommentPosition::Trailing);
+        assert_eq!(classify_comments(&cursor("// c\nlet")), CommentPosition::Leading);
+    }
+}

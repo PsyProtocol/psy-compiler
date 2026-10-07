@@ -61,3 +61,33 @@ impl ariadne::Span for FileLocation {
         self.end
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ariadne::Span;
+    use psy_common::FileId;
+
+    use super::*;
+
+    #[test]
+    fn locations_construct_and_default() {
+        let location = Location::new(FileId(3), 5, 9);
+        assert_eq!((location.file_id, location.start, location.end), (FileId(3), 5, 9));
+
+        let default = Location::default();
+        assert_eq!((default.file_id, default.start, default.end), (FileId(0), 0, 0));
+    }
+
+    #[test]
+    fn file_locations_construct_default_and_render_as_spans() {
+        let file_location = FileLocation::new("main.psy".to_string(), 2, 7);
+        assert_eq!(file_location.path, "main.psy");
+        assert_eq!(file_location.start(), 2);
+        assert_eq!(file_location.end(), 7);
+        assert_eq!(file_location.source(), "main.psy");
+
+        let default = FileLocation::default();
+        assert_eq!((default.path.as_str(), default.start, default.end), ("", 0, 0));
+        assert_eq!(default.source(), "");
+    }
+}

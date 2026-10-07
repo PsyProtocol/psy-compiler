@@ -22,3 +22,15 @@ impl Default for Visibility {
         Self::Private
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visibility_display_and_default_are_stable() {
+        assert_eq!(Visibility::default(), Visibility::Private);
+        assert_eq!(Visibility::Private.to_string(), "");
+        assert_eq!(Visibility::Public.to_string(), "pub");
+    }
+}
