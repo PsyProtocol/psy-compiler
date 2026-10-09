@@ -42,6 +42,6 @@ impl PsyFaucetContractRef {
             };
         };
 
-        invoke_deferred(0, 354447671, [user_id, amount]);
+        invoke_deferred(0, 2789897329, [user_id, amount]);
     }
 }
