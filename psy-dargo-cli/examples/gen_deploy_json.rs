@@ -148,13 +148,13 @@ mod tests {
 
     #[test]
     fn global_deployer_keeps_bare_stem_and_explicit_name() {
-        let argv = args(&["--deployer-user-id", "0", "genesis_contracts.json", "token.json", "mining_rewards.json:rewards"]);
+        let argv = args(&["--deployer-user-id", "0", "genesis_contracts.json", "token.json", "deposit_tree.json:deposit_tree"]);
         let (deployer, output, inputs) = parse_generation_args(&argv).unwrap();
         assert_eq!(deployer, 0);
         assert_eq!(output, "genesis_contracts.json");
-        assert_eq!(inputs, ["token.json", "mining_rewards.json:rewards"]);
+        assert_eq!(inputs, ["token.json", "deposit_tree.json:deposit_tree"]);
         assert_eq!(input_path_and_name(&inputs[0]), ("token.json", "token".to_string()));
-        assert_eq!(input_path_and_name(&inputs[1]), ("mining_rewards.json", "rewards".to_string()));
+        assert_eq!(input_path_and_name(&inputs[1]), ("deposit_tree.json", "deposit_tree".to_string()));
     }
 
     #[test]

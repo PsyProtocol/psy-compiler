@@ -99,22 +99,16 @@ struct ShieldClaimPublicInputsPreimage {
 #[contract]
 #[derive(Storage)]
 pub struct USDTTokenContract {
-    pub balance: Felt,
-    // Reserved to preserve the deployed storage layout.
-    pub reserved_1: Felt,
-    pub reserved_2: Felt,
-    pub other_user_info: [OtherUserInfo; 4294967296],
-
-    pub note_count: Felt,
-
     pub note_root: Hash,
     pub last_path: [Hash; 20],
-
+    pub balance: Felt,
+    pub other_user_info: [OtherUserInfo; 4294967296],
+    pub note_count: Felt,
     pub state_map: Map<Hash, Hash, 1048576u32>,
 }
 
 impl USDTTokenContractRef {
-    fn deposit_tree_contract_id() -> Felt { 2 }
+    fn deposit_tree_contract_id() -> Felt { 1 }
     fn deposit_tree_user_id() -> Felt { 524288 }
     fn eq_u32x8(a: [u32; 8], b: [u32; 8]) -> bool {
         a[0] == b[0]
@@ -658,7 +652,7 @@ impl USDTTokenContractRef {
         let expected_user_tree_root: Hash = get_checkpoint_user_tree_root(preimage.checkpoint_id);
         assert(preimage.user_tree_root == expected_user_tree_root, "user tree root does not match checkpoint state");
 
-        assert(preimage.note_root_slot == 2147483649, "invalid note root slot id");
+        assert(preimage.note_root_slot == 0, "invalid note root slot id");
 
         let expected_receiver: Hash = hash([get_user_id(), 1337, random0, random1]);
         assert(preimage.receiver == expected_receiver, "receiver does not match claiming user");

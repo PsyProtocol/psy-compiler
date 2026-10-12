@@ -24,11 +24,11 @@ pub struct PsyWithdrawalTreeContract {
 }
 
 impl PsyWithdrawalTreeContractRef {
-    // Must match the token contract's state_map field offset (after note_root + last_path[20]).
-    fn token_state_map_offset() -> Felt { 8589934680 }
+    // Token and USDT state_map Felt offset. Physical base remains ceil(offset / 4).
+    fn token_state_map_offset() -> Felt { 8589934678 }
     fn withdrawal_record_namespace() -> Felt { 6 }
     fn token_contract_id() -> Felt { 0 }
-    fn usdt_token_contract_id() -> Felt { 4 }
+    fn usdt_token_contract_id() -> Felt { 3 }
     fn withdrawal_record_key(nonce: [u32; 8]) -> Hash {
         hash([
             nonce[0] as Felt, nonce[1] as Felt, nonce[2] as Felt, nonce[3] as Felt,

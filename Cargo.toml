@@ -239,3 +239,9 @@ ecdsa = "0.16.0"
 
 [profile.release]
 debug = false
+
+# Devnet-only parity with psy-node's local gnark patch; remove both after the
+# upstream WindowFinalization revision is published and pinned by SHA.
+[patch."ssh://git@github.com/PsyProtocol/gnark-plonky2-verifier.git"]
+gnark-plonky2-verifier-ffi = { path = "../../gnark-plonky2-verifier/ffi" }
+gnark-plonky2-wrapper = { path = "../../gnark-plonky2-verifier/prover" }
