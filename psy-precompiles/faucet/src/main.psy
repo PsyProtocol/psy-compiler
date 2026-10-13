@@ -42,6 +42,7 @@ impl PsyFaucetContractRef {
             };
         };
 
-        invoke_deferred(0, 354447671, [user_id, amount]);
+        // PsyTokenContract ABI: transfer(recipient: Felt, amount: Felt).
+        invoke_deferred(0, 2789897329, [user_id, amount]);
     }
 }

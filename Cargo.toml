@@ -239,3 +239,10 @@ ecdsa = "0.16.0"
 
 [profile.release]
 debug = false
+
+# Match the sibling psy-node proving backend across the whole dependency graph.
+[patch."https://github.com/PsyProtocol/plonky2-hwa"]
+plonky2 = { git = "https://github.com/PsyProtocol//plonky2-hwa", rev = "736572e9dd3ca93566471cf5a2a1cb67a13fe01d" }
+plonky2_field = { git = "https://github.com/PsyProtocol//plonky2-hwa", rev = "736572e9dd3ca93566471cf5a2a1cb67a13fe01d" }
+plonky2_maybe_rayon = { git = "https://github.com/PsyProtocol//plonky2-hwa", rev = "736572e9dd3ca93566471cf5a2a1cb67a13fe01d" }
+plonky2_util = { git = "https://github.com/PsyProtocol//plonky2-hwa", rev = "736572e9dd3ca93566471cf5a2a1cb67a13fe01d" }
