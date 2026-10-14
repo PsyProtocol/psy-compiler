@@ -1,0 +1,84 @@
+use std::prelude::*;
+
+#[contract]
+#[derive(Storage)]
+pub struct MultisigPolicyContract {
+    pub header: Hash,
+    pub members: [Hash; 3],
+}
+
+impl MultisigPolicyContractRef {
+    fn canonical_limb_halves(limb: Felt) -> [Felt; 2] {
+        let bits = split_bits(limb, 64);
+        let mut lo: Felt = 0;
+        let mut hi: Felt = 0;
+        let mut factor: Felt = 1;
+        for i in 0..32 {
+            lo = lo + bits[i] * factor;
+            hi = hi + bits[i + 32] * factor;
+            factor = factor * 2;
+        }
+        assert(hi < 4294967295 || (hi == 4294967295 && lo == 0), "member limb is not canonical");
+        [lo, hi]
+    }
+
+    // DPN comparisons are 63-bit; compare canonical limbs through 32-bit halves.
+    fn limb_less(a: Felt, b: Felt) -> bool {
+        let a_halves = Self::canonical_limb_halves(a);
+        let b_halves = Self::canonical_limb_halves(b);
+        a_halves[1] < b_halves[1] || (a_halves[1] == b_halves[1] && a_halves[0] < b_halves[0])
+    }
+
+    fn member_less(a: Hash, b: Hash) -> bool {
+        Self::limb_less(a[0], b[0])
+            || (a[0] == b[0] && Self::limb_less(a[1], b[1]))
+            || (a[0] == b[0] && a[1] == b[1] && Self::limb_less(a[2], b[2]))
+            || (a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && Self::limb_less(a[3], b[3]))
+    }
+
+    fn validate_members(members: [Hash; 3]) {
+        let zero: Hash = [0, 0, 0, 0];
+        for i in 0..3 {
+            assert(members[i] != zero, "member is zero");
+            for j in 0..4 {
+                let halves = Self::canonical_limb_halves(members[i][j]);
+                assert(halves[0] + halves[1] * 4294967296 == members[i][j], "invalid member limb");
+            }
+        }
+        assert(Self::member_less(members[0], members[1]), "members not strictly ordered");
+        assert(Self::member_less(members[1], members[2]), "members not strictly ordered");
+    }
+
+    #[contract_method]
+    pub fn get_policy() -> (Hash, [Hash; 3]) {
+        let c = MultisigPolicyContractRef::new(ContractMetadata::current());
+        (c.header.get(), [c.members[0].get(), c.members[1].get(), c.members[2].get()])
+    }
+
+    #[contract_method]
+    pub fn set_policy(expected_header: Hash, expected_members: [Hash; 3], next_members: [Hash; 3]) {
+        let c = MultisigPolicyContractRef::new(ContractMetadata::current());
+        let header = c.header.get();
+        let members = [c.members[0].get(), c.members[1].get(), c.members[2].get()];
+        assert(header == expected_header, "expected header mismatch");
+        for i in 0..3 {
+            assert(members[i] == expected_members[i], "expected members mismatch");
+        }
+        Self::validate_members(next_members);
+        let zero: Hash = [0, 0, 0, 0];
+        let mut version: Felt = 1;
+        if header == zero && members[0] == zero && members[1] == zero && members[2] == zero {
+            version = 1;
+        } else {
+            assert(header[1] == 2 && header[2] == 3 && header[3] == 0, "invalid policy header");
+            let version_halves = Self::canonical_limb_halves(header[0]);
+            assert(version_halves[1] == 0 && version_halves[0] != 0, "invalid policy version");
+            assert(version_halves[0] < 4294967295, "policy version overflow");
+            Self::validate_members(members);
+            assert(members[0] != next_members[0] || members[1] != next_members[1] || members[2] != next_members[2], "policy members unchanged");
+            version = header[0] + 1;
+        };
+        c.header = [version, 2, 3, 0];
+        c.members = next_members;
+    }
+}
