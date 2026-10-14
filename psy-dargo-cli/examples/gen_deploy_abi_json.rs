@@ -18,7 +18,7 @@
 ///   cargo run --release --example gen_deploy_abi_json -- \
 ///     ../../psy-genesis/genesis_abi \
 ///     ../psy-precompiles/token/target/token.abi.json:token \
-///     ../psy-precompiles/mining_rewards/target/mining_rewards.abi.json:mining_rewards
+///     ../../target/genesis_abi/multisig_policy.abi.json:multisig_policy
 use std::{env, fs, path::Path};
 
 // Same default genesis deployer user id as gen_deploy_json: 0 is reserved, so
@@ -138,7 +138,7 @@ mod tests {
     #[test]
     fn reads_state_tree_height_from_contract_abi() {
         let abi = serde_json::json!({"contract": {"state_tree_height": 23}});
-        assert_eq!(state_tree_height_from_abi(&abi, "mining_rewards.abi.json").unwrap(), 23);
+        assert_eq!(state_tree_height_from_abi(&abi, "contract.abi.json").unwrap(), 23);
     }
 
     #[test]

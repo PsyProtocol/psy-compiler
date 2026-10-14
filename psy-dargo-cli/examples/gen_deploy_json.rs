@@ -11,8 +11,8 @@
 ///   cargo run --release --example gen_deploy_json -- \
 ///     ../../psy-genesis/genesis_contracts.json \
 ///     ../psy-precompiles/token/target/token.json:token \
-///     ../psy-precompiles/mining_rewards/target/mining_rewards.json:
-/// mining_rewards
+///     ../psy-precompiles/multisig_policy/target/multisig_policy.json:
+/// multisig_policy
 ///
 /// Each input can optionally specify deployer and name as:
 /// path:deployer_user_id:name If only deployer is given (path:deployer_user_id),
