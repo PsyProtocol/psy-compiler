@@ -27,18 +27,18 @@ repository = "https://github.com/PsyProtocol/psy-compiler"
 
 [workspace.dependencies]
 zstd = { version = "0.13", features = ["zstdmt"] }
-# Local psy-node deps. Preserve package aliases and feature selections.
-psy_vm = { path = "../psy-node/client_prover/psy_vm", default-features = false }
-psy_crypto = { path = "../psy-node/client_prover/psy_core/psy_crypto" }
-psy_data = { package = "psy_client_data", path = "../psy-node/client_prover/psy_core/psy_data", default-features = false }
-psy_common_core = { package = "psy_client_common", path = "../psy-node/client_prover/psy_core/psy_common" }
-psy_config = { path = "../psy-node/client_prover/psy_core/psy_config" }
-psy_prover = { path = "../psy-node/client_prover/psy_prover", default-features = false }
-psy_common_circuit = { path = "../psy-node/client_prover/psy_circuit/psy_common_circuit", default-features = false }
-psy_dpn_circuit = { path = "../psy-node/client_prover/psy_circuit/psy_dpn_circuit", default-features = false }
-psy_ups_circuit = { path = "../psy-node/client_prover/psy_circuit/psy_ups_circuit", default-features = false }
-psy_network_circuit = { path = "../psy-node/client_prover/psy_circuit/psy_network_circuit", default-features = false }
-kvq = { path = "../psy-node/client_prover/psy_core/kvq" }
+# Published psy-node source revision. Preserve package aliases and feature selections.
+psy_vm = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "7d6815d22728debbc71f6a928f85aa4b209ebf4f", default-features = false }
+psy_crypto = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "7d6815d22728debbc71f6a928f85aa4b209ebf4f" }
+psy_data = { package = "psy_client_data", git = "https://github.com/PsyProtocol/psy-node.git", rev = "7d6815d22728debbc71f6a928f85aa4b209ebf4f", default-features = false }
+psy_common_core = { package = "psy_client_common", git = "https://github.com/PsyProtocol/psy-node.git", rev = "7d6815d22728debbc71f6a928f85aa4b209ebf4f" }
+psy_config = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "7d6815d22728debbc71f6a928f85aa4b209ebf4f" }
+psy_prover = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "7d6815d22728debbc71f6a928f85aa4b209ebf4f", default-features = false }
+psy_common_circuit = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "7d6815d22728debbc71f6a928f85aa4b209ebf4f", default-features = false }
+psy_dpn_circuit = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "7d6815d22728debbc71f6a928f85aa4b209ebf4f", default-features = false }
+psy_ups_circuit = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "7d6815d22728debbc71f6a928f85aa4b209ebf4f", default-features = false }
+psy_network_circuit = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "7d6815d22728debbc71f6a928f85aa4b209ebf4f", default-features = false }
+kvq = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "7d6815d22728debbc71f6a928f85aa4b209ebf4f" }
 
 # Local compiler packages
 psy_common = { package = "psy_compiler_common", path = "./psy-common" }
