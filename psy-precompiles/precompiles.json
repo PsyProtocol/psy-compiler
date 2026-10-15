@@ -13,22 +13,18 @@
         "batch_transfer_2",
         "batch_transfer_5",
         "claim",
-        "claim_pow_rewards",
         "private_transfer",
         "private_claim"
       ]
     },
     {
-      "name": "mining_rewards",
-      "path": "mining_rewards",
-      "contract_name": "PsyPOWMiningRewardsClaimContractRef",
+      "name": "multisig_policy",
+      "path": "multisig_policy",
+      "contract_name": "MultisigPolicyContractRef",
+      "declared_state_tree_height": 4,
       "method_names": [
-        "start_session",
-        "end_session",
-        "claim_guta_rewards_1",
-        "claim_guta_rewards_2",
-        "claim_guta_rewards_5",
-        "claim_guta_rewards_10"
+        "get_policy",
+        "set_policy"
       ]
     },
     {

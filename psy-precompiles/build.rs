@@ -90,14 +90,47 @@ fn compile_one_contract(contract: &ContractConfigGoldilocks, manifest_dir: &str,
                     &interpret_result.compile_results,
                 );
 
-                let state_tree_height = AbiExtractor::new(contract.contract_name.clone())
-                    .compute_state_tree_height(&mut interpret_result.ctx.program);
+                let extractor = AbiExtractor::new(contract.contract_name.clone());
+                let inferred_height = extractor.compute_state_tree_height(&mut interpret_result.ctx.program);
+                let state_tree_height = match contract.declared_state_tree_height {
+                    Some(declared) => {
+                        if inferred_height > u16::from(declared) || declared > 32 {
+                            return Err(anyhow::anyhow!("Invalid declared state tree height {} for {} (inferred {})", declared, contract.name, inferred_height).into());
+                        }
+                        u16::from(declared)
+                    }
+                    None => inferred_height,
+                };
+                if state_tree_height > 32 {
+                    return Err(anyhow::anyhow!("Invalid state tree height for {}", contract.name).into());
+                }
+                if interpret_result.compile_results.len() != contract.method_names.len()
+                    || contract.method_names.iter().any(|name| interpret_result.compile_results.iter().filter(|function| &function.name == name).count() != 1) {
+                    return Err(anyhow::anyhow!("Required precompile methods missing or duplicated for {}", contract.name).into());
+                }
+                let method_metadata: std::collections::HashMap<String, (u32, bool)> = interpret_result
+                    .compile_results
+                    .iter()
+                    .map(|function| (function.name.clone(), (function.method_id, function.is_view_function())))
+                    .collect();
+                let abi = extractor
+                    .extract_abi(&mut interpret_result.ctx.program, state_tree_height, &method_metadata)
+                    .map_err(|error| anyhow::anyhow!("Failed to extract ABI for {}: {}", contract.name, error))?;
+                if abi.contract.state_tree_height != state_tree_height {
+                    return Err(anyhow::anyhow!("ABI/artifact state tree height mismatch for {}", contract.name).into());
+                }
                 let artifact = serde_json::json!({
                     "state_tree_height": state_tree_height,
                     "circuit_definitions": &interpret_result.compile_results,
+                    "abi": abi,
                 });
-
                 use dargo::cli::save_build_artifact_to_file;
+                // `compile` does not emit .abi.json — the artifact/ABI
+                // agreement test sources `<name>.abi.json` from OUT_DIR.
+                if let Err(e) = save_build_artifact_to_file(&abi, &format!("{}.abi", contract.name), out_path) {
+                    println!("cargo:warning=Failed to save ABI artifact to OUT_DIR for {}: {}", contract.name, e);
+                }
+
                 if let Err(e) = save_build_artifact_to_file(&artifact, &contract.name, &target_dir) {
                     println!("cargo:warning=Failed to save build artifact to target dir for {}: {}", contract.name, e);
                 }
@@ -127,11 +160,12 @@ fn generate_precompile_api(config: &PrecompilesBuildConfigGoldilocks, out_path: 
 // Runtime lazy loading for {{ contract.name }} contract
 fn load_{{ contract.name }}_functions() -> Vec<DPNFunctionCircuitDefinition> {
     let json_data = include_str!(concat!(env!("OUT_DIR"), "/{{ contract.name }}.json"));
-    serde_json::from_str::<serde_json::Value>(json_data)
-        .ok()
-        .and_then(|v| v.get("circuit_definitions").cloned())
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default()
+    let artifact: serde_json::Value = serde_json::from_str(json_data).expect("Invalid required precompile artifact");
+    assert_eq!(artifact["state_tree_height"], artifact["abi"]["contract"]["state_tree_height"]);
+    {% if contract.declared_state_tree_height is defined and contract.declared_state_tree_height is not none %}
+    assert_eq!(artifact["state_tree_height"], {{ contract.declared_state_tree_height }});
+    {% endif %}
+    serde_json::from_value(artifact["circuit_definitions"].clone()).expect("Invalid required precompile functions")
 }
 
 static {{ contract.name | upper }}_FUNCTIONS_ONCE: std::sync::OnceLock<Vec<DPNFunctionCircuitDefinition>> = std::sync::OnceLock::new();

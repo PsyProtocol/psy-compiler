@@ -1,5 +1,5 @@
 [package]
-name = "mining_rewards"
+name = "multisig_policy"
 type = "bin"
 authors = [""]
 
