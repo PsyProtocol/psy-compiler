@@ -188,6 +188,9 @@ impl AbiExtractor {
             "Felt" => TypeRef::Primitive { name: PrimitiveTypeName::Felt },
             "Bool" | "bool" => TypeRef::Primitive { name: PrimitiveTypeName::Bool },
             "u32" => TypeRef::Primitive { name: PrimitiveTypeName::U32 },
+            "u64" => TypeRef::Primitive { name: PrimitiveTypeName::U64 },
+            "u128" => TypeRef::Primitive { name: PrimitiveTypeName::U128 },
+            "u256" => TypeRef::Primitive { name: PrimitiveTypeName::U256 },
             "Hash" => TypeRef::Primitive { name: PrimitiveTypeName::Hash },
             other => {
                 // If it's a known struct, reference it
@@ -539,8 +542,11 @@ impl AbiExtractor {
         }
 
         match type_name {
-            "Felt" | "bool" | "Bool" | "u64" | "i64" | "u32" => 1,
-            "u256" | "QHashOut" | "Hash" => 4,
+            "Felt" | "bool" | "Bool" | "i64" | "u32" => 1,
+            "u64" => 2,
+            "u128" => 4,
+            "u256" => 8,
+            "QHashOut" | "Hash" => 4,
             other if struct_nodes.contains_key(other) => self.compute_struct_layout(ctx, other, struct_nodes, layouts).felt_size,
             _ => 0,
         }
@@ -631,7 +637,7 @@ mod tests {
 
     fn type_fixture() -> (Program<u32>, HashMap<&'static str, Identifier>) {
         let mut program = Program::new();
-        let identifiers = ["Felt", "Bool", "u32", "Hash", "Widget", "Map", "NamespacedMap", "Other"]
+        let identifiers = ["Felt", "Bool", "u32", "u64", "u128", "u256", "Hash", "Widget", "Map", "NamespacedMap", "Other"]
             .into_iter()
             .map(|name| {
                 let id = program.interner.intern_ident(name);
@@ -748,6 +754,18 @@ mod tests {
             TypeRef::Primitive { name: PrimitiveTypeName::U32 }
         );
         assert_eq!(
+            extractor.unchecked_type_to_typeref(&ctx, &basic("u64")),
+            TypeRef::Primitive { name: PrimitiveTypeName::U64 }
+        );
+        assert_eq!(
+            extractor.unchecked_type_to_typeref(&ctx, &basic("u128")),
+            TypeRef::Primitive { name: PrimitiveTypeName::U128 }
+        );
+        assert_eq!(
+            extractor.unchecked_type_to_typeref(&ctx, &basic("u256")),
+            TypeRef::Primitive { name: PrimitiveTypeName::U256 }
+        );
+        assert_eq!(
             extractor.unchecked_type_to_typeref(&ctx, &basic("Hash")),
             TypeRef::Primitive { name: PrimitiveTypeName::Hash }
         );
@@ -792,6 +810,24 @@ mod tests {
                 alignment_felts: 4,
             }
         );
+    }
+
+    /// The wire-size table is the ABI's storage-layout contract: one felt per
+    /// 32 bits, with u32 staying exactly one felt.
+    #[test]
+    fn uint_felt_sizes_scale_with_width() {
+        let (mut program, _identifiers) = type_fixture();
+        let ctx = DefaultVisitorContext::<u32, ()>::new(&mut program);
+        let extractor = AbiExtractor::new("Contract".into());
+        let no_structs = std::collections::BTreeMap::new();
+        let mut layouts = std::collections::HashMap::new();
+        for (name, size) in [("u32", 1usize), ("u64", 2), ("u128", 4), ("u256", 8)] {
+            assert_eq!(
+                extractor.felt_size_for_named_type(name, &no_structs, &mut layouts, &ctx),
+                size,
+                "{name} must occupy {size} felts"
+            );
+        }
     }
 
     #[test]

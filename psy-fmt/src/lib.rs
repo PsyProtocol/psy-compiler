@@ -324,7 +324,9 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
         Ok(match node {
             ValueNode::Felt(f, _) => format!("{:?}", f),
             ValueNode::Bool(b, _) => format!("{:?}", b),
-            ValueNode::U32(u, _) => format!("{:?}", u),
+            // Narrow widths zero-pad the high limbs, so the 8-limb display is
+            // value-preserving for every width.
+            ValueNode::Uint(u, width, _) => format!("{}{}", psy_vm::dpn::ops::uint::Uint::<8>(u), width.name()),
             ValueNode::Array(_, values, _) => format!(
                 "[{}]",
                 values

@@ -241,6 +241,12 @@ impl<'a> StorageProcessor<'a> {
                         }
                         UncheckedType::Generic(Identifier::new(ctx.intern("MapRef"), attr.location), params.clone(), attr.location)
                     }
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("NamespacedMap") => {
+                        if params.len() != 3 {
+                            panic!("NamespacedMap must have exactly three generic parameters");
+                        }
+                        UncheckedType::Generic(Identifier::new(ctx.intern("NamespacedMapRef"), attr.location), params.clone(), attr.location)
+                    }
                     UncheckedType::Array(elem_ty, size, _) => UncheckedType::Generic(
                         Identifier::new(ctx.intern("ArrayRef"), attr.location),
                         vec![elem_ty.as_ref().clone(), UncheckedType::Const(*size, attr.location)],
@@ -797,14 +803,14 @@ impl<'a> StorageProcessor<'a> {
                 matches!(
                     &params[0],
                     UncheckedType::Basic(inner)
-                        if inner.id == IdentId::TYPE_FELT || inner.id == IdentId::TYPE_U32 || inner.id == IdentId::TYPE_BOOL
+                        if inner.id == IdentId::TYPE_FELT || inner.id == IdentId::TYPE_U32 || inner.id == IdentId::TYPE_U64 || inner.id == IdentId::TYPE_U128 || inner.id == IdentId::TYPE_U256 || inner.id == IdentId::TYPE_BOOL
                 )
             }
             UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") && params.len() == 2 => {
                 matches!(
                     &params[0],
                     UncheckedType::Basic(inner)
-                        if inner.id == IdentId::TYPE_FELT || inner.id == IdentId::TYPE_U32
+                        if inner.id == IdentId::TYPE_FELT || inner.id == IdentId::TYPE_U32 || inner.id == IdentId::TYPE_U64 || inner.id == IdentId::TYPE_U128 || inner.id == IdentId::TYPE_U256
                 )
             }
             _ => false,

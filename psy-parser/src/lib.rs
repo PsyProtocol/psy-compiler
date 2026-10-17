@@ -376,6 +376,12 @@ mod parse_edge_tests {
         }
     }
 
+    #[test]
+    fn parses_wide_uint_type_paths_in_expressions() {
+        ok("u64 path", "fn f() { u64::example(); }");
+        ok("u128 path", "fn f() { u128::example(); }");
+    }
+
     fn fails(label: &str, src: &str) {
         if let Ok(()) = parse(src) {
             panic!("[{label}] expected a parse rejection, got success");

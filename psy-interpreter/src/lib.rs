@@ -39,6 +39,19 @@ use crate::{
 const MAX_MATERIALIZED_ARRAY_ELEMENTS: usize = 1 << 20;
 const MAX_TOTAL_MATERIALIZED_ELEMENTS: u64 = 1 << 22;
 
+/// The single width-dispatch point: Rust cannot abstract over `[F; N]`, so
+/// each const-generic helper is instantiated per width here and nowhere else.
+macro_rules! dispatch_uint_width {
+    ($self:ident, $width:expr, $method:ident($($arg:expr),*)) => {
+        match $width {
+            UintWidth::U32 => $self.$method::<1>($($arg),*, $width),
+            UintWidth::U64 => $self.$method::<2>($($arg),*, $width),
+            UintWidth::U128 => $self.$method::<4>($($arg),*, $width),
+            UintWidth::U256 => $self.$method::<8>($($arg),*, $width),
+        }
+    };
+}
+
 pub struct InterpretResult {
     pub compile_results: Vec<DPNFunctionCircuitDefinition>,
     pub typechecker: TypeChecker<SymFeltRef, QExecContext>,
@@ -175,6 +188,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 return u64::MAX;
             }
             let footprint = match &symbols[ty] {
+                Type::Uint(width) => width.limb_count() as u64,
                 Type::Array(arr) => {
                     let size = match &symbols[arr.size_ty] {
                         Type::Const(const_node) => {
@@ -183,7 +197,8 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                                 // Felt and U32 constants carry their payload in
                                 // the felt; ContextFelt::get_u64 reads it without
                                 // needing the interpreter's context handle.
-                                CheckedValue::Felt(f) | CheckedValue::U32(f) => ContextFelt::get_u64(f),
+                                CheckedValue::Felt(f) => ContextFelt::get_u64(f),
+                                CheckedValue::Uint(f, UintWidth::U32) => ContextFelt::get_u64(&f[0]),
                                 _ => 0,
                             }
                         }
@@ -229,7 +244,8 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
     pub fn calculate_type_size(&mut self, type_id: TypeId, ctx: &TypeCheckerVisitorContext<F, C>) -> usize {
         match &ctx.symbols[type_id] {
-            Type::Felt | Type::Bool | Type::U32 => 1,
+            Type::Felt | Type::Bool => 1,
+            Type::Uint(width) => width.limb_count(),
             Type::Struct(s) => s.fields.iter().map(|(_, field)| self.calculate_type_size(field.ty, ctx)).sum(),
             Type::Array(arr) => {
                 let element_size = self.calculate_type_size(arr.inner_ty, ctx);
@@ -239,7 +255,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let const_value_ref = &ctx.symbols[const_node.value];
                         match &*const_value_ref.borrow() {
                             CheckedValue::Felt(f) => self.context.get_constant_value(f.clone()) as usize,
-                            CheckedValue::U32(f) => self.context.get_constant_value(f.clone()) as usize,
+                            CheckedValue::Uint(f, UintWidth::U32) => self.context.get_constant_value(f[0].clone()) as usize,
                             _ => panic!("Array size must be a numeric constant"),
                         }
                     }
@@ -257,7 +273,13 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         match symbols[ty].clone() {
             Type::Felt => Ok(CheckedValue::Felt(self.context.add_input())),
             Type::Bool => Ok(CheckedValue::Bool(self.context.add_bool_input())),
-            Type::U32 => Ok(CheckedValue::U32(self.context.add_u32_input())),
+            Type::Uint(width) => {
+                let limbs = width.limb_count();
+                Ok(CheckedValue::Uint(
+                    std::array::from_fn(|i| if i < limbs { self.context.add_u32_input() } else { self.context.op_const_u32(0) }),
+                    width,
+                ))
+            }
             Type::Tuple(elements) => {
                 let mut result = Vec::new();
                 for element_type in elements {
@@ -288,7 +310,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let const_value_ref = &symbols[const_node.value];
                         match &*const_value_ref.borrow() {
                             CheckedValue::Felt(f) => self.context.get_constant_value(f.clone()) as usize,
-                            CheckedValue::U32(f) => self.context.get_constant_value(f.clone()) as usize,
+                            CheckedValue::Uint(f, UintWidth::U32) => self.context.get_constant_value(f[0].clone()) as usize,
                             _ => {
                                 return Err(Error::UnsupportedEntryPointInput {
                                     ty: format!("{:?}", symbols[ty]),
@@ -819,7 +841,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 self.interpret_expr(program, node.body, ctx)?;
                 let next = self.context.get_constant_value(value_f) + 1;
                 let value = match &*var_value.borrow() {
-                    CheckedValue::U32(_) => {
+                    CheckedValue::Uint(_, UintWidth::U32) => {
                         CheckedValueRef::from_u32(self.context.op_const_u32(u32::try_from(next).expect("u32 loop variable overflowed")))
                     }
                     CheckedValue::Felt(_) => CheckedValueRef::from_felt(self.context.op_const(next)),
@@ -922,6 +944,308 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         Ok(ControlState::Normal(CheckedValueRef::new_rc(CheckedValue::Type(VOID_TYPE))))
     }
 
+    /// Wrap width-active limbs back into the zero-padded 8-limb representation.
+    fn checked_from_active<const N: usize>(&mut self, limbs: [F; N], width: UintWidth) -> CheckedValue<F> {
+        let zero = self.context.op_const_u32(0);
+        CheckedValue::Uint(std::array::from_fn(|i| if i < N { limbs[i].clone() } else { zero.clone() }), width)
+    }
+
+    /// A constant uint from host limbs, zero-padding beyond the width.
+    fn uint_constant<const N: usize>(&mut self, limbs: &[u32; N], width: UintWidth) -> CheckedValue<F> {
+        CheckedValue::Uint(std::array::from_fn(|i| self.context.op_const_u32(if i < N { limbs[i] } else { 0 })), width)
+    }
+
+    fn uint_eq<const N: usize>(&mut self, lhs: &[F; 8], rhs: &[F; 8], _width: UintWidth) -> F {
+        self.context.op_uint_eq::<N>(std::array::from_fn(|i| lhs[i].clone()), std::array::from_fn(|i| rhs[i].clone()))
+    }
+
+    fn interpret_uint_not<const N: usize>(&mut self, limbs: &[F; 8], width: UintWidth) -> CheckedValue<F> {
+        let active = width.limb_count();
+        if limbs[..active].iter().all(|limb| self.is_constant(*limb)) {
+            let inverted: [u32; N] = std::array::from_fn(|i| !(self.context.get_constant_value(limbs[i]) as u32));
+            self.uint_constant(&inverted, width)
+        } else {
+            let value = self.context.op_uint_not::<N>(std::array::from_fn(|i| limbs[i].clone()));
+            self.checked_from_active(value, width)
+        }
+    }
+
+    fn uint_to_felt<const N: usize>(&mut self, limbs: &[F; 8], width: UintWidth) -> CheckedValue<F> {
+        let _ = width;
+        CheckedValue::Felt(self.context.op_uint_to_felt::<N>(std::array::from_fn(|i| limbs[i].clone())))
+    }
+
+    fn uint_from_felt<const N: usize>(&mut self, value: &F, width: UintWidth) -> CheckedValue<F> {
+        let converted = self.context.op_uint_from_felt::<N>(value.clone());
+        self.checked_from_active(converted, width)
+    }
+
+    /// Narrowing uint cast: re-range the active limbs, then assert every
+    /// discarded limb is zero.
+    fn uint_narrow<const N: usize>(&mut self, limbs: &[F; 8], target: UintWidth, width: UintWidth) -> CheckedValue<F> {
+        let _ = width;
+        let revalidated = self.context.op_uint_from_limbs::<N>(std::array::from_fn(|i| limbs[i].clone()));
+        let zero = self.context.op_const_u32(0);
+        for limb in &revalidated[target.limb_count()..] {
+            self.context.assert_eq(limb.clone(), zero.clone(), "uint narrowing overflow");
+        }
+        let live = target.limb_count();
+        CheckedValue::Uint(std::array::from_fn(|i| if i < live { revalidated[i].clone() } else { zero.clone() }), target)
+    }
+
+    /// Re-range a loaded uint's limbs under the current branch condition, the
+    /// same way the u256 loads always have.
+    fn uint_revalidate<const N: usize>(&mut self, limbs: &mut [F; 8], width: UintWidth) {
+        let _ = width;
+        let condition = self.context.get_current_condition();
+        let zero = self.context.op_const_u32(0);
+        let guarded: [F; N] = std::array::from_fn(|i| self.context.op_select(condition.clone(), limbs[i].clone(), zero.clone()));
+        let revalidated = self.context.op_uint_from_limbs(guarded);
+        *limbs = std::array::from_fn(|i| if i < N { revalidated[i].clone() } else { zero.clone() });
+    }
+
+    /// The u32 lane lowers to the native single-limb opcodes directly: the VM
+    /// folds its own constants, and inserting the wide-uint expansion here
+    /// would change the op graph the u32 paths have always produced.
+    fn u32_binop(&mut self, l: &F, r: &F, operator: BinaryOperator) -> F {
+        use BinaryOperator::*;
+        match operator {
+            Add => self.context.op_u32_add(l.clone(), r.clone()),
+            Sub => self.context.op_u32_sub(l.clone(), r.clone()),
+            Mul => self.context.op_u32_mul(l.clone(), r.clone()),
+            Div => self.context.op_u32_div(l.clone(), r.clone()),
+            Mod => self.context.op_u32_mod(l.clone(), r.clone()),
+            Pow => self.context.op_u32_exp(l.clone(), r.clone()),
+            BitAnd => self.context.op_u32_and(l.clone(), r.clone()),
+            BitOr => self.context.op_u32_or(l.clone(), r.clone()),
+            BitXor => self.context.op_u32_xor(l.clone(), r.clone()),
+            BitShl => self.context.op_u32_shl(l.clone(), r.clone()),
+            BitShr => self.context.op_u32_shr(l.clone(), r.clone()),
+            Eq => self.context.op_eq(l.clone(), r.clone()),
+            Neq => self.context.op_neq(l.clone(), r.clone()),
+            Lt => self.context.op_lt(l.clone(), r.clone()),
+            Lte => self.context.op_lte(l.clone(), r.clone()),
+            Gt => self.context.op_gt(l.clone(), r.clone()),
+            Gte => self.context.op_gte(l.clone(), r.clone()),
+            _ => unreachable!("type checker admitted a non-u32 operator on u32 operands"),
+        }
+    }
+
+    /// Map a compound assignment operator to the binary operator that folds
+    /// to the identical native u32 opcodes.
+    fn u32_compound_to_binary(operator: AssignmentOperator) -> BinaryOperator {
+        use AssignmentOperator::*;
+        match operator {
+            AddAssign => BinaryOperator::Add,
+            SubAssign => BinaryOperator::Sub,
+            MulAssign => BinaryOperator::Mul,
+            DivAssign => BinaryOperator::Div,
+            ModAssign => BinaryOperator::Mod,
+            BitAndAssign => BinaryOperator::BitAnd,
+            BitOrAssign => BinaryOperator::BitOr,
+            BitXorAssign => BinaryOperator::BitXor,
+            BitShlAssign => BinaryOperator::BitShl,
+            BitShrAssign => BinaryOperator::BitShr,
+            _ => unreachable!("type checker admitted an unsupported compound assignment"),
+        }
+    }
+
+    /// Wide-uint binary ops (every width except the native u32 lane): host
+    /// folding when all active limbs are constant, the limb-generic expansion
+    /// otherwise. Ported from the u256 path with the width parameterized.
+    fn interpret_wide_uint_binary<const N: usize>(
+        &mut self,
+        lhs: &[F; 8],
+        rhs: &CheckedValueRef<F>,
+        operator: BinaryOperator,
+        location: Location,
+        width: UintWidth,
+    ) -> Result<CheckedValue<F>> {
+        use BinaryOperator::*;
+        let active = width.limb_count();
+        let left: [F; N] = std::array::from_fn(|i| lhs[i].clone());
+        let right = rhs.borrow();
+        if lhs[..active].iter().all(|limb| self.is_constant(*limb)) {
+            if let CheckedValue::Uint(distance, UintWidth::U32) = &*right {
+                if self.is_constant(distance[0].clone()) && matches!(operator, BitShl | BitShr) {
+                    let shift = self.context.get_constant_value(distance[0].clone()) as usize;
+                    let source: [u32; N] = std::array::from_fn(|i| self.context.get_constant_value(lhs[i].clone()) as u32);
+                    let mut result = [0u32; N];
+                    if shift < 32 * N {
+                        let whole = shift / 32;
+                        let bits = shift % 32;
+                        for i in 0usize..N {
+                            let origin = if operator == BitShl { i.checked_sub(whole) } else { i.checked_add(whole).filter(|origin| *origin < N) };
+                            if let Some(origin) = origin {
+                                result[i] |= if operator == BitShl { source[origin] << bits } else { source[origin] >> bits };
+                                if bits != 0 {
+                                    let adjacent = if operator == BitShl { origin.checked_sub(1) } else { origin.checked_add(1).filter(|origin| *origin < N) };
+                                    if let Some(adjacent) = adjacent {
+                                        result[i] |= if operator == BitShl { source[adjacent] >> (32 - bits) } else { source[adjacent] << (32 - bits) };
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return Ok(self.uint_constant(&result, width));
+                }
+            }
+            if let CheckedValue::Uint(other, other_width) = &*right {
+                if *other_width == width && other[..active].iter().all(|limb| self.is_constant(*limb)) {
+                    let a: [u32; N] = std::array::from_fn(|i| self.context.get_constant_value(lhs[i].clone()) as u32);
+                    let b: [u32; N] = std::array::from_fn(|i| self.context.get_constant_value(other[i].clone()) as u32);
+                    let folded = match operator {
+                        Add => {
+                            let mut carry = 0u64;
+                            let limbs = std::array::from_fn(|i| {
+                                let sum = a[i] as u64 + b[i] as u64 + carry;
+                                carry = sum >> 32;
+                                sum as u32
+                            });
+                            if carry != 0 { return Err(Error::ArithmeticOverflow { location: Some(location) }); }
+                            Some(limbs)
+                        }
+                        Sub => {
+                            let mut borrow = 0i64;
+                            let limbs = std::array::from_fn(|i| {
+                                let difference = a[i] as i64 - b[i] as i64 - borrow;
+                                borrow = (difference < 0) as i64;
+                                difference as u32
+                            });
+                            if borrow != 0 { return Err(Error::ArithmeticOverflow { location: Some(location) }); }
+                            Some(limbs)
+                        }
+                        Mul => {
+                            let mut product = vec![0u32; 2 * N];
+                            for i in 0..N {
+                                let mut carry = 0u64;
+                                for j in 0..N {
+                                    let sum = product[i + j] as u64 + a[i] as u64 * b[j] as u64 + carry;
+                                    product[i + j] = sum as u32;
+                                    carry = sum >> 32;
+                                }
+                                product[i + N] = carry as u32;
+                            }
+                            if product[N..].iter().any(|limb| *limb != 0) {
+                                return Err(Error::ArithmeticOverflow { location: Some(location) });
+                            }
+                            Some(std::array::from_fn(|i| product[i]))
+                        }
+                        BitAnd => Some(std::array::from_fn(|i| a[i] & b[i])),
+                        BitOr => Some(std::array::from_fn(|i| a[i] | b[i])),
+                        BitXor => Some(std::array::from_fn(|i| a[i] ^ b[i])),
+                        Div | Mod => {
+                            if b.iter().all(|limb| *limb == 0) {
+                                return Err(Error::DivisionByZero { location: Some(location) });
+                            }
+                            let mut quotient = [0u32; N];
+                            let mut remainder = vec![0u32; N + 1];
+                            for bit in (0..32 * N).rev() {
+                                let mut carry = (a[bit / 32] >> (bit % 32)) & 1;
+                                for limb in remainder.iter_mut() {
+                                    let next = *limb >> 31;
+                                    *limb = (*limb << 1) | carry;
+                                    carry = next;
+                                }
+                                if remainder[N] != 0 || remainder[..N].iter().rev().cmp(b.iter().rev()).is_ge() {
+                                    let mut borrow = 0i64;
+                                    for i in 0..N {
+                                        let difference = remainder[i] as i64 - b[i] as i64 - borrow;
+                                        remainder[i] = difference as u32;
+                                        borrow = (difference < 0) as i64;
+                                    }
+                                    remainder[N] = remainder[N].wrapping_sub(borrow as u32);
+                                    quotient[bit / 32] |= 1 << (bit % 32);
+                                }
+                            }
+                            Some(if operator == Div { quotient } else { std::array::from_fn(|i| remainder[i]) })
+                        }
+                        Eq | Neq | Lt | Lte | Gt | Gte => {
+                            let order = a.iter().rev().cmp(b.iter().rev());
+                            let value = match operator {
+                                Eq => order.is_eq(), Neq => order.is_ne(), Lt => order.is_lt(),
+                                Lte => order.is_le(), Gt => order.is_gt(), Gte => order.is_ge(), _ => unreachable!(),
+                            };
+                            return Ok(CheckedValue::Bool(if value { self.context.op_true() } else { self.context.op_false() }));
+                        }
+                        _ => None,
+                    };
+                    if let Some(limbs) = folded {
+                        return Ok(self.uint_constant(&limbs, width));
+                    }
+                }
+            }
+        }
+        let other_width = match &*right {
+            CheckedValue::Uint(_, width) => Some(*width),
+            _ => None,
+        };
+        // Bind the rhs limbs once; padded limbs must never reach the expansion.
+        let (r, r_width) = match &*right {
+            CheckedValue::Uint(r, w) => (r, *w),
+            _ => unreachable!("type checker admitted a non-uint rhs for a uint binary op"),
+        };
+        let same_width = r_width == width;
+        let other = || std::array::from_fn(|i| r[i].clone());
+        let limbs = match (operator, same_width) {
+            (Add, true) => Some(self.context.op_uint_add(left, other())),
+            (Sub, true) => Some(self.context.op_uint_sub(left, other())),
+            (Mul, true) => Some(self.context.op_uint_mul(left, other())),
+            (BitAnd, true) => Some(self.context.op_uint_and(left, other())),
+            (BitOr, true) => Some(self.context.op_uint_or(left, other())),
+            (BitXor, true) => Some(self.context.op_uint_xor(left, other())),
+            (Div, true) => Some(self.context.op_uint_div_rem(left, other()).0),
+            (Mod, true) => Some(self.context.op_uint_div_rem(left, other()).1),
+            (BitShl, _) if r_width == UintWidth::U32 => Some(self.context.op_uint_shl(left, r[0].clone())),
+            (BitShr, _) if r_width == UintWidth::U32 => Some(self.context.op_uint_shr(left, r[0].clone())),
+            _ => None,
+        };
+        if let Some(limbs) = limbs {
+            return Ok(self.checked_from_active::<N>(limbs, width));
+        }
+        let boolean = match (operator, same_width) {
+            (Eq, true) => self.context.op_uint_eq(left, other()),
+            (Neq, true) => {
+                let equal = self.context.op_uint_eq(left, other());
+                self.context.op_bool_not(equal)
+            }
+            (Lt, true) => self.context.op_uint_lt(left, other()),
+            (Gt, true) => self.context.op_uint_lt(other(), left),
+            (Lte, true) => {
+                let greater = self.context.op_uint_lt(other(), left);
+                self.context.op_bool_not(greater)
+            }
+            (Gte, true) => {
+                let less = self.context.op_uint_lt(left, other());
+                self.context.op_bool_not(less)
+            }
+            _ => unreachable!("type checker admitted an unsupported {:?} operator on {:?} operands", operator, other_width),
+        };
+        Ok(CheckedValue::Bool(boolean))
+    }
+
+    /// Compound assignment on a wide uint (the u32 lane stays in the scalar
+    /// match below to keep its native op graph).
+    fn uint_compound<const N: usize>(&mut self, lhs: &[F; 8], rhs: &[F; 8], operator: AssignmentOperator, _width: UintWidth) -> CheckedValue<F> {
+        use AssignmentOperator::*;
+        let left: [F; N] = std::array::from_fn(|i| lhs[i].clone());
+        let right: [F; N] = std::array::from_fn(|i| rhs[i].clone());
+        let result = match operator {
+            AddAssign => self.context.op_uint_add(left, right),
+            SubAssign => self.context.op_uint_sub(left, right),
+            MulAssign => self.context.op_uint_mul(left, right),
+            BitAndAssign => self.context.op_uint_and(left, right),
+            BitOrAssign => self.context.op_uint_or(left, right),
+            BitXorAssign => self.context.op_uint_xor(left, right),
+            DivAssign => self.context.op_uint_div_rem(left, right).0,
+            ModAssign => self.context.op_uint_div_rem(left, right).1,
+            BitShlAssign => self.context.op_uint_shl(left, rhs[0].clone()),
+            BitShrAssign => self.context.op_uint_shr(left, rhs[0].clone()),
+            _ => unreachable!("type checker admitted an unsupported uint compound assignment"),
+        };
+        self.checked_from_active(result, _width)
+    }
+
     #[instrument(level = "debug", skip_all)]
     pub fn interpret_value(
         &mut self,
@@ -932,7 +1256,10 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         Ok(match node {
             CheckedValueNode::Felt(value, _location) => CheckedValue::Felt(*value),
             CheckedValueNode::Bool(value, _location) => CheckedValue::Bool(*value),
-            CheckedValueNode::U32(value, _location) => CheckedValue::U32(*value),
+            CheckedValueNode::Uint(value, width, _location) => {
+                let limbs = width.limb_count();
+                CheckedValue::Uint(std::array::from_fn(|i| self.context.op_const_u32(if i < limbs { value[i] } else { 0 })), *width)
+            }
             CheckedValueNode::Array(type_id, elements, _location) => {
                 self.charge_materialized(elements.len() as u64, None)?;
                 let mut values = Vec::new();
@@ -1002,6 +1329,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         Ok(match (&*rhs_borrow, unary_node.operator) {
             (CheckedValue::Felt(b), UnaryOperator::Neg) => CheckedValue::Felt(self.context.op_neg(*b)),
             (CheckedValue::Bool(b), UnaryOperator::Neg) => CheckedValue::Bool(self.context.op_bool_not(*b)),
+            (CheckedValue::Uint(v, width), UnaryOperator::Not) => dispatch_uint_width!(self, *width, interpret_uint_not(v)),
             (CheckedValue::Bool(v), UnaryOperator::Not) => CheckedValue::Bool(self.context.op_bool_not(*v)),
             _ => unreachable!("type checker admitted an unsupported unary operand"),
         })
@@ -1018,21 +1346,41 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         let lhs_value = self.interpret_expr(program, binary_node.lhs, ctx)?;
         let rhs_value = self.interpret_expr(program, binary_node.rhs, ctx)?;
 
+        // Wide-uint lane (every width except u32): one width-generic path —
+        // host folding on constant limbs, the limb-generic expansion otherwise.
+        // The native u32 lane stays in the scalar match below so its op graph
+        // (folded inside the VM) is unchanged.
+        if let CheckedValue::Uint(limbs, width) = &*lhs_value.borrow() {
+            if *width != UintWidth::U32 {
+                let operator = binary_node.operator;
+                let location = binary_node.location;
+                let rhs = &rhs_value;
+                return dispatch_uint_width!(self, *width, interpret_wide_uint_binary(limbs, rhs, operator, location));
+            }
+        }
+
         // Pre-check div/mod by zero and u32 arithmetic overflow on constant
         // operands. The VM's constant-folding path panics (assert!/integer div)
         // on these; surface them as clean compile/runtime errors instead.
         match (&*lhs_value.borrow(), &*rhs_value.borrow(), binary_node.operator) {
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), Div | Mod) | (CheckedValue::U32(l), CheckedValue::U32(r), Div | Mod) => {
+            (CheckedValue::Felt(l), CheckedValue::Felt(r), Div | Mod) => {
                 if self.is_constant(*l) && self.is_constant(*r) && self.context.get_constant_value(*r) == 0 {
                     return Err(Error::DivisionByZero {
                         location: Some(binary_node.location),
                     });
                 }
             }
-            (CheckedValue::U32(l), CheckedValue::U32(r), Add | Sub | Mul | Pow) => {
-                if self.is_constant(*l) && self.is_constant(*r) {
-                    let a = self.context.get_constant_value(*l);
-                    let b = self.context.get_constant_value(*r);
+            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), Div | Mod) => {
+                if self.is_constant(l[0].clone()) && self.is_constant(r[0].clone()) && self.context.get_constant_value(r[0].clone()) == 0 {
+                    return Err(Error::DivisionByZero {
+                        location: Some(binary_node.location),
+                    });
+                }
+            }
+            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), Add | Sub | Mul | Pow) => {
+                if self.is_constant(l[0].clone()) && self.is_constant(r[0].clone()) {
+                    let a = self.context.get_constant_value(l[0].clone());
+                    let b = self.context.get_constant_value(r[0].clone());
                     let overflow = match binary_node.operator {
                         Add => a + b > 0xffffffff,
                         Sub => a < b,
@@ -1074,23 +1422,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Gt) => self.context.op_gt(*l, *r),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Gte) => self.context.op_gte(*l, *r),
 
-            (CheckedValue::U32(l), CheckedValue::U32(r), Add) => self.context.op_u32_add(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), Sub) => self.context.op_u32_sub(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), Mul) => self.context.op_u32_mul(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), Div) => self.context.op_u32_div(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), BitShr) => self.context.op_u32_shr(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), BitShl) => self.context.op_u32_shl(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), BitAnd) => self.context.op_u32_and(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), BitOr) => self.context.op_u32_or(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), BitXor) => self.context.op_u32_xor(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), Eq) => self.context.op_eq(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), Neq) => self.context.op_neq(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), Lt) => self.context.op_lt(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), Lte) => self.context.op_lte(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), Gt) => self.context.op_gt(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), Gte) => self.context.op_gte(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), Mod) => self.context.op_u32_mod(*l, *r),
-            (CheckedValue::U32(l), CheckedValue::U32(r), Pow) => self.context.op_u32_exp(*l, *r),
+            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), op) => self.u32_binop(&l[0], &r[0], op),
 
             (CheckedValue::Bool(l), CheckedValue::Bool(r), And) => self.context.op_bool_and(*l, *r),
             (CheckedValue::Bool(l), CheckedValue::Bool(r), Or) => self.context.op_bool_or(*l, *r),
@@ -1102,12 +1434,15 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             (CheckedValue::Bool(l), CheckedValue::Bool(r), Gte) => self.context.op_gte(*l, *r),
             (CheckedValue::Bool(l), CheckedValue::Bool(r), BitXor) => self.context.op_bool_xor(*l, *r),
 
-            _ => unreachable!(),
+            (l, r, op) => unreachable!("interpret_binary: unsupported operands ({l:?}) ({op:?}) ({r:?})"),
         };
 
         match binary_node.type_id {
             id if id == BOOL_TYPE => Ok(CheckedValue::Bool(value)),
-            id if id == U32_TYPE => Ok(CheckedValue::U32(value)),
+            id if id == U32_TYPE => Ok(CheckedValue::Uint(
+                std::array::from_fn(|i| if i == 0 { value.clone() } else { F::from(0u32) }),
+                UintWidth::U32,
+            )),
             _ => Ok(CheckedValue::Felt(value)),
         }
     }
@@ -1125,13 +1460,31 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
         // Guard div/mod-by-zero on constant operands (the VM constant-fold panics).
         match (&*old_value.borrow(), &*value.borrow(), operator) {
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), DivAssign | ModAssign)
-            | (CheckedValue::U32(l), CheckedValue::U32(r), DivAssign | ModAssign) => {
+            (CheckedValue::Felt(l), CheckedValue::Felt(r), DivAssign | ModAssign) => {
                 if self.is_constant(*l) && self.is_constant(*r) && self.context.get_constant_value(*r) == 0 {
                     return Err(Error::DivisionByZero { location: None });
                 }
             }
+            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), DivAssign | ModAssign) => {
+                if self.is_constant(l[0].clone()) && self.is_constant(r[0].clone()) && self.context.get_constant_value(r[0].clone()) == 0 {
+                    return Err(Error::DivisionByZero { location: None });
+                }
+            }
             _ => {}
+        }
+
+        // Wide-uint compound assignments (u32 keeps the scalar arms below so
+        // its native op graph is unchanged).
+        if let (CheckedValue::Uint(l, width), CheckedValue::Uint(r, _)) = (&*old_value.borrow(), &*value.borrow()) {
+            if *width != UintWidth::U32 && operator != Eq {
+                let new_value = CheckedValueRef::new_rc(dispatch_uint_width!(self, *width, uint_compound(l, r, operator)));
+                return Ok(CheckedValueRef::<F>::select(
+                    &mut self.context,
+                    &new_value,
+                    &old_value,
+                    &|ctx: &mut C, n: &F, o: &F| ctx.cset(o.clone(), n.clone()),
+                ));
+            }
         }
 
         let new_value = match (&*old_value.borrow(), &*value.borrow(), operator) {
@@ -1149,16 +1502,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             (CheckedValue::Felt(l), CheckedValue::Felt(r), BitShlAssign) => CheckedValueRef::from_felt(self.context.op_u32_shl(*l, *r)),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), BitShrAssign) => CheckedValueRef::from_felt(self.context.op_u32_shr(*l, *r)),
 
-            (CheckedValue::U32(l), CheckedValue::U32(r), AddAssign) => CheckedValueRef::from_u32(self.context.op_u32_add(*l, *r)),
-            (CheckedValue::U32(l), CheckedValue::U32(r), SubAssign) => CheckedValueRef::from_u32(self.context.op_u32_sub(*l, *r)),
-            (CheckedValue::U32(l), CheckedValue::U32(r), MulAssign) => CheckedValueRef::from_u32(self.context.op_u32_mul(*l, *r)),
-            (CheckedValue::U32(l), CheckedValue::U32(r), DivAssign) => CheckedValueRef::from_u32(self.context.op_u32_div(*l, *r)),
-            (CheckedValue::U32(l), CheckedValue::U32(r), ModAssign) => CheckedValueRef::from_u32(self.context.op_mod(*l, *r)),
-            (CheckedValue::U32(l), CheckedValue::U32(r), BitAndAssign) => CheckedValueRef::from_u32(self.context.op_u32_and(*l, *r)),
-            (CheckedValue::U32(l), CheckedValue::U32(r), BitOrAssign) => CheckedValueRef::from_u32(self.context.op_u32_or(*l, *r)),
-            (CheckedValue::U32(l), CheckedValue::U32(r), BitXorAssign) => CheckedValueRef::from_u32(self.context.op_u32_xor(*l, *r)),
-            (CheckedValue::U32(l), CheckedValue::U32(r), BitShlAssign) => CheckedValueRef::from_u32(self.context.op_u32_shl(*l, *r)),
-            (CheckedValue::U32(l), CheckedValue::U32(r), BitShrAssign) => CheckedValueRef::from_u32(self.context.op_u32_shr(*l, *r)),
+            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), op) => CheckedValueRef::from_u32(self.u32_binop(&l[0], &r[0], Self::u32_compound_to_binary(op))),
 
             (CheckedValue::Bool(l), CheckedValue::Bool(r), BitXorAssign) => CheckedValueRef::from_bool(self.context.op_bool_xor(*l, *r)),
 
@@ -1386,7 +1730,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     }
                     CheckedIntrinsicExprNode::MemTransmute { data, target_type, .. } => {
                         let data = self.interpret_expr(program, data.clone(), ctx)?;
-                        return Ok(CheckedValueRef::decode_felts(&data.to_felts(), ctx, target_type.clone()));
+                        let value = CheckedValueRef::decode_felts(&data.to_felts(), ctx, target_type.clone());
+                        self.validate_u256_limbs(&value);
+                        return Ok(value);
                     }
                     CheckedIntrinsicExprNode::MemSizeOf { query_type: ty, .. } => {
                         let size = self.calculate_type_size(ty.clone(), ctx);
@@ -1446,7 +1792,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let outputs =
                             self.context
                                 .cinvoke_external_contract_function_sync(contract_id, method_id, inputs, output_size.try_into().unwrap());
-                        return Ok(CheckedValueRef::decode_felts(&outputs, ctx, type_id.clone()));
+                        let value = CheckedValueRef::decode_felts(&outputs, ctx, type_id.clone());
+                        self.validate_u256_limbs(&value);
+                        return Ok(value);
                     }
                     CheckedIntrinsicExprNode::InvokeDeferred {
                         contract_id,
@@ -1800,7 +2148,32 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         cast_node: &CheckedCastNode,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<CheckedValue<F>> {
-        let value = self.interpret_expr(program, cast_node.value, ctx)?.to_value();
+        let source = self.interpret_expr(program, cast_node.value, ctx)?;
+        let target_width = cast_node.target_type.uint_width();
+        // Wide sources (u64+) have no single-felt scalar view, so every target
+        // goes through the limb-aware path. The u32 lane keeps the scalar path
+        // below so its bool/felt casts and range diagnostics are unchanged.
+        if let CheckedValue::Uint(limbs, src_width) = &*source.borrow() {
+            if *src_width != UintWidth::U32 {
+                return Ok(match target_width {
+                    // Same width: identity. Widening: the padded limbs are
+                    // already zero. Narrowing: assert the discarded limbs zero.
+                    Some(target) if target == *src_width => CheckedValue::Uint(limbs.clone(), *src_width),
+                    Some(target) if target.limb_count() > src_width.limb_count() => CheckedValue::Uint(limbs.clone(), target),
+                    Some(target) => dispatch_uint_width!(self, *src_width, uint_narrow(limbs, target)),
+                    None if cast_node.target_type == FELT_TYPE => dispatch_uint_width!(self, *src_width, uint_to_felt(limbs)),
+                    _ => unreachable!("unsupported wide uint cast target: {:?}", cast_node.target_type),
+                });
+            }
+        }
+        let value = source.to_value();
+        if let Some(width) = target_width {
+            if width != UintWidth::U32 {
+                // from_felt decomposes and asserts canonicality; the u32 lane
+                // keeps its explicit range check below.
+                return Ok(dispatch_uint_width!(self, width, uint_from_felt(&value)));
+            }
+        }
 
         if self.is_constant(value) {
             let const_value = self.context.get_constant_value(value);
@@ -1831,7 +2204,10 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         match cast_node.target_type {
             BOOL_TYPE => Ok(CheckedValue::Bool(self.context.op_cast_bool(value))),
             FELT_TYPE => Ok(CheckedValue::Felt(self.context.op_cast_felt(value))),
-            U32_TYPE => Ok(CheckedValue::U32(self.context.op_cast_u32(value))),
+            U32_TYPE => Ok(CheckedValue::Uint(
+                    std::array::from_fn(|i| if i == 0 { self.context.op_cast_u32(value.clone()) } else { self.context.op_const_u32(0) }),
+                    UintWidth::U32,
+                )),
             _ => unimplemented!(),
         }
     }
@@ -2143,10 +2519,27 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         let (scrutinee_borrow, pattern_borrow) = (scrutinee_value.borrow(), pattern_value.borrow());
 
         match (&*scrutinee_borrow, &*pattern_borrow) {
-            (CheckedValue::Felt(l), CheckedValue::Felt(r))
-            | (CheckedValue::U32(l), CheckedValue::U32(r))
-            | (CheckedValue::Bool(l), CheckedValue::Bool(r)) => Ok(self.context.op_eq(*l, *r)),
+            (CheckedValue::Felt(l), CheckedValue::Felt(r)) | (CheckedValue::Bool(l), CheckedValue::Bool(r)) => Ok(self.context.op_eq(*l, *r)),
+            (CheckedValue::Uint(l, width), CheckedValue::Uint(r, _)) => Ok(dispatch_uint_width!(self, *width, uint_eq(l, r))),
             _ => unreachable!("Unsupported match pattern between {:?} and {:?}", scrutinee_borrow, pattern_borrow),
+        }
+    }
+
+    fn validate_u256_limbs(&mut self, value: &CheckedValueRef<F>) {
+        match &mut *value.borrow_mut() {
+            CheckedValue::Uint(limbs, width) => {
+                dispatch_uint_width!(self, *width, uint_revalidate(&mut *limbs));
+            }
+            CheckedValue::Array(_, values) => {
+                for element in values { self.validate_u256_limbs(element); }
+            }
+            CheckedValue::Struct(_, fields) => {
+                for element in fields.values() { self.validate_u256_limbs(element); }
+            }
+            CheckedValue::Tuple { elements, .. } => {
+                for (_, element) in elements { self.validate_u256_limbs(element); }
+            }
+            _ => {}
         }
     }
 

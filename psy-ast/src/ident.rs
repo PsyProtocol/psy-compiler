@@ -145,7 +145,10 @@ ident_ids!(
     CONTRACT_METHOD => "contract_method",
 
     T => "T",
-    N => "N"
+    N => "N",
+    TYPE_U64 => "u64",   // 25
+    TYPE_U128 => "u128", // 26
+    TYPE_U256 => "u256"  // 27
 );
 
 #[derive(Clone, Debug, Default)]
@@ -243,6 +246,9 @@ mod tests {
             (IdentId::CONTRACT_METHOD, "contract_method"),
             (IdentId::T, "T"),
             (IdentId::N, "N"),
+            (IdentId::TYPE_U64, "u64"),
+            (IdentId::TYPE_U128, "u128"),
+            (IdentId::TYPE_U256, "u256"),
         ];
 
         // check if the length of the mapping is correct

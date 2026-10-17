@@ -183,6 +183,12 @@ pub enum Token<'input> {
     TypeFelt,
     #[token("u32")]
     TypeU32,
+    #[token("u64")]
+    TypeU64,
+    #[token("u128")]
+    TypeU128,
+    #[token("u256")]
+    TypeU256,
     #[token("Array")]
     TypeArray,
     #[token("Self")]
@@ -191,13 +197,21 @@ pub enum Token<'input> {
     #[regex("[_a-zA-Z][_0-9a-zA-Z]*", |lex| lex.slice())]
     Ident(&'input str),
 
-    #[regex(r"(?:0|[1-9]\d*)", |lex| lex.slice().parse())]
-    U64(u64),
+    // Bare decimals and hex are Felt literals; suffix tokens claim their
+    // typed spellings by longest match.
+    #[regex(r"(?:0|[1-9]\d*|0[xX][0-9a-fA-F]+)", |lex| parse_bare_felt(lex.slice()), priority = 3)]
+    FeltLiteral(u64),
     #[token("false", |_| false)]
     #[token("true", |_| true)]
     Bool(bool),
     #[regex(r"(?:0|[1-9]\d*)u32", |lex| lex.slice().strip_suffix("u32").expect("invalid u32 literal suffix").parse::<u32>())]
     U32(u32),
+    #[regex(r"(?:0|[1-9]\d*|0[xX][0-9a-fA-F]+)u64", |lex| parse_suffixed_u64(lex.slice()))]
+    U64(u64),
+    #[regex(r"(?:0|[1-9]\d*|0[xX][0-9a-fA-F]+)u128", |lex| parse_uint::<4>(lex.slice(), "u128"))]
+    U128([u32; 4]),
+    #[regex(r"(?:0|[1-9]\d*|0[xX][0-9a-fA-F]+)u256", |lex| parse_uint::<8>(lex.slice(), "u256"))]
+    U256([u32; 8]),
     #[regex(r#""([^"\\]|\\.)*""#, |lex| lex.slice().strip_prefix('"').unwrap().strip_suffix('"').unwrap())]
     String(&'input str),
 
@@ -325,7 +339,7 @@ fn test_lex_comment() {
     assert_eq!(lex.next(), Some(Ok(Token::KeywordLet)));
     assert_eq!(lex.next(), Some(Ok(Token::Ident("x"))));
     assert_eq!(lex.next(), Some(Ok(Token::Assign)));
-    assert_eq!(lex.next(), Some(Ok(Token::U64(5))));
+    assert_eq!(lex.next(), Some(Ok(Token::FeltLiteral(5))));
     assert_eq!(lex.next(), Some(Ok(Token::Semicolon)));
     assert_eq!(lex.next(), None);
 
@@ -334,7 +348,7 @@ fn test_lex_comment() {
     assert_eq!(lex.next(), Some(Ok(Token::KeywordLet)));
     assert_eq!(lex.next(), Some(Ok(Token::Ident("y"))));
     assert_eq!(lex.next(), Some(Ok(Token::Assign)));
-    assert_eq!(lex.next(), Some(Ok(Token::U64(10))));
+    assert_eq!(lex.next(), Some(Ok(Token::FeltLiteral(10))));
     assert_eq!(lex.next(), Some(Ok(Token::Semicolon)));
     assert_eq!(lex.next(), None);
 }
@@ -342,9 +356,43 @@ fn test_lex_comment() {
 #[test]
 fn test_lex_integer() {
     let mut lex = Token::lexer("42 0 1234567890");
-    assert_eq!(lex.next(), Some(Ok(Token::U64(42))));
-    assert_eq!(lex.next(), Some(Ok(Token::U64(0))));
-    assert_eq!(lex.next(), Some(Ok(Token::U64(1234567890))));
+    assert_eq!(lex.next(), Some(Ok(Token::FeltLiteral(42))));
+    assert_eq!(lex.next(), Some(Ok(Token::FeltLiteral(0))));
+    assert_eq!(lex.next(), Some(Ok(Token::FeltLiteral(1234567890))));
+    assert_eq!(lex.next(), None);
+}
+
+#[test]
+fn test_lex_suffixed_uint_literals() {
+    let mut lex = Token::lexer("1u32 123u64 0xffffffffffffffffu64 1u128 1u256");
+    assert_eq!(lex.next(), Some(Ok(Token::U32(1))));
+    assert_eq!(lex.next(), Some(Ok(Token::U64(123))));
+    assert_eq!(lex.next(), Some(Ok(Token::U64(u64::MAX))));
+    assert_eq!(lex.next(), Some(Ok(Token::U128([1, 0, 0, 0]))));
+    assert_eq!(lex.next(), Some(Ok(Token::U256([1, 0, 0, 0, 0, 0, 0, 0]))));
+    assert_eq!(lex.next(), None);
+}
+
+#[test]
+fn test_lex_uint_literal_overflow_is_rejected() {
+    // 2^64 as a u64 literal must be a lex error, not a silent wrap.
+    let mut lex = Token::lexer("18446744073709551616u64");
+    assert!(lex.next().unwrap().is_err());
+    let mut lex = Token::lexer("340282366920938463463374607431768211456u128");
+    assert!(lex.next().unwrap().is_err());
+    let mut lex = Token::lexer("18446744073709551616");
+    // Bare literals are limited to the historical u64 input range.
+    assert!(lex.next().unwrap().is_err());
+    assert_eq!(lex.next(), None);
+}
+
+#[test]
+fn test_lex_uint_type_keywords() {
+    let mut lex = Token::lexer("u32 u64 u128 u256");
+    assert_eq!(lex.next(), Some(Ok(Token::TypeU32)));
+    assert_eq!(lex.next(), Some(Ok(Token::TypeU64)));
+    assert_eq!(lex.next(), Some(Ok(Token::TypeU128)));
+    assert_eq!(lex.next(), Some(Ok(Token::TypeU256)));
     assert_eq!(lex.next(), None);
 }
 #[cfg(test)]
@@ -391,5 +439,38 @@ mod tests {
         }
 
         Ok(())
+    }
+}
+
+// Parse directly into limbs: no intermediate field reduction or u64 truncation.
+fn parse_uint<const N: usize>(source: &str, suffix: &str) -> std::result::Result<[u32; N], crate::Error> {
+    let source = source.strip_suffix(suffix).unwrap_or(source);
+    source
+        .parse::<psy_vm::dpn::ops::uint::Uint<N>>()
+        .map(|value| value.0)
+        .map_err(crate::Error::InvalidWideInteger)
+}
+
+fn parse_suffixed_u64(source: &str) -> std::result::Result<u64, crate::Error> {
+    let limbs = parse_uint::<2>(source, "u64")?;
+    Ok(limbs[0] as u64 | ((limbs[1] as u64) << 32))
+}
+
+fn parse_bare_felt(source: &str) -> std::result::Result<u64, crate::Error> {
+    let limbs = parse_uint::<2>(source, "")?;
+    Ok(limbs[0] as u64 | ((limbs[1] as u64) << 32))
+}
+
+#[cfg(test)]
+mod u256_tests {
+    use super::*;
+
+    #[test]
+    fn u256_literal_preserves_full_width_and_rejects_overflow() {
+        let maximum = "115792089237316195423570985008687907853269984665640564039457584007913129639935u256";
+        assert_eq!(Token::lexer(maximum).next(), Some(Ok(Token::U256([u32::MAX; 8]))));
+        assert_eq!(Token::lexer("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffu256").next(), Some(Ok(Token::U256([u32::MAX; 8]))));
+        assert!(Token::lexer("115792089237316195423570985008687907853269984665640564039457584007913129639936u256").next().unwrap().is_err());
+        assert_eq!(Token::lexer("4294967296u256").next(), Some(Ok(Token::U256([0, 1, 0, 0, 0, 0, 0, 0]))));
     }
 }

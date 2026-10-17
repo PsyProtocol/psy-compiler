@@ -516,7 +516,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
             CheckedExprNode::Value(checked_value_node) => match checked_value_node {
                 CheckedValueNode::Felt(_, _location) => {}
                 CheckedValueNode::Bool(_, _location) => {}
-                CheckedValueNode::U32(_, _location) => {}
+                CheckedValueNode::Uint(_, _, _location) => {}
                 CheckedValueNode::Array(type_id, vec, _location) => {
                     *type_id = self.substitute_all(*type_id, ctx)?;
                     for value in vec {

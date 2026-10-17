@@ -1,6 +1,6 @@
 use derivative::Derivative;
 use enum_as_inner::EnumAsInner;
-use psy_ast::{ExprId, IdentId, Identifier, Location, Visibility};
+use psy_ast::{ExprId, IdentId, Identifier, Location, UintWidth, Visibility};
 use psy_common::define_arena_id;
 
 use crate::{
@@ -12,7 +12,7 @@ define_arena_id!(TypeId);
 
 impl TypeId {
     pub fn is_std_type(&self) -> bool {
-        self.0 <= 9
+        self.0 <= 12
     }
 }
 
@@ -20,19 +20,59 @@ pub const UNKOWN_TYPE: TypeId = TypeId(0);
 pub const VOID_TYPE: TypeId = TypeId(1);
 pub const BOOL_TYPE: TypeId = TypeId(2);
 pub const FELT_TYPE: TypeId = TypeId(3);
-pub const U32_TYPE: TypeId = TypeId(4);
-pub const STORAGE_REF_TYPE: TypeId = TypeId(30);
 
-// pub const T_TYPE: TypeId = TypeId(5);
-// pub const N_TYPE: TypeId = TypeId(6);
-pub const ARRAY_TYPE: TypeId = TypeId(7);
-// pub const HASH_TYPE_LEN: TypeId = TypeId(8);
+/// One row per builtin uint width: the reserved TypeId, the `UintWidth`
+/// variant, and the reserved IdentId. Adding a width (e.g. a future u512) is a
+/// row here plus the psy_ast::UintWidth variant, lexer token, and reserved
+/// ident — nothing else in sema needs a per-width arm.
+macro_rules! define_uint_types {
+    ($($const_name:ident = ($width:ident, $id:literal, $ident:ident);)+ $(;)?) => {
+        $(pub const $const_name: TypeId = TypeId($id);)+
 
-pub const HASH_TYPE: TypeId = TypeId(9);
+        pub fn uint_type_id(width: UintWidth) -> TypeId {
+            match width { $(UintWidth::$width => $const_name),+ }
+        }
+
+        pub fn uint_ident(width: UintWidth) -> IdentId {
+            match width { $(UintWidth::$width => IdentId::$ident),+ }
+        }
+
+        pub fn uint_width_of_ident(ident: IdentId) -> Option<UintWidth> {
+            match ident { $(IdentId::$ident => Some(UintWidth::$width),)+ _ => None }
+        }
+
+        impl Type {
+            pub fn uint_width(&self) -> Option<UintWidth> {
+                match self { $(Type::Uint(UintWidth::$width) => Some(UintWidth::$width),)+ _ => None }
+            }
+        }
+
+        impl TypeId {
+            /// The builtin uint width this TypeId names, if any — for sites
+            /// that only hold a TypeId and the symbol table.
+            pub fn uint_width(&self) -> Option<UintWidth> {
+                match *self { $($const_name => Some(UintWidth::$width),)+ _ => None }
+            }
+        }
+    };
+}
+
+define_uint_types! {
+    U32_TYPE = (U32, 4, TYPE_U32);
+    U64_TYPE = (U64, 5, TYPE_U64);
+    U128_TYPE = (U128, 6, TYPE_U128);
+    U256_TYPE = (U256, 7, TYPE_U256);
+}
+
+// Seeded right after the primitives, in this order: T = 8, N = 9,
+// ARRAY_TYPE = 10, the Hash length const = 11, the felt[4] instance = 12.
+pub const ARRAY_TYPE: TypeId = TypeId(10);
+pub const HASH_TYPE: TypeId = TypeId(12);
 
 use once_cell::sync::Lazy;
 
-pub static PRIMITIVE_TYPES: Lazy<Vec<Type>> = Lazy::new(|| vec![Type::Unknown, Type::VOID, Type::Bool, Type::Felt, Type::U32]);
+pub static PRIMITIVE_TYPES: Lazy<Vec<Type>> =
+    Lazy::new(|| vec![Type::Unknown, Type::VOID, Type::Bool, Type::Felt, Type::Uint(UintWidth::U32), Type::Uint(UintWidth::U64), Type::Uint(UintWidth::U128), Type::Uint(UintWidth::U256)]);
 
 #[derive(Debug, Clone, PartialEq, EnumAsInner)]
 pub enum Type {
@@ -40,7 +80,7 @@ pub enum Type {
     VOID,
     Felt,
     Bool,
-    U32,
+    Uint(UintWidth),
     Array(CheckedArrayNode),
     Struct(CheckedStructNode),
     Enum(CheckedEnumNode),
@@ -60,7 +100,7 @@ pub enum TypeKind {
 
     Felt,
     Bool,
-    U32,
+    Uint(UintWidth),
     Array,
     Struct,
     Enum,
@@ -141,7 +181,7 @@ impl Type {
             Type::VOID => (Some(IdentId::TYPE_VOID), None, vec![], vec![], vec![], None),
             Type::Felt => (Some(IdentId::TYPE_FELT), None, vec![], vec![], vec![], None),
             Type::Bool => (Some(IdentId::TYPE_BOOL), None, vec![], vec![], vec![], None),
-            Type::U32 => (Some(IdentId::TYPE_U32), None, vec![], vec![], vec![], None),
+            Type::Uint(width) => (Some(uint_ident(*width)), None, vec![], vec![], vec![], None),
             Type::Array(CheckedArrayNode { inner_ty, size_ty: size, .. }) => (
                 Some(IdentId::TYPE_ARRAY),
                 None,
@@ -204,7 +244,7 @@ impl Type {
         TypeKey::new(name, underlying_type_id, generic_parameters, consts, parameters, return_type)
     }
 
-    // Note: return the outer scope id for Felt, Bool, U32, Const, TypeVariable
+    // Note: return the outer scope id for Felt, Bool, all Uint widths, Const, TypeVariable
     // but return the inner scope id for Array, Struct, Enum, Function, Trait
     pub fn scope_id(&self) -> ScopeId {
         match self {
@@ -218,7 +258,7 @@ impl Type {
             Type::LambdaFunction(CheckedLambdaFunctionNode { scope_id, .. }) => *scope_id,
             Type::Felt => ScopeId::primitive(),
             Type::Bool => ScopeId::primitive(),
-            Type::U32 => ScopeId::primitive(),
+            Type::Uint(_) => ScopeId::primitive(),
             Type::TypeVariable(CheckedGenericParameter { scope_id, .. }) => *scope_id,
             _ => panic!("Type::scope_id called on non-composite type: {:?}", self),
         }
@@ -241,7 +281,7 @@ impl Type {
             Type::VOID => IdentId::TYPE_VOID,
             Type::Felt => IdentId::TYPE_FELT,
             Type::Bool => IdentId::TYPE_BOOL,
-            Type::U32 => IdentId::TYPE_U32,
+            Type::Uint(width) => uint_ident(*width),
             Type::Struct(CheckedStructNode { name, .. }) => name.id,
             Type::Enum(CheckedEnumNode { name, .. }) => name.id,
             Type::Function(CheckedFunctionNode { name, .. }) => name.id,
@@ -303,7 +343,7 @@ impl Type {
             Type::VOID => TypeKind::VOID,
             Type::Felt => TypeKind::Felt,
             Type::Bool => TypeKind::Bool,
-            Type::U32 => TypeKind::U32,
+            Type::Uint(width) => TypeKind::Uint(*width),
             Type::Array(_) => TypeKind::Array,
             Type::Struct(_) => TypeKind::Struct,
             Type::Enum(_) => TypeKind::Enum,
@@ -323,7 +363,7 @@ impl Type {
             Type::VOID => Location::default(),
             Type::Felt => Location::default(),
             Type::Bool => Location::default(),
-            Type::U32 => Location::default(),
+            Type::Uint(_) => Location::default(),
             Type::Array(_) => Location::default(),
             Type::Struct(struct_node) => struct_node.location,
             Type::Enum(enum_node) => enum_node.location,
@@ -545,7 +585,7 @@ mod tests {
         let variable = CheckedGenericParameter::new(IdentId(31), vec![], ScopeId(9), Location::default());
         assert_eq!(Type::TypeVariable(variable).scope_id(), ScopeId(9));
 
-        for primitive in [Type::Felt, Type::Bool, Type::U32] {
+        for primitive in [Type::Felt, Type::Bool, Type::Uint(UintWidth::U32), Type::Uint(UintWidth::U64), Type::Uint(UintWidth::U128), Type::Uint(UintWidth::U256)] {
             assert_eq!(primitive.scope_id(), ScopeId::primitive());
         }
     }
@@ -573,7 +613,8 @@ mod tests {
         assert_eq!(Type::VOID.name(), IdentId::TYPE_VOID);
         assert_eq!(Type::Felt.name(), IdentId::TYPE_FELT);
         assert_eq!(Type::Bool.name(), IdentId::TYPE_BOOL);
-        assert_eq!(Type::U32.name(), IdentId::TYPE_U32);
+        assert_eq!(Type::Uint(UintWidth::U32).name(), IdentId::TYPE_U32);
+        assert_eq!(Type::Uint(UintWidth::U256).name(), IdentId::TYPE_U256);
         assert_eq!(Type::Array(array()).name(), IdentId::TYPE_ARRAY);
         assert_eq!(Type::Tuple(vec![]).name(), IdentId::TYPE_TUPLE);
         assert_eq!(Type::Struct(struct_node()).name(), IdentId(29));
@@ -633,7 +674,7 @@ mod tests {
         assert_eq!(Type::VOID.kind(), TypeKind::VOID);
         assert_eq!(Type::Felt.kind(), TypeKind::Felt);
         assert_eq!(Type::Bool.kind(), TypeKind::Bool);
-        assert_eq!(Type::U32.kind(), TypeKind::U32);
+        assert_eq!(Type::Uint(UintWidth::U32).kind(), TypeKind::Uint(UintWidth::U32));
         assert_eq!(Type::Array(array()).kind(), TypeKind::Array);
         assert_eq!(Type::Struct(struct_node()).kind(), TypeKind::Struct);
         assert_eq!(Type::Enum(enumeration()).kind(), TypeKind::Enum);
@@ -671,10 +712,11 @@ mod tests {
     }
 
     #[test]
-    fn type_ids_below_ten_are_std_types() {
+    fn std_type_boundary_covers_primitives_array_and_hash() {
         assert!(TypeId(0).is_std_type());
         assert!(TypeId(9).is_std_type());
-        assert!(!TypeId(10).is_std_type());
+        assert!(TypeId(12).is_std_type());
+        assert!(!TypeId(13).is_std_type());
     }
 
     #[test]
@@ -691,5 +733,26 @@ mod tests {
         let from_const = TypeKey::from(ConstId(8));
         assert_eq!(from_const.consts, vec![ConstId(8)]);
         assert_eq!(from_const.name, None);
+    }
+}
+
+#[cfg(test)]
+mod uint_type_id_tests {
+    use super::*;
+
+    /// The builtin TypeIds are wire-visible through snapshots and diagnostics;
+    /// pin them so any renumbering is a deliberate, reviewed change.
+    #[test]
+    fn builtin_uint_type_ids_are_stable() {
+        assert_eq!(U32_TYPE, TypeId(4));
+        assert_eq!(U64_TYPE, TypeId(5));
+        assert_eq!(U128_TYPE, TypeId(6));
+        assert_eq!(U256_TYPE, TypeId(7));
+        assert_eq!(ARRAY_TYPE, TypeId(10));
+        assert_eq!(HASH_TYPE, TypeId(12));
+        for width in UintWidth::ALL {
+            assert_eq!(uint_type_id(width).uint_width(), Some(width));
+            assert!(uint_width_of_ident(uint_ident(width)).is_some());
+        }
     }
 }

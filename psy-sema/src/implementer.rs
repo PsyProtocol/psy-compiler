@@ -70,12 +70,12 @@ pub trait Implementer<F: Clone + From<u32> + ContextFelt, C> {
         method: impl Into<IdentId>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<TypeId>;
-    fn get_impl_id<R: Copy>(
+    fn get_impl_ids<R: Copy>(
         &self,
         ty: TypeId,
         f: impl Fn(&CheckedImplNode) -> Option<R>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
-    ) -> Option<(Constraint, DefId, R)>;
+    ) -> Vec<(Constraint, DefId, R)>;
     fn get_trait_impl_ids<R: Copy>(
         &self,
         ty: TypeId,
@@ -284,7 +284,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
             None
         };
 
-        if let Some((constraint, impl_id, function_idx)) = self.get_impl_id(
+        for (constraint, impl_id, function_idx) in self.get_impl_ids(
             ty,
             |impl_node: &CheckedImplNode| {
                 impl_node
@@ -527,7 +527,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
         let generic_parameters = ctx.symbols[ty].generic_parameters();
         let member = member.into();
 
-        if let Some((constraint, impl_id, name)) = self.get_impl_id(
+        for (constraint, impl_id, name) in self.get_impl_ids(
             ty,
             |impl_node: &CheckedImplNode| {
                 impl_node
@@ -783,29 +783,17 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
         matched
     }
 
-    fn get_impl_id<R: Copy>(
+    fn get_impl_ids<R: Copy>(
         &self,
         ty: TypeId,
         f: impl Fn(&CheckedImplNode) -> Option<R>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
-    ) -> Option<(Constraint, DefId, R)> {
+    ) -> Vec<(Constraint, DefId, R)> {
         let poly_ty = self.poly_of(ty, ctx).unwrap();
         let generic_parameters = ctx.symbols[ty].generic_parameters();
-
-        let get_result = |impl_set: &IndexSet<DefId>| {
-            for &impl_id in impl_set {
-                if let Some(impl_node) = self.program[impl_id].as_impl() {
-                    if let Some(function_idx) = f(impl_node) {
-                        return Some((impl_id, function_idx));
-                    }
-                }
-            }
-            None
-        };
-
-        let impl_map = self.implementer.impl_ids.get(&poly_ty)?;
+        let Some(impl_map) = self.implementer.impl_ids.get(&poly_ty) else { return Vec::new() };
         let constraint = Constraint::new(generic_parameters.clone());
-
+        let mut candidates = Vec::new();
         for (constraint, impl_set) in impl_map
             .get(&constraint)
             .map(|impl_set| (constraint.clone(), impl_set))
@@ -821,12 +809,15 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                     .map(|(c, impl_set)| (c.clone(), impl_set)),
             )
         {
-            if let Some((impl_id, function_idx)) = get_result(impl_set) {
-                return Some((constraint.clone(), impl_id, function_idx));
+            for &impl_id in impl_set {
+                if let Some(impl_node) = self.program[impl_id].as_impl() {
+                    if let Some(result) = f(impl_node) {
+                        candidates.push((constraint.clone(), impl_id, result));
+                    }
+                }
             }
         }
-
-        None
+        candidates
     }
 
     fn get_trait_impl_ids<R: Copy>(

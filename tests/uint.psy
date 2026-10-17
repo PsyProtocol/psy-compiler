@@ -1,0 +1,144 @@
+fn check_u64(a: u64, b: u64, shift: u32) -> u64 {
+    let mut value = a + b;
+    value -= b;
+    value |= 0u64;
+    value ^= 0u64;
+    value &= !0u64;
+    value <<= shift;
+    value >>= shift;
+    value
+}
+
+fn check_u128(a: u128, b: u128) -> u128 {
+    let mut value = a * b;
+    value /= b;
+    value %= 0xffffffffffffffffffffffffffffffffu128;
+    value
+}
+
+fn check_u256(a: u256, b: u256) -> u256 {
+    let mut value = a + b;
+    value -= b;
+    value *= 2u256;
+    value /= 2u256;
+    value %= 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffu256;
+    value
+}
+
+// input: 2,3
+// output: 5
+fn main(a: Felt, b: Felt) -> Felt {
+    let left32 = a as u32;
+    let right32 = b as u32;
+    assert_eq(left32 + right32, 5u32, "u32 input add");
+
+    let left64 = a as u64;
+    let right64 = b as u64;
+    assert_eq(check_u64(left64, right64, 1u32), left64, "u64 input compound ops");
+
+    let left128 = a as u128;
+    let right128 = b as u128;
+    assert_eq(check_u128(left128, right128), left128, "u128 input compound ops");
+
+    let left256 = a as u256;
+    let right256 = b as u256;
+    assert_eq(check_u256(left256, right256), left256, "u256 input compound ops");
+    a + b
+}
+
+#[test]
+fn test_u32_native_lane() {
+    let high = 1u32 << 31u32;
+    assert_eq(high, 2147483648u32, "u32 high bit");
+    assert_eq(high >> 31u32, 1u32, "u32 right shift");
+    assert_eq(high << 1u32, 0u32, "u32 width shift");
+    assert_eq(7u32 / 3u32, 2u32, "u32 division");
+    assert_eq(7u32 % 3u32, 1u32, "u32 remainder");
+    assert_eq(240u32 & 15u32, 0u32, "u32 and");
+    assert_eq(240u32 | 15u32, 255u32, "u32 or");
+    assert_eq(240u32 ^ 15u32, 255u32, "u32 xor");
+}
+
+#[test]
+fn test_u64_limb_boundaries() {
+    assert_eq(u64::default(), 0u64, "u64 default");
+    let carry = 4294967295u64 + 1u64;
+    assert_eq(carry, 4294967296u64, "u64 carry");
+    assert_eq(carry - 1u64, 4294967295u64, "u64 borrow");
+    assert_eq(4294967295u64 * 4294967295u64, 18446744065119617025u64, "u64 full product");
+    assert_eq(18446744073709551615u64 / 2u64, 9223372036854775807u64, "u64 division");
+    assert_eq(18446744073709551615u64 % 2u64, 1u64, "u64 remainder");
+    assert_eq(1u64 << 63u32, 9223372036854775808u64, "u64 high bit");
+    assert_eq(1u64 << 64u32, 0u64, "u64 width shift");
+    assert_eq(9223372036854775808u64 >> 63u32, 1u64, "u64 right shift");
+    assert_eq(!0u64, 18446744073709551615u64, "u64 not");
+    assert_eq(check_u64(7u64, 3u64, 1u32), 7u64, "u64 compound ops");
+    assert(4294967296u64 > 4294967295u64, "u64 high limb comparison");
+}
+
+#[test]
+fn test_u128_limb_boundaries() {
+    assert_eq(u128::default(), 0u128, "u128 default");
+    let carry = 0xffffffffffffffffu128 + 1u128;
+    assert_eq(carry, 0x10000000000000000u128, "u128 carry");
+    assert_eq(carry - 1u128, 0xffffffffffffffffu128, "u128 borrow");
+    assert_eq(1u128 << 127u32, 0x80000000000000000000000000000000u128, "u128 high bit");
+    assert_eq(1u128 << 128u32, 0u128, "u128 width shift");
+    assert_eq(0x80000000000000000000000000000000u128 >> 127u32, 1u128, "u128 right shift");
+    assert_eq(0xffffffffffffffffffffffffffffffffu128 / 2u128, 0x7fffffffffffffffffffffffffffffffu128, "u128 division");
+    assert_eq(0xffffffffffffffffffffffffffffffffu128 % 2u128, 1u128, "u128 remainder");
+    assert_eq(check_u128(4294967295u128, 2u128), 4294967295u128, "u128 compound ops");
+    assert_eq((0xffffffffffffffffu64 as u128) as u64, 0xffffffffffffffffu64, "u64/u128 cast");
+}
+
+#[test]
+fn test_u256_limb_boundaries() {
+    let carry = 0xffffffffffffffffffffffffffffffffu256 + 1u256;
+    assert_eq(carry, 0x100000000000000000000000000000000u256, "u256 carry");
+    assert_eq(carry - 1u256, 0xffffffffffffffffffffffffffffffffu256, "u256 borrow");
+    assert_eq(1u256 << 255u32, 0x8000000000000000000000000000000000000000000000000000000000000000u256, "u256 high bit");
+    assert_eq(1u256 << 256u32, 0u256, "u256 width shift");
+    assert_eq(0x8000000000000000000000000000000000000000000000000000000000000000u256 >> 255u32, 1u256, "u256 right shift");
+    assert_eq(0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffu256 / 2u256,
+        0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffu256, "u256 division");
+    assert_eq(0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffu256 % 2u256, 1u256, "u256 remainder");
+    assert_eq(check_u256(4294967295u256, 2u256), 4294967295u256, "u256 compound ops");
+    assert_eq((18446744069414584320 as u256) as Felt, 18446744069414584320, "u256/Felt cast");
+    assert_eq(0xff00u256 & 0x0ff0u256, 0x0f00u256, "u256 and");
+    assert_eq(0xff00u256 | 0x00ffu256, 0xffffu256, "u256 or");
+    assert_eq(0xff00u256 ^ 0x0ff0u256, 0xf0f0u256, "u256 xor");
+    assert_eq(!0u256, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffu256, "u256 not");
+    assert(0x100000000000000000000000000000000u256 > 0xffffffffffffffffffffffffffffffffu256, "u256 high limb comparison");
+}
+
+#[test]
+fn test_uint_runtime_lowering() {
+    // The contract id is supplied by the VM, so these operations remain in
+    // the compiled graph instead of folding to constants.
+    let seed: u32 = get_contract_id() as u32;
+    assert_eq(seed + 1u32, 3u32, "native u32 add");
+    assert_eq(seed << 31u32, 0u32, "native u32 shift");
+
+    let value64: u64 = seed as u64;
+    let high64: u64 = value64 << 32u32;
+    assert_eq(high64, 8589934592u64, "runtime u64 shift");
+    assert_eq(high64 + value64, 8589934594u64, "runtime u64 add");
+    assert_eq(high64 - value64, 8589934590u64, "runtime u64 sub");
+    assert_eq(value64 * 3u64, 6u64, "runtime u64 mul");
+    assert_eq(high64 / value64, 4294967296u64, "runtime u64 div");
+    assert_eq((high64 + 1u64) % value64, 1u64, "runtime u64 rem");
+    assert_eq(value64 & 3u64, 2u64, "runtime u64 and");
+    assert_eq(value64 | 1u64, 3u64, "runtime u64 or");
+    assert_eq(value64 ^ 3u64, 1u64, "runtime u64 xor");
+    assert(value64 < high64, "runtime u64 comparison");
+
+    let value128: u128 = seed as u128;
+    assert_eq(value128 << 64u32, 0x20000000000000000u128, "runtime u128 shift");
+    assert_eq(value128 * 4294967296u128, 8589934592u128, "runtime u128 mul");
+    assert_eq(value128 + 1u128, 3u128, "runtime u128 add");
+
+    let value256: u256 = seed as u256;
+    assert_eq(value256 << 128u32, 0x200000000000000000000000000000000u256, "runtime u256 shift");
+    assert_eq(value256 * 4294967296u256, 8589934592u256, "runtime u256 mul");
+    assert_eq(value256 + 1u256, 3u256, "runtime u256 add");
+}

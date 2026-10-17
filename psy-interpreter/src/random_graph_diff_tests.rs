@@ -1415,11 +1415,13 @@ fn psy_run_with(source: &str, inputs: Inputs) -> PsyOutcome {
             if felts.is_empty() {
                 return PsyOutcome::Errored("[main returned no values]".to_string());
             }
-            let scalar = matches!(
+            // This test harness returns one-limb values as u64 and keeps
+            // wider uint values as limb vectors.
+            let single_limb = matches!(
                 &*value.borrow(),
-                CheckedValue::U32(_) | CheckedValue::Felt(_) | CheckedValue::Bool(_)
+                CheckedValue::Uint(_, UintWidth::U32) | CheckedValue::Felt(_) | CheckedValue::Bool(_)
             );
-            if scalar && interpreter.is_constant(felts[0].clone()) {
+            if single_limb && interpreter.is_constant(felts[0].clone()) {
                 return PsyOutcome::Returned(felts[0].get_constant_value());
             }
             if matches!(inputs, Inputs::Symbolic) {
@@ -1439,7 +1441,7 @@ fn psy_run_with(source: &str, inputs: Inputs) -> PsyOutcome {
             }));
             match resolved {
                 Err(p) => PsyOutcome::Panicked(format!("[resolve panicked] {}", panic_message(&p))),
-                Ok(values) if scalar => PsyOutcome::Returned(values[0]),
+                Ok(values) if single_limb => PsyOutcome::Returned(values[0]),
                 Ok(values) => PsyOutcome::ReturnedVec(values),
             }
         }
