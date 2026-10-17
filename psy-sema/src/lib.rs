@@ -1235,7 +1235,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         match value_node {
             ValueNode::Felt(f, location) => Ok(CheckedExprNode::Value(CheckedValueNode::Felt(f.clone(), location))),
             ValueNode::Bool(b, location) => Ok(CheckedExprNode::Value(CheckedValueNode::Bool(b.clone(), location))),
-            ValueNode::U32(u, location) => Ok(CheckedExprNode::Value(CheckedValueNode::U32(u.clone(), location))),
+            ValueNode::Uint(u, width, location) => Ok(CheckedExprNode::Value(CheckedValueNode::Uint(u, width, location))),
             ValueNode::Array(size, arr, location) => {
                 let mut inner_ty = UNKOWN_TYPE;
                 let mut elements = Vec::with_capacity(arr.len());
@@ -1334,7 +1334,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 
                 let mut new_data = IndexMap::new();
                 for (field_name, CheckedStructField { ty: field_type, .. }) in fields {
-                    let field_value = self.visit_expr(data.get(&field_name).unwrap().clone(), ctx)?;
+                    let field_value = self.visit_expected(data.get(&field_name).unwrap().clone(), field_type, ctx)?;
                     if !self.unify(field_type, field_value.ty(), ctx) {
                         return Err(Error::TypeMismatch {
                             location: field_value.location(),
@@ -1368,12 +1368,41 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
     fn visit_binary(&mut self, node: ExprId, ctx: &mut Self::Context) -> StdResult<Self::ExprResult, Self::Error> {
         // TODO: remove clone
         let binary_node = ctx.expression(node).as_binary().cloned().unwrap();
-        let checked_lhs = self.visit_expr(binary_node.lhs, ctx)?;
-        let checked_rhs = self.visit_expr(binary_node.rhs, ctx)?;
+        let lhs_felt_literal = matches!(ctx.expression(binary_node.lhs), ExprNode::Value(ValueNode::Felt(..)));
+        let rhs_felt_literal = matches!(ctx.expression(binary_node.rhs), ExprNode::Value(ValueNode::Felt(..)));
+        let (checked_lhs, checked_rhs) = if lhs_felt_literal && !rhs_felt_literal {
+            let rhs = self.visit_expr(binary_node.rhs, ctx)?;
+            (self.visit_expected(binary_node.lhs, rhs.ty(), ctx)?, rhs)
+        } else {
+            let lhs = self.visit_expr(binary_node.lhs, ctx)?;
+            // Shift distances are u32 at every uint width. A const-typed lhs
+            // carries the Const TypeId, so look through to its underlying type.
+            let shift_lhs_ty = match &ctx.symbols[lhs.ty()] {
+                Type::Const(const_node) => const_node.ty,
+                _ => lhs.ty(),
+            };
+            let lhs_is_uint = shift_lhs_ty.uint_width().is_some();
+            let expected = if lhs_is_uint && matches!(binary_node.operator, BinaryOperator::BitShl | BinaryOperator::BitShr) { U32_TYPE } else { lhs.ty() };
+            let rhs = if lhs_is_uint && expected == U32_TYPE {
+                match ctx.expression(binary_node.rhs).clone() {
+                    ExprNode::Value(ValueNode::Felt(value, location)) if ContextFelt::get_u64(&value) <= u32::MAX as u64 => CheckedExprNode::Value(CheckedValueNode::Uint(
+                        std::array::from_fn(|i| if i == 0 { ContextFelt::get_u64(&value) as u32 } else { 0 }),
+                        UintWidth::U32,
+                        location,
+                    )),
+                    _ => self.visit_expected(binary_node.rhs, expected, ctx)?,
+                }
+            } else { self.visit_expected(binary_node.rhs, expected, ctx)? };
+            (lhs, rhs)
+        };
 
-        let lhs_ty = checked_lhs.ty();
+        let lhs_ty = match &ctx.symbols[checked_lhs.ty()] {
+            Type::Const(const_node) if matches!(binary_node.operator, BinaryOperator::BitShl | BinaryOperator::BitShr) => const_node.ty,
+            _ => checked_lhs.ty(),
+        };
         let rhs_ty = checked_rhs.ty();
-        if !matches!(binary_node.operator, BinaryOperator::Eq | BinaryOperator::Neq) && !self.unify(lhs_ty, rhs_ty, ctx) {
+        if !matches!(binary_node.operator, BinaryOperator::Eq | BinaryOperator::Neq) && !self.unify(checked_lhs.ty(), rhs_ty, ctx)
+            && !(lhs_ty.uint_width().is_some() && rhs_ty == U32_TYPE && matches!(binary_node.operator, BinaryOperator::BitShl | BinaryOperator::BitShr)) {
             return Err(Error::TypeMismatch {
                 location: checked_rhs.location(),
                 expected: vec![lhs_ty],
@@ -1381,11 +1410,29 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             });
         }
 
+        if lhs_ty.uint_width().is_some() && matches!(binary_node.operator, BinaryOperator::BitShl | BinaryOperator::BitShr) && rhs_ty != U32_TYPE {
+            return Err(Error::TypeMismatch { location: checked_rhs.location(), expected: vec![U32_TYPE], found: rhs_ty });
+        }
+
         if matches!(binary_node.operator, BinaryOperator::Eq | BinaryOperator::Neq) {
             // Primitive equality keeps builtin semantics. For other types, route to `eq`
-            // trait method.
-            if self.unify(lhs_ty, rhs_ty, ctx)
-                && (self.unify(lhs_ty, BOOL_TYPE, ctx) || self.unify(lhs_ty, FELT_TYPE, ctx) || self.unify(lhs_ty, U32_TYPE, ctx))
+            // trait method. Const-typed operands carry the Const TypeId, so
+            // compare through to their underlying types.
+            let effective_lhs_ty = match &ctx.symbols[lhs_ty] {
+                Type::Const(const_node) => const_node.ty,
+                _ => lhs_ty,
+            };
+            let effective_rhs_ty = match &ctx.symbols[rhs_ty] {
+                Type::Const(const_node) => const_node.ty,
+                _ => rhs_ty,
+            };
+            if (self.unify(lhs_ty, rhs_ty, ctx) || self.unify(effective_lhs_ty, effective_rhs_ty, ctx))
+                && (self.unify(effective_lhs_ty, BOOL_TYPE, ctx)
+                    || self.unify(effective_lhs_ty, FELT_TYPE, ctx)
+                    || self.unify(effective_lhs_ty, U32_TYPE, ctx)
+                    || self.unify(effective_lhs_ty, U64_TYPE, ctx)
+                    || self.unify(effective_lhs_ty, U128_TYPE, ctx)
+                    || self.unify(effective_lhs_ty, U256_TYPE, ctx))
             {
                 return Ok(CheckedExprNode::Binary(CheckedBinaryNode {
                     lhs: self.program.exprs.alloc_item(checked_lhs),
@@ -1472,12 +1519,18 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             | BinaryOperator::BitOr => {
                 if self.unify(lhs_ty, FELT_TYPE, ctx) {
                     FELT_TYPE
+                } else if !matches!(binary_node.operator, BinaryOperator::Pow) && self.unify(lhs_ty, U256_TYPE, ctx) {
+                    U256_TYPE
+                } else if !matches!(binary_node.operator, BinaryOperator::Pow) && self.unify(lhs_ty, U128_TYPE, ctx) {
+                    U128_TYPE
+                } else if !matches!(binary_node.operator, BinaryOperator::Pow) && self.unify(lhs_ty, U64_TYPE, ctx) {
+                    U64_TYPE
                 } else if self.unify(lhs_ty, U32_TYPE, ctx) {
                     U32_TYPE
                 } else {
                     return Err(Error::TypeMismatch {
                         location: binary_node.location,
-                        expected: vec![FELT_TYPE, U32_TYPE],
+                        expected: vec![FELT_TYPE, U32_TYPE, U64_TYPE, U128_TYPE, U256_TYPE],
                         found: lhs_ty,
                     });
                 }
@@ -1485,6 +1538,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             BinaryOperator::BitXor => {
                 if self.unify(lhs_ty, FELT_TYPE, ctx) {
                     FELT_TYPE
+                } else if !matches!(binary_node.operator, BinaryOperator::Pow) && self.unify(lhs_ty, U256_TYPE, ctx) {
+                    U256_TYPE
+                } else if !matches!(binary_node.operator, BinaryOperator::Pow) && self.unify(lhs_ty, U128_TYPE, ctx) {
+                    U128_TYPE
+                } else if !matches!(binary_node.operator, BinaryOperator::Pow) && self.unify(lhs_ty, U64_TYPE, ctx) {
+                    U64_TYPE
                 } else if self.unify(lhs_ty, U32_TYPE, ctx) {
                     U32_TYPE
                 } else if self.unify(lhs_ty, BOOL_TYPE, ctx) {
@@ -1509,10 +1568,15 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
             BinaryOperator::Eq | BinaryOperator::Neq => unreachable!(),
             BinaryOperator::Lt | BinaryOperator::Lte | BinaryOperator::Gt | BinaryOperator::Gte => {
-                if !self.unify(lhs_ty, FELT_TYPE, ctx) && !self.unify(lhs_ty, U32_TYPE, ctx) {
+                if !self.unify(lhs_ty, FELT_TYPE, ctx)
+                    && !self.unify(lhs_ty, U32_TYPE, ctx)
+                    && !self.unify(lhs_ty, U64_TYPE, ctx)
+                    && !self.unify(lhs_ty, U128_TYPE, ctx)
+                    && !self.unify(lhs_ty, U256_TYPE, ctx)
+                {
                     return Err(Error::TypeMismatch {
                         location: binary_node.location,
-                        expected: vec![FELT_TYPE, U32_TYPE],
+                        expected: vec![FELT_TYPE, U32_TYPE, U64_TYPE, U128_TYPE, U256_TYPE],
                         found: lhs_ty,
                     });
                 }
@@ -1547,7 +1611,13 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 }
             }
             UnaryOperator::Not => {
-                if !self.unify(type_id, BOOL_TYPE, ctx) {
+                // Bool and the WIDE uints (u64+); `!x` on u32 has always been
+                // rejected and stays that way.
+                if !self.unify(type_id, BOOL_TYPE, ctx)
+                    && !self.unify(type_id, U64_TYPE, ctx)
+                    && !self.unify(type_id, U128_TYPE, ctx)
+                    && !self.unify(type_id, U256_TYPE, ctx)
+                {
                     return Err(Error::TypeMismatch {
                         location: unary_node.location,
                         expected: vec![BOOL_TYPE],
@@ -1556,7 +1626,13 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 }
             }
         }
-        if !self.unify(type_id, FELT_TYPE, ctx) && !self.unify(type_id, BOOL_TYPE, ctx) {
+        if !self.unify(type_id, FELT_TYPE, ctx)
+            && !self.unify(type_id, BOOL_TYPE, ctx)
+            && !self.unify(type_id, U32_TYPE, ctx)
+            && !self.unify(type_id, U64_TYPE, ctx)
+            && !self.unify(type_id, U128_TYPE, ctx)
+            && !self.unify(type_id, U256_TYPE, ctx)
+        {
             return Err(Error::TypeMismatch {
                 location: unary_node.location,
                 expected: vec![FELT_TYPE, BOOL_TYPE],
@@ -1576,9 +1652,22 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
     fn visit_call(&mut self, node: ExprId, ctx: &mut Self::Context) -> StdResult<Self::ExprResult, Self::Error> {
         // TODO: remove clone
         let call_node = ctx.expression(node).as_call().cloned().unwrap();
+        let simple_callee = if matches!(ctx.expression(call_node.callee), ExprNode::Path(path) if path.root.is_none()) {
+            Some(self.visit_expr(call_node.callee, ctx)?)
+        } else {
+            None
+        };
+        let declared_parameters = simple_callee
+            .as_ref()
+            .and_then(|callee| ctx.symbols[callee.ty()].try_signature())
+            .map(|signature| signature.parameters);
         let mut args = Vec::new();
-        for arg in call_node.args.iter() {
-            args.push(self.visit_expr(*arg, ctx)?);
+        for (index, arg) in call_node.args.iter().enumerate() {
+            if let Some(expected) = declared_parameters.as_ref().and_then(|parameters| parameters.get(index)) {
+                args.push(self.visit_expected(*arg, *expected, ctx)?);
+            } else {
+                args.push(self.visit_expr(*arg, ctx)?);
+            }
         }
         let expected_parameters: Vec<TypeId> = args.iter().map(|arg| arg.ty()).collect();
 
@@ -1655,7 +1744,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                     (callee, ty)
                 }
             } else {
-                let callee = self.visit_expr(call_node.callee, ctx)?;
+                let callee = simple_callee.expect("simple path callee was resolved before arguments");
                 let ty = callee.ty();
                 (callee, ty)
             }
@@ -1707,11 +1796,8 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                     CheckedExprNode::Value(CheckedValueNode::Felt(value, _)) if ContextFelt::get_u64(value) <= u32::MAX as u64 => {
                         self.populate_constant(ConstValue::Felt(ContextFelt::get_u64(value)), ctx)?
                     }
-                    CheckedExprNode::Value(CheckedValueNode::U32(value, _)) => {
-                        match u32::try_from(ContextFelt::get_u64(value)) {
-                            Ok(n) => self.populate_constant(ConstValue::U32(n), ctx)?,
-                            Err(_) => type_arg.ty(),
-                        }
+                    CheckedExprNode::Value(CheckedValueNode::Uint(value, UintWidth::U32, _)) => {
+                        self.populate_constant(ConstValue::U32(value[0]), ctx)?
                     }
                     // A generic wrapper may forward its own const parameter
                     // to another size-position parameter before either has
@@ -1730,7 +1816,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                         })?;
                         let numeric = match &*evaluated.borrow() {
                             CheckedValue::Felt(value) => Some((ContextFelt::get_u64(value), false)),
-                            CheckedValue::U32(value) => Some((ContextFelt::get_u64(value), true)),
+                            CheckedValue::Uint(value, UintWidth::U32) => Some((ContextFelt::get_u64(&value[0]), true)),
                             _ => None,
                         };
                         match numeric.filter(|&(value, _)| value <= u32::MAX as u64) {
@@ -1921,12 +2007,17 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
     fn visit_cast(&mut self, node: ExprId, ctx: &mut Self::Context) -> StdResult<Self::ExprResult, Self::Error> {
         // TODO: remove clone
         let cast_node = ctx.expression(node).as_cast().cloned().unwrap();
-        let src_expr = self.visit_expr(cast_node.value, ctx)?;
-        let src_type = src_expr.ty();
         let target_type = self.typecheck(&cast_node.target_type, ctx)?;
+        let src_expr = self.visit_expected(cast_node.value, target_type, ctx)?;
+        let src_type = src_expr.ty();
 
-        if (self.unify(src_type, FELT_TYPE, ctx) || self.unify(src_type, BOOL_TYPE, ctx) || self.unify(src_type, U32_TYPE, ctx))
-            && (self.unify(target_type, FELT_TYPE, ctx) || self.unify(target_type, BOOL_TYPE, ctx) || self.unify(target_type, U32_TYPE, ctx))
+        if !(src_type.uint_width().map_or(false, |w| w != UintWidth::U32) && target_type == BOOL_TYPE)
+            && (self.unify(src_type, FELT_TYPE, ctx) || self.unify(src_type, BOOL_TYPE, ctx)
+                || self.unify(src_type, U32_TYPE, ctx) || self.unify(src_type, U64_TYPE, ctx)
+                || self.unify(src_type, U128_TYPE, ctx) || self.unify(src_type, U256_TYPE, ctx))
+            && (self.unify(target_type, FELT_TYPE, ctx) || self.unify(target_type, BOOL_TYPE, ctx)
+                || self.unify(target_type, U32_TYPE, ctx) || self.unify(target_type, U64_TYPE, ctx)
+                || self.unify(target_type, U128_TYPE, ctx) || self.unify(target_type, U256_TYPE, ctx))
         {
             return Ok(CheckedExprNode::Cast(CheckedCastNode {
                 value: self.program.exprs.alloc_item(src_expr),
@@ -1936,7 +2027,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         } else {
             return Err(Error::InvalidCast {
                 location: cast_node.location,
-                expected: "a cast between Felt, bool, and u32".to_string(),
+                expected: "a cast between Felt, bool, and the uint types".to_string(),
                 found: format!(
                     "{} as {}",
                     ctx.ident(ctx.symbols[src_type].name()),
@@ -2055,13 +2146,15 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
     fn visit_assignment(&mut self, node: StmtId, ctx: &mut Self::Context) -> StdResult<Self::StmtResult, Self::Error> {
         // TODO: remove clone
         let assignment_node = ctx.statement(node).as_assignment().cloned().unwrap();
-        let checked_rhs = self.visit_expr(assignment_node.value, ctx)?;
         let checked_lhs = self.visit_expr(assignment_node.target, ctx)?;
+        let wide_shift = checked_lhs.ty().uint_width().is_some() && matches!(assignment_node.operator, AssignmentOperator::BitShlAssign | AssignmentOperator::BitShrAssign);
+        let expected = if wide_shift { U32_TYPE } else { checked_lhs.ty() };
+        let checked_rhs = self.visit_expected(assignment_node.value, expected, ctx)?;
 
         if let CheckedExprNode::Path(path) = &checked_lhs {
             if let Some(var_id) = path.variable {
                 if !ctx.symbols[var_id].qualifier.is_mutable
-                    && matches!(&ctx.symbols[path.type_id], Type::Felt | Type::Bool | Type::U32)
+                    && matches!(&ctx.symbols[path.type_id], Type::Felt | Type::Bool | Type::Uint(_))
                 {
                     return Err(Error::ImmutableVariable {
                         location: assignment_node.location,
@@ -2074,7 +2167,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let lhs_ty = checked_lhs.ty();
         let rhs_ty = checked_rhs.ty();
 
-        if self.unify(lhs_ty, rhs_ty, ctx) {
+        if wide_shift && rhs_ty != U32_TYPE {
+            return Err(Error::TypeMismatch { location: assignment_node.location, expected: vec![U32_TYPE], found: rhs_ty });
+        }
+        if self.unify(lhs_ty, rhs_ty, ctx) || wide_shift {
             let resolved_lhs_ty = self.substitute_all(lhs_ty, ctx)?;
             if matches!(&ctx.symbols[resolved_lhs_ty], Type::Bool)
                 && !matches!(assignment_node.operator, AssignmentOperator::Eq | AssignmentOperator::BitXorAssign)
@@ -2151,7 +2247,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         // TODO: remove clone
         let variable_node = ctx.statement(node).as_variable().cloned().unwrap();
         let lhs_ty = self.typecheck(&variable_node.ty, ctx)?;
-        let checked_expr = self.visit_expr(variable_node.value, ctx)?;
+        let checked_expr = self.visit_expected(variable_node.value, lhs_ty, ctx)?;
         let rhs_ty = checked_expr.ty();
         if !self.unify(rhs_ty, lhs_ty, ctx) {
             return Err(Error::TypeMismatch {
@@ -2270,7 +2366,12 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 // Primitive equality keeps builtin semantics. For other types, route to `eq`
                 // trait method.
                 let checked_eq = if self.unify(lhs_ty, rhs_ty, ctx)
-                    && (self.unify(lhs_ty, BOOL_TYPE, ctx) || self.unify(lhs_ty, FELT_TYPE, ctx) || self.unify(lhs_ty, U32_TYPE, ctx))
+                    && (self.unify(lhs_ty, BOOL_TYPE, ctx)
+                        || self.unify(lhs_ty, FELT_TYPE, ctx)
+                        || self.unify(lhs_ty, U32_TYPE, ctx)
+                        || self.unify(lhs_ty, U64_TYPE, ctx)
+                        || self.unify(lhs_ty, U128_TYPE, ctx)
+                        || self.unify(lhs_ty, U256_TYPE, ctx))
                 {
                     CheckedExprNode::Binary(CheckedBinaryNode {
                         lhs: self.program.exprs.alloc_item(checked_lhs),
@@ -2812,7 +2913,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         let node = ctx.definition(node).as_const().cloned().unwrap();
         let name = node.name;
         let lhs_ty = self.typecheck(&node.ty, ctx)?;
-        let value = self.visit_expr(node.value, ctx)?;
+        let value = self.visit_expected(node.value, lhs_ty, ctx)?;
         let rhs_ty = value.ty();
         if !self.unify(lhs_ty, rhs_ty, ctx) {
             return Err(Error::TypeMismatch {
@@ -2928,8 +3029,13 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         //There are two type constraints here, one is that the scrutinee_type must be
         // consistent with the type of the value of the pattern The other is
         // that the return types of all cases must be consistent
-        let scrutinee_type = checked_scrutinee.ty();
-        let white_list = vec![FELT_TYPE, BOOL_TYPE, U32_TYPE];
+        // A const-typed scrutinee carries the Const TypeId; match on the
+        // underlying type.
+        let scrutinee_type = match &ctx.symbols[checked_scrutinee.ty()] {
+            Type::Const(const_node) => const_node.ty,
+            _ => checked_scrutinee.ty(),
+        };
+        let white_list = vec![FELT_TYPE, BOOL_TYPE, U32_TYPE, U64_TYPE, U128_TYPE, U256_TYPE];
         if !white_list.contains(&scrutinee_type) {
             return Err(Error::TypeMismatch {
                 location: match_node.location,
@@ -3325,6 +3431,68 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
         Ok(())
     }
 
+    fn visit_expected(&mut self, node: ExprId, expected: TypeId, ctx: &mut TypeCheckerVisitorContext<F, C>) -> Result<CheckedExprNode<F>> {
+        self.promote_integer_literals(node, expected, ctx);
+        self.visit_expr(node, ctx)
+    }
+
+    // Promote a bare Felt literal when a wide uint type is expected.
+    fn promote_integer_literals(&mut self, node: ExprId, expected: TypeId, ctx: &mut TypeCheckerVisitorContext<F, C>) {
+        let expression = ctx.expression(node).clone();
+        match expression {
+            ExprNode::Value(ValueNode::Felt(value, location))
+                if let Some(width) = expected.uint_width().filter(|width| *width != UintWidth::U32) =>
+            {
+                let number = ContextFelt::get_u64(&value);
+                let mut limbs = [0u32; 8];
+                limbs[0] = number as u32;
+                limbs[1] = (number >> 32) as u32;
+                ctx.program.exprs[node] = ExprNode::Value(ValueNode::Uint(limbs, width, location));
+            }
+            ExprNode::Binary(binary) if expected.uint_width().map_or(false, |width| width != UintWidth::U32) => {
+                if !matches!(binary.operator, BinaryOperator::Eq | BinaryOperator::Neq | BinaryOperator::Lt | BinaryOperator::Lte | BinaryOperator::Gt | BinaryOperator::Gte | BinaryOperator::And | BinaryOperator::Or) {
+                    self.promote_integer_literals(binary.lhs, expected, ctx);
+                    if !matches!(binary.operator, BinaryOperator::BitShl | BinaryOperator::BitShr) {
+                        self.promote_integer_literals(binary.rhs, expected, ctx);
+                    }
+                }
+            }
+            ExprNode::Parentheses(inner) => self.promote_integer_literals(inner, expected, ctx),
+            ExprNode::Unary(unary) if expected.uint_width().map_or(false, |width| width != UintWidth::U32) => self.promote_integer_literals(unary.rhs, expected, ctx),
+            ExprNode::BlockExpr(block) => {
+                if let Some(expression) = block.expr { self.promote_integer_literals(expression, expected, ctx); }
+                for statement in block.stmts {
+                    match ctx.statement(statement).clone() {
+                        StmtNode::Return(ret) => if let Some(expression) = ret.expr_id { self.promote_integer_literals(expression, expected, ctx); },
+                        StmtNode::Expression(expression) => if matches!(ctx.expression(expression), ExprNode::IfExpr(_) | ExprNode::BlockExpr(_) | ExprNode::Match(_)) { self.promote_integer_literals(expression, expected, ctx); },
+                        _ => {}
+                    }
+                }
+            }
+            ExprNode::IfExpr(branches) => {
+                self.promote_integer_literals(branches.if_branch.body, expected, ctx);
+                for branch in branches.elseif_branches { self.promote_integer_literals(branch.body, expected, ctx); }
+                if let Some(branch) = branches.else_branch { self.promote_integer_literals(branch, expected, ctx); }
+            }
+            ExprNode::Match(matched) => for arm in matched.arms { self.promote_integer_literals(arm.body, expected, ctx); },
+            ExprNode::Value(ValueNode::Array(_, elements, _)) => {
+                if let Type::Array(array) = &ctx.symbols[expected] {
+                    let inner = array.inner_ty;
+                    for element in elements { self.promote_integer_literals(element, inner, ctx); }
+                }
+            }
+            ExprNode::Value(ValueNode::ArrayRepeat(element, _, _)) => {
+                if let Type::Array(array) = &ctx.symbols[expected] { self.promote_integer_literals(element, array.inner_ty, ctx); }
+            }
+            ExprNode::Tuple(tuple) => {
+                if let Type::Tuple(types) = ctx.symbols[expected].clone() {
+                    for (element, ty) in tuple.elements.into_iter().zip(types) { self.promote_integer_literals(element, ty, ctx); }
+                }
+            }
+            _ => {}
+        }
+    }
+
     #[instrument(level = "debug", skip_all)]
     fn typecheck_std_primitive_module(&mut self, ctx: &mut TypeCheckerVisitorContext<F, C>) -> Result<()> {
         let scope_id = ctx.symbols.current_scope_id().unwrap();
@@ -3422,7 +3590,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
 
     fn expr_is_compile_time_constant(&self, expr: &CheckedExprNode<F>, ctx: &TypeCheckerVisitorContext<F, C>) -> bool {
         match expr {
-            CheckedExprNode::Value(CheckedValueNode::Felt(..) | CheckedValueNode::U32(..) | CheckedValueNode::Bool(..)) => true,
+            CheckedExprNode::Value(CheckedValueNode::Felt(..) | CheckedValueNode::Uint(..) | CheckedValueNode::Bool(..)) => true,
             CheckedExprNode::Path(path) => path.variable.is_none() && ctx.symbols[path.type_id].as_const().is_some(),
             CheckedExprNode::Unary(node) => self.expr_is_compile_time_constant(&self.program[node.rhs], ctx),
             CheckedExprNode::Binary(node) => {
@@ -3491,7 +3659,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
             UncheckedType::Basic(name) => match name.id {
                 IdentId::TYPE_BOOL => BOOL_TYPE,
                 IdentId::TYPE_FELT => FELT_TYPE,
-                IdentId::TYPE_U32 => U32_TYPE,
+                id if uint_width_of_ident(id).is_some() => uint_type_id(uint_width_of_ident(id).unwrap()),
                 _ => ctx.symbols.get_type_id(None, name).ok_or(Error::UnresolvedType {
                     location: name.location,
                     resolved_type: name.id,

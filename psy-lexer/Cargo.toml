@@ -4,5 +4,6 @@ name    = "psy-lexer"
 version = "0.1.0"
 
 [dependencies]
+psy_vm = { workspace = true }
 logos = { workspace = true }
 thiserror = { workspace = true }

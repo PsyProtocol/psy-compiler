@@ -94,9 +94,10 @@ mod tests {
 
     #[test]
     fn lex_all_reports_overflowing_integer_kind_and_span() {
-        let input = "18446744073709551616";
+        // 2^256 is the smallest decimal integer that no longer fits u256.
+        let input = "115792089237316195423570985008687907853269984665640564039457584007913129639936";
         let error = lex_all(input).unwrap_err();
-        assert!(matches!(error.kind, Error::InvalidInteger(_)));
+        assert!(matches!(error.kind, Error::InvalidInteger(_) | Error::InvalidWideInteger(_)));
         assert_eq!((error.start, error.end), (0, input.len()));
         assert!(error.kind.to_string().contains("invalid integer"));
     }
@@ -162,6 +163,7 @@ mod tests {
 
     #[test]
     fn integer_suffix_boundaries_are_distinct_tokens() {
+        // Bare decimals up to u64::MAX remain Felt literals.
         let tokens = lex_all("0 0u32 4294967295u32 18446744073709551615")
             .unwrap()
             .into_iter()
@@ -170,7 +172,12 @@ mod tests {
 
         assert_eq!(
             tokens,
-            vec![Token::U64(0), Token::U32(0), Token::U32(u32::MAX), Token::U64(u64::MAX)]
+            vec![
+                Token::FeltLiteral(0),
+                Token::U32(0),
+                Token::U32(u32::MAX),
+                Token::FeltLiteral(u64::MAX)
+            ]
         );
     }
 
@@ -191,7 +198,7 @@ mod tests {
             .map(|token| token.kind)
             .collect::<Vec<_>>();
 
-        assert_eq!(tokens, vec![Token::U64(0), Token::U64(0), Token::U64(7)]);
+        assert_eq!(tokens, vec![Token::FeltLiteral(0), Token::FeltLiteral(0), Token::FeltLiteral(7)]);
     }
 
     #[test]
@@ -227,7 +234,7 @@ mod tests {
                 Token::KeywordLet,
                 Token::Placeholder,
                 Token::Assign,
-                Token::U64(1),
+                Token::FeltLiteral(1),
                 Token::Semicolon,
             ]
         );

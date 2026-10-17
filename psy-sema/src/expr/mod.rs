@@ -24,7 +24,7 @@ use psy_ast::{Location, NodeInfo, NodeType};
 pub use r#match::*;
 pub use unary::*;
 
-use crate::{CheckedValueNode, TypeId, BOOL_TYPE, FELT_TYPE, U32_TYPE};
+use crate::{CheckedValueNode, TypeId, uint_type_id, BOOL_TYPE, FELT_TYPE};
 
 #[derive(Debug, Clone, PartialEq, EnumAsInner)]
 pub enum CheckedExprNode<F> {
@@ -74,7 +74,7 @@ impl<F> CheckedExprNode<F> {
             CheckedExprNode::Value(v) => match v {
                 CheckedValueNode::Felt(_, _) => FELT_TYPE,
                 CheckedValueNode::Bool(_, _) => BOOL_TYPE,
-                CheckedValueNode::U32(_, _) => U32_TYPE,
+                CheckedValueNode::Uint(_, width, _) => uint_type_id(*width),
                 CheckedValueNode::Array(type_id, _, _) => type_id.clone(),
                 CheckedValueNode::ArrayRepeat(type_id, _, _, _) => type_id.clone(),
                 CheckedValueNode::Struct(type_id, _, _) => type_id.clone(),
@@ -154,7 +154,7 @@ impl<F> CheckedExprNode<F> {
             CheckedExprNode::Value(v) => match v {
                 CheckedValueNode::Felt(_, location) => location.clone(),
                 CheckedValueNode::Bool(_, location) => location.clone(),
-                CheckedValueNode::U32(_, location) => location.clone(),
+                CheckedValueNode::Uint(_, _, location) => location.clone(),
                 CheckedValueNode::Array(_, _, location) => location.clone(),
                 CheckedValueNode::ArrayRepeat(_, _, _, location) => location.clone(),
                 CheckedValueNode::Struct(_, _, location) => location.clone(),
@@ -252,7 +252,7 @@ impl<F> CheckedExprNode<F> {
 #[cfg(test)]
 mod accessor_tests {
     use indexmap::IndexMap;
-    use psy_ast::{ConstValue, ExprId, IdentId, Identifier, PathNode, UncheckedType};
+    use psy_ast::{ConstValue, ExprId, IdentId, Identifier, PathNode, UintWidth, UncheckedType};
     use psy_common::FileId;
 
     use super::*;
@@ -473,7 +473,7 @@ mod accessor_tests {
         let cases: Vec<(CheckedExprNode<u64>, TypeId, Location)> = vec![
             (CheckedExprNode::Value(CheckedValueNode::Felt(7, loc(10))), FELT_TYPE, loc(10)),
             (CheckedExprNode::Value(CheckedValueNode::Bool(1, loc(11))), BOOL_TYPE, loc(11)),
-            (CheckedExprNode::Value(CheckedValueNode::U32(9, loc(12))), U32_TYPE, loc(12)),
+            (CheckedExprNode::Value(CheckedValueNode::Uint(std::array::from_fn(|i| if i == 0 { 9 } else { 0 }), UintWidth::U32, loc(12))), uint_type_id(UintWidth::U32), loc(12)),
             (
                 CheckedExprNode::Value(CheckedValueNode::Array(TypeId(20), vec![ExprId(0)], loc(13))),
                 TypeId(20),

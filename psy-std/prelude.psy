@@ -1,13 +1,16 @@
+// Ordering constraint: mem must precede storage. storage.psy's impl bodies
+// instantiate mem's generic transmute/size_of functions, which attach bodies
+// in module order — reversing this yields "undefined function" at interpret.
 mod primitive;
+mod mem;
 mod storage;
 mod context;
 mod default;
-mod mem;
 mod event;
 
+pub use primitive::*;
+pub use mem::*;
 pub use storage::*;
 pub use context::*;
-pub use primitive::*;
 pub use default::*;
-pub use mem::*;
 pub use event::*;

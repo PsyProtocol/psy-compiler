@@ -381,6 +381,21 @@ fn casts_execute_and_reject_out_of_range() {
 }
 
 #[test]
+fn wide_uint_plain_assignment_uses_the_eq_path() {
+    for (ty, max, limbs) in [
+        ("u64", "0xffffffffffffffff", 2),
+        ("u128", "0xffffffffffffffffffffffffffffffff", 4),
+        ("u256", "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 8),
+    ] {
+        let source = format!("fn main() -> {ty} {{ let mut value: {ty} = 0{ty}; value = {max}{ty}; value }}");
+        match run(&source, "wide_plain_assign") {
+            Outcome::Executed(defs) => assert_eq!(defs[0].circuit_outputs, vec![u32::MAX as u64; limbs], "{ty}"),
+            other => panic!("plain {ty} assignment failed: {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn compound_assignment_operators_execute() {
     expect_exec(
         "compound_assign",
@@ -419,7 +434,13 @@ fn compound_assignment_operators_execute() {
             u |= 8u32;
             u &= 12u32;
             u ^= 4u32;
-            assert_eq(u, 8u32, "u32 compound assigns");
+            // 20+3-1=22, *2=44, /4=11, %5=1, <<1=2, >>1=1, |8=9, &12=8, ^4=12.
+            // The old expectation (8) stopped the hand-math at &=12 and was
+            // never actually verified: the old compound-assign chain left `u`
+            // symbolic, and the interpreter only constant-checks assert_eq
+            // when both sides fold to constants. The unified lane folds the
+            // chain, so this check now genuinely fires.
+            assert_eq(u, 12u32, "u32 compound assigns");
 
             let mut flag: bool = true;
             flag ^= true;
@@ -1608,4 +1629,341 @@ fn associated_functions_on_types_execute() {
         }
         "#,
     );
+}
+
+#[test]
+fn u256_execution_covers_all_limbs_and_checked_casts() {
+    let source = r#"
+        fn main() {
+            let a = 0xffffffffffffffffffffffffffffffffu256;
+            let b = a + 1u256;
+            assert(b == 0x100000000000000000000000000000000u256, "carry across four limbs");
+            assert(b - 1u256 == a, "borrow across four limbs");
+            assert(0xffffffffu256 * 0xffffffffu256 == 0xfffffffe00000001u256, "full product");
+            assert((b >> 128u32) == 1u256, "wide right shift");
+            assert((1u256 << 255u32) > b, "highest limb comparison");
+            assert((1u256 << 256u32) == 0u256, "oversized shift");
+            assert((a & 255u256) == 255u256, "bitwise and");
+            assert((a ^ a) == 0u256, "bitwise xor");
+            assert((0u256 | b) == b, "bitwise or");
+            assert((!0u256) == 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffu256, "bitwise not");
+            assert((42u32 as u256) as u32 == 42u32, "u32 cast");
+            assert((18446744069414584320 as u256) as Felt == 18446744069414584320, "felt maximum roundtrip");
+            let mut x = b;
+            x += 3u256;
+            x -= 2u256;
+            x *= 2u256;
+            x >>= 1u32;
+            x |= 0u256;
+            x ^= 0u256;
+            x &= !0u256;
+            assert(x == b + 1u256, "compound assignments");
+            let y = if true { b } else { a };
+            assert(y == b, "conditional full value");
+        }
+    "#;
+    match run_with(source, "u256_execution", None, &["main"], true) {
+        Outcome::Executed(defs) => {
+            assert_eq!(defs.len(), 1);
+            let mut executor = psy_vm::dpn::vm::exec::SimpleDPNExecutor::<plonky2::field::goldilocks_field::GoldilocksField>::new();
+            for definition in &defs[0].definitions { executor.process_var_def(definition); }
+            assert!(!defs[0].assertions.is_empty(), "execution test must retain its assertions");
+            for assertion in &defs[0].assertions {
+                assert_eq!(executor.resolve_target(assertion.left), executor.resolve_target(assertion.right));
+            }
+        }
+        other => panic!("expected checked u256 execution, got {other:?}"),
+    }
+}
+
+#[test]
+fn uint_contract_inputs_outputs_and_storage_compile() {
+    let source = r#"
+        #[contract]
+        #[derive(Storage)]
+        pub struct WideVault {
+            pub before: Felt,
+            pub balance: u256,
+            pub values: [u256; 2],
+            pub after: Felt,
+        }
+        #[contract::write_method]
+        pub fn save(value: u256) -> u256 {
+            let c = WideVaultRef::new(ContractMetadata::current());
+            c.balance = value;
+            c.values.index(1).set(value);
+            c.balance.get()
+        }
+    "#;
+    match run_with(source, "u256_contract", Some("WideVault"), &["save"], true) {
+        Outcome::Executed(defs) => {
+            assert_eq!(defs.len(), 1);
+            assert_eq!(defs[0].circuit_outputs.len(), 8);
+            assert!(!defs[0].state_commands.is_empty());
+        }
+        other => panic!("expected full-width u256 storage compilation, got {other:?}"),
+    }
+
+    let source = r#"
+        #[contract]
+        #[derive(Storage)]
+        pub struct WideVault {
+            pub small: u64,
+            pub large: u128,
+            pub values: [u64; 2],
+        }
+        #[contract::write_method]
+        pub fn save(small: u64, large: u128) -> u128 {
+            let c = WideVaultRef::new(ContractMetadata::current());
+            c.small = small;
+            c.large = large;
+            c.values.index(1).set(small);
+            c.small += 1u64;
+            c.large += 1u128;
+            assert(c.values.index(1) == small, "u64 array ref equality");
+            c.large.get()
+        }
+    "#;
+    match run_with(source, "wide_contract", Some("WideVault"), &["save"], true) {
+        Outcome::Executed(defs) => {
+            assert_eq!(defs.len(), 1);
+            assert_eq!(defs[0].circuit_outputs.len(), 4);
+            assert!(!defs[0].state_commands.is_empty());
+        }
+        other => panic!("expected u64/u128 storage compilation, got {other:?}"),
+    }
+}
+
+#[test]
+fn uint_map_values_compile_without_truncation() {
+    for (ty, limbs, writes) in [("u64", 2, 2), ("u128", 4, 2), ("u256", 8, 4)] {
+        let source = format!(r#"
+        #[contract]
+        #[derive(Storage)]
+        pub struct WideMap {{
+            pub balances: Map<Hash, {ty}, 8u32>,
+            pub scoped: NamespacedMap<Hash, {ty}, 8u32>,
+        }}
+        #[contract::write_method]
+        pub fn save(key: Hash, value: {ty}) -> {ty} {{
+            let c = WideMapRef::new(ContractMetadata::current());
+            c.balances.set_value(key, value);
+            c.scoped.set_value(17, key, value);
+            c.balances.get_value(key)
+        }}
+        #[contract::view_method]
+        pub fn other(key: Hash) -> {ty} {{
+            let c = WideMapRef::new(ContractMetadata::current());
+            c.balances.get_value_other(key)
+        }}
+        #[contract::view_method]
+        pub fn other_scoped(key: Hash) -> {ty} {{
+            let c = WideMapRef::new(ContractMetadata::current());
+            c.scoped.get_value_other(17, key)
+        }}
+    "#);
+        match run_with(&source, "uint_map", Some("WideMap"), &["save", "other", "other_scoped"], true) {
+            Outcome::Executed(defs) => {
+                assert_eq!(defs.len(), 3, "{ty}");
+                for def in &defs { assert_eq!(def.circuit_outputs.len(), limbs, "{ty}"); }
+                assert!(defs.iter().find(|d| d.name == "save").unwrap().state_commands.len() >= writes, "{ty}");
+            }
+            other => panic!("expected lossless {ty} map compilation, got {other:?}"),
+        }
+
+        let numeric_key_source = format!(r#"
+            #[contract]
+            #[derive(Storage)]
+            pub struct NumericMap {{ pub values: Map<{ty}, {ty}, 8u32> }}
+            #[contract::write_method]
+            pub fn save(key: {ty}, value: {ty}) -> {ty} {{
+                let c = NumericMapRef::new(ContractMetadata::current());
+                c.values.set_value(key, value);
+                c.values.get_value(key)
+            }}
+            #[contract::view_method]
+            pub fn other(key: {ty}) -> {ty} {{
+                let c = NumericMapRef::new(ContractMetadata::current());
+                c.values.get_value_other(key)
+            }}
+        "#);
+        match run_with(&numeric_key_source, "uint_key_map", Some("NumericMap"), &["save", "other"], true) {
+            Outcome::Executed(defs) => {
+                assert_eq!(defs.len(), 2, "{ty} key");
+                for def in &defs { assert_eq!(def.circuit_outputs.len(), limbs, "{ty} key"); }
+            }
+            other => panic!("expected {ty} map key compilation, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn u256_storage_read_under_symbolic_condition_stays_in_range() {
+    let source = r#"
+        #[contract]
+        #[derive(Storage)]
+        pub struct WideVault {
+            pub balance: u256,
+        }
+        #[contract::write_method]
+        pub fn save(flag: bool, value: u256) -> u256 {
+            let c = WideVaultRef::new(ContractMetadata::current());
+            c.balance = value;
+            if flag { c.balance.get() } else { value }
+        }
+    "#;
+    match run_with(source, "u256_conditional", Some("WideVault"), &["save"], true) {
+        Outcome::Executed(defs) => {
+            assert_eq!(defs.len(), 1);
+            // A symbolic flag forces both arms through interpretation; the
+            // inactive read must keep its decoded limbs masked so limb range
+            // checks never see the unwitnessed branch.
+            assert_eq!(defs[0].circuit_outputs.len(), 8);
+            assert!(!defs[0].state_commands.is_empty());
+        }
+        other => panic!("expected conditional u256 storage execution, got {other:?}"),
+    }
+}
+
+#[test]
+fn u256_event_payload_emits_all_limbs() {
+    let source = r#"
+        #[derive(Event)]
+        pub struct WideChanged {
+            pub new_balance: u256,
+        }
+
+        #[contract]
+        #[derive(Storage)]
+        pub struct WideVault {
+            pub balance: u256,
+        }
+        #[contract::write_method]
+        pub fn save(value: u256) -> u256 {
+            let c = WideVaultRef::new(ContractMetadata::current());
+            c.balance = value;
+            WideChanged { new_balance: value }.emit();
+            c.balance.get()
+        }
+    "#;
+    match run_with(source, "u256_event", Some("WideVault"), &["save"], true) {
+        Outcome::Executed(defs) => {
+            assert_eq!(defs.len(), 1);
+            assert_eq!(defs[0].circuit_outputs.len(), 8);
+            assert!(!defs[0].state_commands.is_empty());
+        }
+        other => panic!("expected u256 event emission, got {other:?}"),
+    }
+}
+
+
+/// Adapted from the superseded feat/u64 branch, trimmed to the unified-lane
+/// semantics: Pow stays u32-only, shift distances stay u32, W>32 → bool casts
+/// and for-range endpoints over u64 remain out of scope.
+#[test]
+fn u64_literals_arithmetic_and_composites_execute() {
+    let source = r#"
+        const MAX: u64 = 18446744073709551615u64;
+        struct Boxed { pub value: u64 }
+        fn identity<T>(x: T) -> T { x }
+        fn main() -> u64 {
+            let a = 4294967295u64;
+            let b = 4294967296u64;
+            assert_eq(a + 1u64, b);
+            assert_eq(b - 1u64, a);
+            assert_eq(a * a, 18446744065119617025u64);
+            assert_eq(MAX / b, a);
+            assert_eq(MAX % b, a);
+            let width_probe = MAX;
+            assert_eq(width_probe >> 32u32, a);
+            assert_eq(1u64 << 63u32, 9223372036854775808u64);
+            assert_eq(MAX & b, b);
+            assert_eq(a | b, 8589934591u64);
+            assert_eq(MAX ^ MAX, 0u64);
+            assert(a < b);
+            assert(b > a);
+            assert(MAX >= b);
+            assert(a <= b);
+            assert(MAX != b);
+            let mut arr = [Boxed { value: a }, Boxed { value: b }];
+            arr[0].value += 1u64;
+            arr[1].value -= 1u64;
+            arr[0].value *= 2u64;
+            arr[0].value /= 2u64;
+            arr[0].value %= 4294967297u64;
+            arr[0].value <<= 1u32;
+            arr[0].value >>= 1u32;
+            arr[0].value |= 1u64;
+            arr[0].value &= MAX;
+            arr[0].value ^= 1u64;
+            assert_eq(arr[0].value, b);
+            assert_eq(arr[1].value, a);
+            assert_eq((4294967295u32 as u64) + 1u64, b);
+            assert_eq(42u64 as u32, 42u32);
+            let tuple = (MAX, arr);
+            let selected = if true { tuple.0 } else { 0u64 };
+            assert_eq(identity::<u64>(selected), MAX);
+            let m = match selected { 18446744073709551615u64 => 7u64, _ => 0u64 };
+            assert_eq(m, 7u64);
+            return selected;
+        }
+    "#;
+    match run(source, "u64_composites") {
+        Outcome::Executed(defs) => assert_eq!(defs[0].circuit_outputs, vec![u32::MAX as u64, u32::MAX as u64]),
+        other => panic!("u64 execution failed: {other:?}"),
+    }
+}
+
+#[test]
+fn u64_and_u128_invalid_constants_produce_diagnostics() {
+    for (expression, needle) in [
+        ("18446744073709551615u64 + 1u64", "overflow"),
+        ("0u64 - 1u64", "overflow"),
+        ("4294967296u64 * 4294967296u64", "overflow"),
+        ("1u64 / 0u64", "zero"),
+        ("1u64 % 0u64", "zero"),
+        ("2u64 as bool", "cast"),
+        ("2u128 as bool", "cast"),
+        ("18446744073709551616u64", "lexical"),
+        ("1u64 + 1u32", "type"),
+        ("340282366920938463463374607431768211456u128", "lexical"),
+    ] {
+        let source = format!("fn main() -> u64 {{ let x = {expression}; 1 }}");
+        match run(&source, "u64_invalid") {
+            Outcome::Failed(message) => assert!(
+                message.to_lowercase().contains(needle),
+                "expected `{needle}` diagnostic for `{expression}`, got: {message}"
+            ),
+            other => panic!("`{expression}` should not compile, got {other:?}"),
+        }
+    }
+}
+
+/// Plain `=` re-assignment on every uint width must route through the
+/// identity arm, not the compound-assign lane — a regression guard for the
+/// bug where wide-uint `a = b` reached the compound dispatcher's
+/// `unreachable!`.
+#[test]
+fn uint_plain_assignment_executes_at_every_width() {
+    for ty in ["u32", "u64", "u128", "u256"] {
+        let source = format!(r#"
+        fn main() -> {ty} {{
+            let mut a: {ty} = 1{ty};
+            a = 2{ty};
+            let mut b: {ty} = 1{ty};
+            b = a;
+            a += 1{ty};
+            assert_eq(b + a, 5{ty}, "plain then compound assignment");
+            b
+        }}
+    "#);
+        match run(&source, "uint_plain_assign") {
+            Outcome::Executed(defs) => {
+                let limbs = match ty { "u32" => 1usize, "u64" => 2, "u128" => 4, _ => 8 };
+                assert_eq!(defs[0].circuit_outputs.len(), limbs);
+                assert_eq!(defs[0].circuit_outputs[0], 2);
+            }
+            other => panic!("{ty} plain assignment failed: {other:?}"),
+        }
+    }
 }

@@ -49,11 +49,51 @@ impl Display for ConstValue {
 }
 use crate::{ExprId, Identifier, Location, NodeInfo, NodeType, UncheckedType};
 
+/// Builtin unsigned integer widths. One metadata table drives every layer
+/// (lexer suffixes, sema typing, limb layouts, ABI names); adding a width is a
+/// new variant plus the table rows it feeds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, EnumAsInner)]
+pub enum UintWidth {
+    U32,
+    U64,
+    U128,
+    U256,
+}
+
+impl UintWidth {
+    pub const ALL: [UintWidth; 4] = [UintWidth::U32, UintWidth::U64, UintWidth::U128, UintWidth::U256];
+
+    /// Base-2^32 limb count: u32 = 1, u64 = 2, u128 = 4, u256 = 8.
+    pub const fn limb_count(self) -> usize {
+        match self {
+            UintWidth::U32 => 1,
+            UintWidth::U64 => 2,
+            UintWidth::U128 => 4,
+            UintWidth::U256 => 8,
+        }
+    }
+
+    pub const fn bits(self) -> u32 {
+        32 * self.limb_count() as u32
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            UintWidth::U32 => "u32",
+            UintWidth::U64 => "u64",
+            UintWidth::U128 => "u128",
+            UintWidth::U256 => "u256",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, EnumAsInner)]
 pub enum ValueNode<F: Clone + From<u32>> {
     Felt(F, Location),
     Bool(F, Location),
-    U32(F, Location),
+    /// Typed unsigned integer literal: fixed 8-limb payload, narrow widths
+    /// zero-pad the high limbs.
+    Uint([u32; 8], UintWidth, Location),
     Array(ConstValue, Vec<ExprId>, Location),
     ArrayRepeat(ExprId, ConstValue, Location),
     Struct(ExprId, Vec<UncheckedType>, IndexMap<Identifier, ExprId>, Location),
@@ -70,7 +110,7 @@ impl<F: Clone + From<u32>> Display for ValueNode<F> {
         match self {
             ValueNode::Felt(_, _) => write!(f, "Felt"),
             ValueNode::Bool(_, _) => write!(f, "Bool"),
-            ValueNode::U32(_, _) => write!(f, "U32"),
+            ValueNode::Uint(_, width, _) => write!(f, "{}", width.name()),
             ValueNode::Array(_, expr_ids, _) => {
                 write!(f, "Array(")?;
                 for (i, value) in expr_ids.iter().enumerate() {
@@ -122,7 +162,11 @@ mod tests {
         let location = Location::default();
         assert_eq!(ValueNode::<u64>::Felt(1, location).to_string(), "Felt");
         assert_eq!(ValueNode::<u64>::Bool(1, location).to_string(), "Bool");
-        assert_eq!(ValueNode::<u64>::U32(1, location).to_string(), "U32");
+        let limbs = |low: u32| [low, 0, 0, 0, 0, 0, 0, 0];
+        assert_eq!(ValueNode::<u64>::Uint(limbs(1), UintWidth::U32, location).to_string(), "u32");
+        assert_eq!(ValueNode::<u64>::Uint(limbs(1), UintWidth::U64, location).to_string(), "u64");
+        assert_eq!(ValueNode::<u64>::Uint(limbs(1), UintWidth::U128, location).to_string(), "u128");
+        assert_eq!(ValueNode::<u64>::Uint(limbs(1), UintWidth::U256, location).to_string(), "u256");
 
         let array = ValueNode::<u64>::Array(ConstValue::from(2u32), vec![ExprId(0), ExprId(1)], location);
         let rendered = array.to_string();

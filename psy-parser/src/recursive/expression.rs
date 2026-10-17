@@ -7,7 +7,7 @@ use indexmap::IndexMap;
 use psy_ast::{
     BinaryNode, BinaryOperator, BlockExprNode, CallNode, Case, CastNode, ConstValue, ExprNode, FunctionParameter, IdentId, Identifier, IfExprNode,
     IndexAccessNode, LambdaFunctionNode, Location, MatchArm, MatchNode, MatchPattern, MemberAccessNode, MemberCallNode, PathNode, TupleAccessNode,
-    TupleExprNode, TypeQualifier, UnaryNode, UnaryOperator, UncheckedType, ValueNode,
+    TupleExprNode, TypeQualifier, UintWidth, UnaryNode, UnaryOperator, UncheckedType, ValueNode,
 };
 use psy_lexer::Token;
 use psy_vm::dpn::ops::context_trait::{ContextFelt, DPNContext};
@@ -53,11 +53,12 @@ where
                     self.cursor.advance();
                     let target = self.alloc_expr(lhs);
                     lhs = match self.cursor.peek() {
-                        Some(Token::U64(index)) => {
-                            let index = usize::try_from(*index).map_err(|_| Error::UnsupportedSyntax {
-                                feature: "tuple index does not fit usize".into(),
-                                location: self.cursor.current_location(),
-                            })?;
+                        Some(Token::FeltLiteral(value)) => {
+                            let index = usize::try_from(*value)
+                                .map_err(|_| Error::UnsupportedSyntax {
+                                    feature: "tuple index does not fit usize".into(),
+                                    location: self.cursor.current_location(),
+                                })?;
                             let end = self.cursor.peek_end();
                             self.cursor.advance();
                             ExprNode::TupleAccess(TupleAccessNode {
@@ -133,8 +134,11 @@ where
         }
 
         match self.cursor.peek() {
-            Some(Token::U64(_))
+            Some(Token::FeltLiteral(_))
             | Some(Token::U32(_))
+            | Some(Token::U64(_))
+            | Some(Token::U128(_))
+            | Some(Token::U256(_))
             | Some(Token::Bool(_))
             | Some(Token::LBracket)
             | Some(Token::LParen) => self.parse_value_expression(),
@@ -149,6 +153,9 @@ where
             | Some(Token::TypeFelt)
             | Some(Token::TypeBool)
             | Some(Token::TypeU32)
+            | Some(Token::TypeU64)
+            | Some(Token::TypeU128)
+            | Some(Token::TypeU256)
             | Some(Token::TypeSelf)
             | Some(Token::OperatorLt) => self.parse_path_expression(),
             Some(_) => Err(self.unexpected(vec![ExpectedToken::Expression])),
@@ -324,7 +331,7 @@ where
     pub fn parse_value_expression(&mut self) -> Result<ExprNode<F>> {
         let start = self.cursor.peek_start();
         match self.cursor.peek() {
-            Some(Token::U64(value)) => {
+            Some(Token::FeltLiteral(value)) => {
                 let value = *value;
                 let end = self.cursor.peek_end();
                 self.cursor.advance();
@@ -335,8 +342,32 @@ where
                 let value = *value;
                 let end = self.cursor.peek_end();
                 self.cursor.advance();
-                let literal = self.ctx().op_const_u32(value);
-                Ok(ExprNode::Value(ValueNode::U32(literal, self.location(start, end))))
+                let mut limbs = [0u32; 8];
+                limbs[0] = value;
+                Ok(ExprNode::Value(ValueNode::Uint(limbs, UintWidth::U32, self.location(start, end))))
+            }
+            Some(Token::U64(value)) => {
+                let value = *value;
+                let end = self.cursor.peek_end();
+                self.cursor.advance();
+                let mut limbs = [0u32; 8];
+                limbs[0] = value as u32;
+                limbs[1] = (value >> 32) as u32;
+                Ok(ExprNode::Value(ValueNode::Uint(limbs, UintWidth::U64, self.location(start, end))))
+            }
+            Some(Token::U128(value)) => {
+                let value = *value;
+                let end = self.cursor.peek_end();
+                self.cursor.advance();
+                let mut limbs = [0u32; 8];
+                limbs[..4].copy_from_slice(&value[..]);
+                Ok(ExprNode::Value(ValueNode::Uint(limbs, UintWidth::U128, self.location(start, end))))
+            }
+            Some(Token::U256(value)) => {
+                let value = *value;
+                let end = self.cursor.peek_end();
+                self.cursor.advance();
+                Ok(ExprNode::Value(ValueNode::Uint(value, UintWidth::U256, self.location(start, end))))
             }
             Some(Token::Bool(value)) => {
                 let value = *value;
@@ -541,8 +572,8 @@ where
         let first = self.parse_expression_struct_allowed()?;
         if self.cursor.eat(&Token::Semicolon).is_some() {
             let count = match self.cursor.peek() {
-                Some(Token::U64(count)) => {
-                    let count = *count;
+                Some(Token::FeltLiteral(value)) => {
+                    let count = *value;
                     self.cursor.advance();
                     count
                 }
@@ -827,7 +858,7 @@ where
             ExprNode::Path(node) => node.location,
             ExprNode::Value(ValueNode::Felt(_, loc))
             | ExprNode::Value(ValueNode::Bool(_, loc))
-            | ExprNode::Value(ValueNode::U32(_, loc))
+            | ExprNode::Value(ValueNode::Uint(_, _, loc))
             | ExprNode::Value(ValueNode::Array(_, _, loc))
             | ExprNode::Value(ValueNode::ArrayRepeat(_, _, loc))
             | ExprNode::Value(ValueNode::Struct(_, _, _, loc)) => *loc,

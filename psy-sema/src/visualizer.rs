@@ -2,7 +2,7 @@ use itertools::Itertools;
 use psy_ast::{Comment, DefId, DefinitionNode, EnumVariant, ExprId, ExprNode, IdentId, StmtId, StmtNode, Visibility, VisitorContext};
 use psy_vm::dpn::ops::context_trait::ContextFelt;
 
-use crate::{CheckedEnumNode, CheckedFunctionNode, CheckedStructNode, CheckedTraitNode, ScopeId, Type, TypeCheckerVisitorContext, TypeId, VarId};
+use crate::{CheckedEnumNode, CheckedFunctionNode, CheckedStructNode, CheckedTraitNode, ScopeId, Type, TypeCheckerVisitorContext, TypeId, VarId, uint_ident};
 
 macro_rules! writeln {
     ($fmt:expr, $($arg:tt)*) => {
@@ -110,7 +110,7 @@ impl<'a, F: Clone + From<u32> + ContextFelt, C> TypeCheckerVisitorVisualizerInne
             for (_type_key, type_id) in &scope.types {
                 let ty = &self.context.symbols[*type_id];
                 match &ty {
-                    Type::Unknown | Type::VOID | Type::Bool | Type::U32 => {}
+                    Type::Unknown | Type::VOID | Type::Bool | Type::Uint(_) => {}
                     _ => {
                         self.debug_type(*type_id, fmt);
                     }
@@ -181,7 +181,7 @@ impl<'a, F: Clone + From<u32> + ContextFelt, C> TypeCheckerVisitorVisualizerInne
         fmt.indent();
         match &self.context.symbols[type_id] {
             Type::Unknown | Type::VOID => {}
-            Type::U32 => {
+            Type::Uint(_) => {
                 self.fmt_type_names("Implementations", &[], fmt);
             }
             Type::Felt => {
@@ -665,7 +665,7 @@ impl<'a, F: Clone + From<u32> + ContextFelt, C> TypeCheckerVisitorVisualizerInne
             Type::VOID => IdentId::TYPE_VOID,
             Type::Felt => IdentId::TYPE_FELT,
             Type::Bool => IdentId::TYPE_BOOL,
-            Type::U32 => IdentId::TYPE_U32,
+            Type::Uint(width) => uint_ident(*width),
             Type::Tuple(_) => IdentId::TYPE_TUPLE,
             Type::TypeVariable(tvar) => tvar.name,
             Type::LambdaFunction(_) => {
