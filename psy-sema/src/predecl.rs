@@ -335,7 +335,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
         ctx.symbols.enter_scope(ctx.symbols[type_id].scope_id());
 
         let checked_body = if let Some(body) = function.body {
-            let checked_body = self.visit_expr(body, ctx)?;
+            let checked_body = self.visit_expected(body, expected_return_type, ctx)?;
             let actual_return_type = checked_body.ty();
             if !self.unify(expected_return_type, actual_return_type, ctx) {
                 return Err(Error::TypeMismatch {

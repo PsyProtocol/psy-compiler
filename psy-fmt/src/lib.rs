@@ -324,7 +324,12 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
         Ok(match node {
             ValueNode::Felt(f, _) => format!("{:?}", f),
             ValueNode::Bool(b, _) => format!("{:?}", b),
-            ValueNode::U32(u, _) => format!("{:?}", u),
+            // Narrow widths zero-pad the high limbs, so the 8-limb display is
+            // value-preserving for every width.
+            ValueNode::Uint(u, width, _) => {
+                let words: [u64; 4] = std::array::from_fn(|index| u64::from(u[2 * index]) | (u64::from(u[2 * index + 1]) << 32));
+                format!("{}{}", ruint::Uint::<256, 4>::from_limbs(words), width.name())
+            }
             ValueNode::Array(_, values, _) => format!(
                 "[{}]",
                 values

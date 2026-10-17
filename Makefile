@@ -97,6 +97,8 @@ ci:
 	@$(DARGO_CLI_TEST) tests/u32_underflow_test.psy
 	@$(DARGO_CLI_TEST) tests/elseif_match_guard_gate_test.psy
 	@$(DARGO_CLI_TEST) tests/scalar_struct_copy_semantics_test.psy
+	@$(DARGO_CLI_TEST) tests/uint.psy
+	@$(DARGO_CLI_EXECUTE) uint.psy --parameters 2,3
 
 	@$(DARGO_CLI_COMPILE) ctx_test.psy
 	@$(DARGO_CLI_COMPILE) storage_test.psy --contract-name=SimpleContract --method-names set_a set_b set_c set_d get_a get_b get_c get_d

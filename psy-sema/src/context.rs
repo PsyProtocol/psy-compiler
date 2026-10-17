@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use petgraph::graph::{DiGraph, NodeIndex as PetGraphIndex};
 use psy_ast::{
     CrateId, DefId, DefinitionNode, ExprId, ExprNode, Ident, IdentId, InsertPosition, ModuleId, ModuleNode, NodeId, NodeInfo, NodeType, Program,
-    StmtId, StmtNode, VisitorContext,
+    StmtId, StmtNode, UintWidth, VisitorContext,
 };
 use psy_common::Graph;
 use psy_vm::dpn::ops::context_trait::ContextFelt;
@@ -180,17 +180,18 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeCheckerVisitorContext<F, C> {
         match &self.symbols[type_id] {
             Type::Felt => 1usize,
             Type::Bool => 1usize,
-            Type::U32 => 1usize,
+            Type::Uint(width) => width.limb_count(),
             Type::Struct(s) => s.fields.iter().map(|(_, field)| self.size_of(field.ty)).sum(),
             Type::Array(array) => {
                 let count = match &self.symbols[array.size_ty] {
                     Type::Const(value) => match &*self.symbols[value.value].borrow() {
-                        CheckedValue::Felt(value) | CheckedValue::U32(value) => value.get_u64() as usize,
+                        CheckedValue::Felt(value) => value.get_u64() as usize,
+                        CheckedValue::Uint(value, UintWidth::U32) => value[0].get_u64() as usize,
                         _ => panic!("Array size must be a numeric constant"),
                     },
                     _ => panic!("Array size must be a const type"),
                 };
-                self.size_of(array.inner_ty) * count
+                self.size_of(array.inner_ty).checked_mul(count).expect("Array felt size overflow")
             }
             Type::Tuple(elements) => elements.iter().map(|&ty| self.size_of(ty)).sum(),
             _ => todo!(),
@@ -330,7 +331,7 @@ mod tests {
         let mut context = ctx();
         let felt = context.symbols.create_type(Type::Felt).unwrap();
         let bool_ty = context.symbols.create_type(Type::Bool).unwrap();
-        let u32_ty = context.symbols.create_type(Type::U32).unwrap();
+        let u32_ty = context.symbols.create_type(Type::Uint(UintWidth::U32)).unwrap();
         assert_eq!(context.size_of(felt), 1);
         assert_eq!(context.size_of(bool_ty), 1);
         assert_eq!(context.size_of(u32_ty), 1);

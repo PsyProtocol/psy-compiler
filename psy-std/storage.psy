@@ -186,6 +186,65 @@ impl Storage for u32 {
     }
 }
 
+impl Storage for u64 {
+    pub type RefType = StorageRef<Self>;
+
+    pub fn size() -> Felt {
+        return 2;
+    }
+
+    pub fn read(contract_state_tree_height: Felt, user_id: Felt, contract_id: Felt, offset: Felt) -> Self {
+        mem::transmute::<Self>(__storage_read_range(contract_state_tree_height, user_id, contract_id, offset, Self::size()))
+    }
+
+    pub fn write(offset: Felt, value: Self) {
+        __storage_write_range(offset, value);
+    }
+}
+
+impl Storage for u128 {
+    pub type RefType = StorageRef<Self>;
+
+    pub fn size() -> Felt {
+        return 4;
+    }
+
+    pub fn read(contract_state_tree_height: Felt, user_id: Felt, contract_id: Felt, offset: Felt) -> Self {
+        mem::transmute::<Self>(__storage_read_range(contract_state_tree_height, user_id, contract_id, offset, Self::size()))
+    }
+
+    pub fn write(offset: Felt, value: Self) {
+        __storage_write_range(offset, value);
+    }
+}
+
+impl Storage for u256 {
+    pub type RefType = StorageRef<Self>;
+
+    pub fn size() -> Felt {
+        return 8;
+    }
+
+    pub fn read(
+        contract_state_tree_height: Felt,
+        user_id: Felt,
+        contract_id: Felt,
+        offset: Felt
+    ) -> Self {
+        mem::transmute::<Self>(__storage_read_range(
+            contract_state_tree_height,
+            user_id,
+            contract_id,
+            offset,
+            Self::size()
+        ))
+    }
+
+    pub fn write(offset: Felt, value: Self) {
+        __storage_write_range(offset, value);
+    }
+}
+
 impl<T: Storage, N: Felt> Storage for [T; N] {
     pub type RefType = ArrayRef<T, N>;
 
@@ -856,4 +915,552 @@ pub fn sum_bits<N: Felt>(bits: [Felt; N]) -> Felt {
 
 pub fn split_bits<N: Felt>(target: Felt, num_bits: N) -> [Felt; N] {
     __split_bits(target, num_bits)
+}
+
+impl Eq<u64> for StorageRef<u64> {
+    pub fn eq(self: Self, rhs: u64) -> bool {
+        self.get() == rhs
+    }
+}
+
+impl Eq<StorageRef<u64>> for StorageRef<u64> {
+    pub fn eq(self: Self, rhs: StorageRef<u64>) -> bool {
+        self.get() == rhs.get()
+    }
+}
+
+impl AddAssign<u64> for StorageRef<u64> {
+    pub fn add_assign(self: Self, rhs: u64) {
+        self.set(self.get() + rhs);
+    }
+}
+
+impl SubAssign<u64> for StorageRef<u64> {
+    pub fn sub_assign(self: Self, rhs: u64) {
+        self.set(self.get() - rhs);
+    }
+}
+
+impl MulAssign<u64> for StorageRef<u64> {
+    pub fn mul_assign(self: Self, rhs: u64) {
+        self.set(self.get() * rhs);
+    }
+}
+
+impl DivAssign<u64> for StorageRef<u64> {
+    pub fn div_assign(self: Self, rhs: u64) {
+        self.set(self.get() / rhs);
+    }
+}
+
+impl RemAssign<u64> for StorageRef<u64> {
+    pub fn rem_assign(self: Self, rhs: u64) {
+        self.set(self.get() % rhs);
+    }
+}
+
+impl BitAndAssign<u64> for StorageRef<u64> {
+    pub fn bitand_assign(self: Self, rhs: u64) {
+        self.set(self.get() & rhs);
+    }
+}
+
+impl BitOrAssign<u64> for StorageRef<u64> {
+    pub fn bitor_assign(self: Self, rhs: u64) {
+        self.set(self.get() | rhs);
+    }
+}
+
+impl BitXorAssign<u64> for StorageRef<u64> {
+    pub fn bitxor_assign(self: Self, rhs: u64) {
+        self.set(self.get() ^ rhs);
+    }
+}
+
+impl ShlAssign<u32> for StorageRef<u64> {
+    pub fn shl_assign(self: Self, rhs: u32) {
+        self.set(self.get() << rhs);
+    }
+}
+
+impl ShrAssign<u32> for StorageRef<u64> {
+    pub fn shr_assign(self: Self, rhs: u32) {
+        self.set(self.get() >> rhs);
+    }
+}
+
+impl<N: Felt> Eq<[u64; N]> for [u64; N] {
+    pub fn eq(self: Self, rhs: [u64; N]) -> bool {
+        let mut same = true;
+        for i in 0..N {
+            if self[i] != rhs[i] {
+                same = false;
+            }
+        }
+        same
+    }
+}
+
+
+impl<N: Felt> EqAssign<[u64; N]> for [StorageRef<u64>; N] {
+    pub fn eq_assign(self: Self, rhs: [u64; N]) {
+        for i in 0..N {
+            self[i].set(rhs[i]);
+        }
+    }
+}
+
+impl<N: Felt> EqAssign<[u64; N]> for ArrayRef<u64, N> {
+    pub fn eq_assign(self: Self, rhs: [u64; N]) {
+        self.set(rhs);
+    }
+}
+
+impl<N: Felt> Eq<[u64; N]> for ArrayRef<u64, N> {
+    pub fn eq(self: Self, rhs: [u64; N]) -> bool {
+        let mut same = true;
+        for i in 0..N {
+            if self.index(i).get() != rhs[i] {
+                same = false;
+            }
+        }
+        same
+    }
+}
+
+impl<N: Felt> Eq<ArrayRef<u64, N>> for ArrayRef<u64, N> {
+    pub fn eq(self: Self, rhs: ArrayRef<u64, N>) -> bool {
+        let mut same = true;
+        for i in 0..N {
+            if self.index(i).get() != rhs.index(i).get() {
+                same = false;
+            }
+        }
+        same
+    }
+}
+
+
+impl Eq<u128> for StorageRef<u128> {
+    pub fn eq(self: Self, rhs: u128) -> bool {
+        self.get() == rhs
+    }
+}
+
+impl Eq<StorageRef<u128>> for StorageRef<u128> {
+    pub fn eq(self: Self, rhs: StorageRef<u128>) -> bool {
+        self.get() == rhs.get()
+    }
+}
+
+impl AddAssign<u128> for StorageRef<u128> {
+    pub fn add_assign(self: Self, rhs: u128) {
+        self.set(self.get() + rhs);
+    }
+}
+
+impl SubAssign<u128> for StorageRef<u128> {
+    pub fn sub_assign(self: Self, rhs: u128) {
+        self.set(self.get() - rhs);
+    }
+}
+
+impl MulAssign<u128> for StorageRef<u128> {
+    pub fn mul_assign(self: Self, rhs: u128) {
+        self.set(self.get() * rhs);
+    }
+}
+
+impl DivAssign<u128> for StorageRef<u128> {
+    pub fn div_assign(self: Self, rhs: u128) {
+        self.set(self.get() / rhs);
+    }
+}
+
+impl RemAssign<u128> for StorageRef<u128> {
+    pub fn rem_assign(self: Self, rhs: u128) {
+        self.set(self.get() % rhs);
+    }
+}
+
+impl BitAndAssign<u128> for StorageRef<u128> {
+    pub fn bitand_assign(self: Self, rhs: u128) {
+        self.set(self.get() & rhs);
+    }
+}
+
+impl BitOrAssign<u128> for StorageRef<u128> {
+    pub fn bitor_assign(self: Self, rhs: u128) {
+        self.set(self.get() | rhs);
+    }
+}
+
+impl BitXorAssign<u128> for StorageRef<u128> {
+    pub fn bitxor_assign(self: Self, rhs: u128) {
+        self.set(self.get() ^ rhs);
+    }
+}
+
+impl ShlAssign<u32> for StorageRef<u128> {
+    pub fn shl_assign(self: Self, rhs: u32) {
+        self.set(self.get() << rhs);
+    }
+}
+
+impl ShrAssign<u32> for StorageRef<u128> {
+    pub fn shr_assign(self: Self, rhs: u32) {
+        self.set(self.get() >> rhs);
+    }
+}
+
+impl<N: Felt> Eq<[u128; N]> for [u128; N] {
+    pub fn eq(self: Self, rhs: [u128; N]) -> bool {
+        let mut same = true;
+        for i in 0..N {
+            if self[i] != rhs[i] {
+                same = false;
+            }
+        }
+        same
+    }
+}
+
+
+impl<N: Felt> EqAssign<[u128; N]> for [StorageRef<u128>; N] {
+    pub fn eq_assign(self: Self, rhs: [u128; N]) {
+        for i in 0..N {
+            self[i].set(rhs[i]);
+        }
+    }
+}
+
+impl<N: Felt> EqAssign<[u128; N]> for ArrayRef<u128, N> {
+    pub fn eq_assign(self: Self, rhs: [u128; N]) {
+        self.set(rhs);
+    }
+}
+
+impl<N: Felt> Eq<[u128; N]> for ArrayRef<u128, N> {
+    pub fn eq(self: Self, rhs: [u128; N]) -> bool {
+        let mut same = true;
+        for i in 0..N {
+            if self.index(i).get() != rhs[i] {
+                same = false;
+            }
+        }
+        same
+    }
+}
+
+impl<N: Felt> Eq<ArrayRef<u128, N>> for ArrayRef<u128, N> {
+    pub fn eq(self: Self, rhs: ArrayRef<u128, N>) -> bool {
+        let mut same = true;
+        for i in 0..N {
+            if self.index(i).get() != rhs.index(i).get() {
+                same = false;
+            }
+        }
+        same
+    }
+}
+
+
+
+impl Eq<u256> for StorageRef<u256> {
+    pub fn eq(self: Self, rhs: u256) -> bool {
+        self.get() == rhs
+    }
+}
+
+impl Eq<StorageRef<u256>> for StorageRef<u256> {
+    pub fn eq(self: Self, rhs: StorageRef<u256>) -> bool {
+        self.get() == rhs.get()
+    }
+}
+
+impl AddAssign<u256> for StorageRef<u256> {
+    pub fn add_assign(self: Self, rhs: u256) {
+        self.set(self.get() + rhs);
+    }
+}
+
+impl SubAssign<u256> for StorageRef<u256> {
+    pub fn sub_assign(self: Self, rhs: u256) {
+        self.set(self.get() - rhs);
+    }
+}
+
+impl MulAssign<u256> for StorageRef<u256> {
+    pub fn mul_assign(self: Self, rhs: u256) {
+        self.set(self.get() * rhs);
+    }
+}
+
+impl DivAssign<u256> for StorageRef<u256> {
+    pub fn div_assign(self: Self, rhs: u256) {
+        self.set(self.get() / rhs);
+    }
+}
+
+impl RemAssign<u256> for StorageRef<u256> {
+    pub fn rem_assign(self: Self, rhs: u256) {
+        self.set(self.get() % rhs);
+    }
+}
+
+impl BitAndAssign<u256> for StorageRef<u256> {
+    pub fn bitand_assign(self: Self, rhs: u256) {
+        self.set(self.get() & rhs);
+    }
+}
+
+impl BitOrAssign<u256> for StorageRef<u256> {
+    pub fn bitor_assign(self: Self, rhs: u256) {
+        self.set(self.get() | rhs);
+    }
+}
+
+impl BitXorAssign<u256> for StorageRef<u256> {
+    pub fn bitxor_assign(self: Self, rhs: u256) {
+        self.set(self.get() ^ rhs);
+    }
+}
+
+impl ShlAssign<u32> for StorageRef<u256> {
+    pub fn shl_assign(self: Self, rhs: u32) {
+        self.set(self.get() << rhs);
+    }
+}
+
+impl ShrAssign<u32> for StorageRef<u256> {
+    pub fn shr_assign(self: Self, rhs: u32) {
+        self.set(self.get() >> rhs);
+    }
+}
+
+impl<N: Felt> Eq<[u256; N]> for [u256; N] {
+    pub fn eq(self: Self, rhs: [u256; N]) -> bool {
+        let mut same = true;
+        for i in 0..N {
+            if self[i] != rhs[i] {
+                same = false;
+            }
+        }
+        same
+    }
+}
+
+
+impl<N: Felt> EqAssign<[u256; N]> for [StorageRef<u256>; N] {
+    pub fn eq_assign(self: Self, rhs: [u256; N]) {
+        for i in 0..N {
+            self[i].set(rhs[i]);
+        }
+    }
+}
+
+impl<N: Felt> EqAssign<[u256; N]> for ArrayRef<u256, N> {
+    pub fn eq_assign(self: Self, rhs: [u256; N]) {
+        self.set(rhs);
+    }
+}
+
+impl<N: Felt> Eq<[u256; N]> for ArrayRef<u256, N> {
+    pub fn eq(self: Self, rhs: [u256; N]) -> bool {
+        let mut same = true;
+        for i in 0..N {
+            if self.index(i).get() != rhs[i] {
+                same = false;
+            }
+        }
+        same
+    }
+}
+
+impl<N: Felt> Eq<ArrayRef<u256, N>> for ArrayRef<u256, N> {
+    pub fn eq(self: Self, rhs: ArrayRef<u256, N>) -> bool {
+        let mut same = true;
+        for i in 0..N {
+            if self.index(i).get() != rhs.index(i).get() {
+                same = false;
+            }
+        }
+        same
+    }
+}
+
+
+// Typed uint map values use a separate key space from the generic digest API.
+// u64 and u128 fit in one IMT entry; u256 consumes two entries.
+impl ToHash for u64 {
+    pub fn to_hash(self) -> Hash {
+        hash(mem::transmute::<[u32; 2]>(self))
+    }
+}
+
+impl ToHash for u128 {
+    pub fn to_hash(self) -> Hash {
+        hash(mem::transmute::<[u32; 4]>(self))
+    }
+}
+
+pub fn uint_map_key_hash(namespace: Felt, key_hash: Hash, width: Felt) -> Hash {
+    // ASCII "UINTMAP" and the width separate typed values from each other.
+    hash([0x55494e544d4150, width, namespace, key_hash[0], key_hash[1], key_hash[2], key_hash[3]])
+}
+
+impl<K: ToHash, C: u32> MapRef<K, u64, C> {
+    pub fn get_value(self: Self, key: K) -> u64 {
+        assert(C >= 1u32, "u64 map values require one IMT entry");
+        let words = __imt_get(uint_map_key_hash(0, key.to_hash(), 64), self.offset, C as Felt);
+        mem::transmute::<u64>([words[0], words[1]])
+    }
+
+    pub fn set_value(self: Self, key: K, value: u64) -> u64 {
+        assert(C >= 1u32, "u64 map values require one IMT entry");
+        let previous = self.get_value(key);
+        let words = mem::transmute::<[u32; 2]>(value);
+        __imt_set(uint_map_key_hash(0, key.to_hash(), 64), [words[0] as Felt, words[1] as Felt, 0, 0], self.offset, C as Felt);
+        previous
+    }
+
+    pub fn get_value_other(self: Self, key: K) -> u64 {
+        assert(C >= 1u32, "u64 map values require one IMT entry");
+        let words = __imt_get_other_user(self.metadata.contract_state_tree_height, self.metadata.user_id, self.metadata.contract_id, uint_map_key_hash(0, key.to_hash(), 64), self.offset, C as Felt);
+        mem::transmute::<u64>([words[0], words[1]])
+    }
+}
+
+impl<K: ToHash, C: u32> NamespacedMapRef<K, u64, C> {
+    pub fn get_value(self: Self, namespace: Felt, key: K) -> u64 {
+        assert(C >= 1u32, "u64 map values require one IMT entry");
+        let words = __imt_get(uint_map_key_hash(namespace, key.to_hash(), 64), self.offset, C as Felt);
+        mem::transmute::<u64>([words[0], words[1]])
+    }
+
+    pub fn set_value(self: Self, namespace: Felt, key: K, value: u64) -> u64 {
+        assert(C >= 1u32, "u64 map values require one IMT entry");
+        let previous = self.get_value(namespace, key);
+        let words = mem::transmute::<[u32; 2]>(value);
+        __imt_set(uint_map_key_hash(namespace, key.to_hash(), 64), [words[0] as Felt, words[1] as Felt, 0, 0], self.offset, C as Felt);
+        previous
+    }
+
+    pub fn get_value_other(self: Self, namespace: Felt, key: K) -> u64 {
+        assert(C >= 1u32, "u64 map values require one IMT entry");
+        let words = __imt_get_other_user(self.metadata.contract_state_tree_height, self.metadata.user_id, self.metadata.contract_id, uint_map_key_hash(namespace, key.to_hash(), 64), self.offset, C as Felt);
+        mem::transmute::<u64>([words[0], words[1]])
+    }
+}
+
+impl<K: ToHash, C: u32> MapRef<K, u128, C> {
+    pub fn get_value(self: Self, key: K) -> u128 {
+        assert(C >= 1u32, "u128 map values require one IMT entry");
+        let words = __imt_get(uint_map_key_hash(0, key.to_hash(), 128), self.offset, C as Felt);
+        mem::transmute::<u128>([words[0], words[1], words[2], words[3]])
+    }
+
+    pub fn set_value(self: Self, key: K, value: u128) -> u128 {
+        assert(C >= 1u32, "u128 map values require one IMT entry");
+        let previous = self.get_value(key);
+        let words = mem::transmute::<[u32; 4]>(value);
+        __imt_set(uint_map_key_hash(0, key.to_hash(), 128), [words[0] as Felt, words[1] as Felt, words[2] as Felt, words[3] as Felt], self.offset, C as Felt);
+        previous
+    }
+
+    pub fn get_value_other(self: Self, key: K) -> u128 {
+        assert(C >= 1u32, "u128 map values require one IMT entry");
+        let words = __imt_get_other_user(self.metadata.contract_state_tree_height, self.metadata.user_id, self.metadata.contract_id, uint_map_key_hash(0, key.to_hash(), 128), self.offset, C as Felt);
+        mem::transmute::<u128>([words[0], words[1], words[2], words[3]])
+    }
+}
+
+impl<K: ToHash, C: u32> NamespacedMapRef<K, u128, C> {
+    pub fn get_value(self: Self, namespace: Felt, key: K) -> u128 {
+        assert(C >= 1u32, "u128 map values require one IMT entry");
+        let words = __imt_get(uint_map_key_hash(namespace, key.to_hash(), 128), self.offset, C as Felt);
+        mem::transmute::<u128>([words[0], words[1], words[2], words[3]])
+    }
+
+    pub fn set_value(self: Self, namespace: Felt, key: K, value: u128) -> u128 {
+        assert(C >= 1u32, "u128 map values require one IMT entry");
+        let previous = self.get_value(namespace, key);
+        let words = mem::transmute::<[u32; 4]>(value);
+        __imt_set(uint_map_key_hash(namespace, key.to_hash(), 128), [words[0] as Felt, words[1] as Felt, words[2] as Felt, words[3] as Felt], self.offset, C as Felt);
+        previous
+    }
+
+    pub fn get_value_other(self: Self, namespace: Felt, key: K) -> u128 {
+        assert(C >= 1u32, "u128 map values require one IMT entry");
+        let words = __imt_get_other_user(self.metadata.contract_state_tree_height, self.metadata.user_id, self.metadata.contract_id, uint_map_key_hash(namespace, key.to_hash(), 128), self.offset, C as Felt);
+        mem::transmute::<u128>([words[0], words[1], words[2], words[3]])
+    }
+}
+
+// The generic get/insert methods remain the four-Felt digest API.
+impl ToHash for u256 {
+    pub fn to_hash(self) -> Hash {
+        hash(mem::transmute::<[u32; 8]>(self))
+    }
+}
+
+pub fn u256_map_key_hash(namespace: Felt, key_hash: Hash, half: Felt) -> Hash {
+    // ASCII "U256MAP" separates typed values from the generic digest API.
+    hash([23980577146093904, namespace, key_hash[0], key_hash[1], key_hash[2], key_hash[3], half])
+}
+
+impl<K: ToHash, C: u32> MapRef<K, u256, C> {
+    pub fn get_value(self: Self, key: K) -> u256 {
+        assert(C >= 2u32, "u256 map values require two IMT entries");
+        let key_hash = key.to_hash();
+        let low = __imt_get(u256_map_key_hash(0, key_hash, 0), self.offset, C as Felt);
+        let high = __imt_get(u256_map_key_hash(0, key_hash, 1), self.offset, C as Felt);
+        mem::transmute::<u256>([low[0], low[1], low[2], low[3], high[0], high[1], high[2], high[3]])
+    }
+
+    pub fn set_value(self: Self, key: K, value: u256) -> u256 {
+        assert(C >= 2u32, "u256 map values require two IMT entries");
+        let previous = self.get_value(key);
+        let key_hash = key.to_hash();
+        let limbs = mem::transmute::<[u32; 8]>(value);
+        __imt_set(u256_map_key_hash(0, key_hash, 0), [limbs[0] as Felt, limbs[1] as Felt, limbs[2] as Felt, limbs[3] as Felt], self.offset, C as Felt);
+        __imt_set(u256_map_key_hash(0, key_hash, 1), [limbs[4] as Felt, limbs[5] as Felt, limbs[6] as Felt, limbs[7] as Felt], self.offset, C as Felt);
+        previous
+    }
+
+    pub fn get_value_other(self: Self, key: K) -> u256 {
+        assert(C >= 2u32, "u256 map values require two IMT entries");
+        let key_hash = key.to_hash();
+        let low = __imt_get_other_user(self.metadata.contract_state_tree_height, self.metadata.user_id, self.metadata.contract_id, u256_map_key_hash(0, key_hash, 0), self.offset, C as Felt);
+        let high = __imt_get_other_user(self.metadata.contract_state_tree_height, self.metadata.user_id, self.metadata.contract_id, u256_map_key_hash(0, key_hash, 1), self.offset, C as Felt);
+        mem::transmute::<u256>([low[0], low[1], low[2], low[3], high[0], high[1], high[2], high[3]])
+    }
+}
+
+impl<K: ToHash, C: u32> NamespacedMapRef<K, u256, C> {
+    pub fn get_value(self: Self, namespace: Felt, key: K) -> u256 {
+        assert(C >= 2u32, "u256 map values require two IMT entries");
+        let key_hash = key.to_hash();
+        let low = __imt_get(u256_map_key_hash(namespace, key_hash, 0), self.offset, C as Felt);
+        let high = __imt_get(u256_map_key_hash(namespace, key_hash, 1), self.offset, C as Felt);
+        mem::transmute::<u256>([low[0], low[1], low[2], low[3], high[0], high[1], high[2], high[3]])
+    }
+
+    pub fn set_value(self: Self, namespace: Felt, key: K, value: u256) -> u256 {
+        assert(C >= 2u32, "u256 map values require two IMT entries");
+        let previous = self.get_value(namespace, key);
+        let key_hash = key.to_hash();
+        let limbs = mem::transmute::<[u32; 8]>(value);
+        __imt_set(u256_map_key_hash(namespace, key_hash, 0), [limbs[0] as Felt, limbs[1] as Felt, limbs[2] as Felt, limbs[3] as Felt], self.offset, C as Felt);
+        __imt_set(u256_map_key_hash(namespace, key_hash, 1), [limbs[4] as Felt, limbs[5] as Felt, limbs[6] as Felt, limbs[7] as Felt], self.offset, C as Felt);
+        previous
+    }
+
+    pub fn get_value_other(self: Self, namespace: Felt, key: K) -> u256 {
+        assert(C >= 2u32, "u256 map values require two IMT entries");
+        let key_hash = key.to_hash();
+        let low = __imt_get_other_user(self.metadata.contract_state_tree_height, self.metadata.user_id, self.metadata.contract_id, u256_map_key_hash(namespace, key_hash, 0), self.offset, C as Felt);
+        let high = __imt_get_other_user(self.metadata.contract_state_tree_height, self.metadata.user_id, self.metadata.contract_id, u256_map_key_hash(namespace, key_hash, 1), self.offset, C as Felt);
+        mem::transmute::<u256>([low[0], low[1], low[2], low[3], high[0], high[1], high[2], high[3]])
+    }
 }

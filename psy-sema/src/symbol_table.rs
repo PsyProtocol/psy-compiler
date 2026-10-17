@@ -328,7 +328,7 @@ impl<F: Clone + From<u32> + ContextFelt> SymbolTable<F> {
 
     pub fn type_scope_id(&self, type_id: TypeId) -> ScopeId {
         match &self[type_id] {
-            Type::Felt | Type::Bool | Type::U32 | Type::Tuple(_) => self.primitive_scope_id(),
+            Type::Felt | Type::Bool | Type::Uint(_) | Type::Tuple(_) => self.primitive_scope_id(),
             ty => ty.scope_id(),
         }
     }
@@ -741,7 +741,9 @@ mod tests {
         assert!(STD_PRIMITIVE_SCOPE_ID.get().is_some());
         assert_eq!(Type::Felt.scope_id(), STD_PRIMITIVE_SCOPE_ID.get().unwrap());
         assert_eq!(Type::Bool.scope_id(), STD_PRIMITIVE_SCOPE_ID.get().unwrap());
-        assert_eq!(Type::U32.scope_id(), STD_PRIMITIVE_SCOPE_ID.get().unwrap());
+        for width in UintWidth::ALL {
+            assert_eq!(Type::Uint(width).scope_id(), STD_PRIMITIVE_SCOPE_ID.get().unwrap());
+        }
         assert_eq!(Type::Tuple(vec![]).scope_id(), STD_PRIMITIVE_SCOPE_ID.get().unwrap());
     }
 
@@ -763,7 +765,7 @@ mod tests {
         let felt = table.create_type(Type::Felt).unwrap();
         for ty in [
             Type::Bool,
-            Type::U32,
+            Type::Uint(UintWidth::U32),
             Type::Unknown,
             Type::Tuple(vec![felt]),
             Type::Array(CheckedArrayNode { inner_ty: felt, size_ty: felt, scope_id: ScopeId::root() }),

@@ -6,6 +6,8 @@ use thiserror::Error;
 pub enum Error {
     #[error("invalid integer: `{0}`")]
     InvalidInteger(#[from] ParseIntError),
+    #[error("invalid integer: `{0}`")]
+    InvalidWideInteger(String),
     #[error("invalid token")]
     #[default]
     InvalidToken,

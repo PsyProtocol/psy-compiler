@@ -12,7 +12,7 @@ use psy_vm::dpn::ops::context_trait::{ContextFelt, DPNContext};
 
 use crate::{
     error::{Error, ExpectedToken, Result},
-    recursive::ParsedModuleItem,
+    recursive::{ParsedModuleItem, ty::uint_type_ident},
 };
 
 /// Parse one module item, including the comments immediately preceding it.
@@ -229,7 +229,9 @@ where
     let (id, start, end) = match parser.cursor.peek() {
         Some(Token::TypeFelt) => (IdentId::TYPE_FELT, parser.cursor.peek_start(), parser.cursor.peek_end()),
         Some(Token::TypeBool) => (IdentId::TYPE_BOOL, parser.cursor.peek_start(), parser.cursor.peek_end()),
-        Some(Token::TypeU32) => (IdentId::TYPE_U32, parser.cursor.peek_start(), parser.cursor.peek_end()),
+        Some(token) if uint_type_ident(token).is_some() => {
+            (uint_type_ident(token).unwrap(), parser.cursor.peek_start(), parser.cursor.peek_end())
+        }
         _ => return Err(parser.unexpected(vec![ExpectedToken::Type])),
     };
     parser.cursor.advance();
