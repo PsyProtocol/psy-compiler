@@ -22,20 +22,6 @@ impl MultisigPolicyContractRef {
         [lo, hi]
     }
 
-    // DPN comparisons are 63-bit; compare canonical limbs through 32-bit halves.
-    fn limb_less(a: Felt, b: Felt) -> bool {
-        let a_halves = Self::canonical_limb_halves(a);
-        let b_halves = Self::canonical_limb_halves(b);
-        a_halves[1] < b_halves[1] || (a_halves[1] == b_halves[1] && a_halves[0] < b_halves[0])
-    }
-
-    fn member_less(a: Hash, b: Hash) -> bool {
-        Self::limb_less(a[0], b[0])
-            || (a[0] == b[0] && Self::limb_less(a[1], b[1]))
-            || (a[0] == b[0] && a[1] == b[1] && Self::limb_less(a[2], b[2]))
-            || (a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && Self::limb_less(a[3], b[3]))
-    }
-
     fn validate_members(members: [Hash; 3]) {
         let zero: Hash = [0, 0, 0, 0];
         for i in 0..3 {
@@ -45,8 +31,10 @@ impl MultisigPolicyContractRef {
                 assert(halves[0] + halves[1] * 4294967296 == members[i][j], "invalid member limb");
             }
         }
-        assert(Self::member_less(members[0], members[1]), "members not strictly ordered");
-        assert(Self::member_less(members[1], members[2]), "members not strictly ordered");
+        // Preserve caller-owned member slots while rejecting duplicate hashes.
+        assert(members[0] != members[1], "duplicate members");
+        assert(members[0] != members[2], "duplicate members");
+        assert(members[1] != members[2], "duplicate members");
     }
 
     #[contract_method]

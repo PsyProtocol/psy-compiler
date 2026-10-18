@@ -78,24 +78,51 @@ mod tests {
     }
 
     #[test]
+    fn policy_preserves_all_member_permutations() {
+        for order in [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] {
+            let members = order.map(|index| MEMBERS[index]);
+            let (success, state) = set_policy(InMemoryStateBackend::new(), [0; 4], [[0; 4]; 3], members);
+            assert!(success);
+            assert_eq!(state.get_contract_hash(USER_ID, MULTISIG_POLICY_CONTRACT_ID as u64, 0).unwrap(), [1, 2, 3, 0]);
+            for (index, member) in members.into_iter().enumerate() {
+                assert_eq!(state.get_contract_hash(USER_ID, MULTISIG_POLICY_CONTRACT_ID as u64, index as u64 + 1).unwrap(), member);
+            }
+            for slot in 4..16 {
+                assert_eq!(state.get_contract_hash(USER_ID, MULTISIG_POLICY_CONTRACT_ID as u64, slot).unwrap(), [0; 4]);
+            }
+            let mut next = members;
+            next.swap(0, 2);
+            assert!(!set_policy(state.clone(), [1, 2, 3, 0], next, next).0);
+            let (success, rotated) = set_policy(state, [1, 2, 3, 0], members, next);
+            assert!(success);
+            assert_eq!(rotated.get_contract_hash(USER_ID, MULTISIG_POLICY_CONTRACT_ID as u64, 0).unwrap(), [2, 2, 3, 0]);
+            for (index, member) in next.into_iter().enumerate() {
+                assert_eq!(rotated.get_contract_hash(USER_ID, MULTISIG_POLICY_CONTRACT_ID as u64, index as u64 + 1).unwrap(), member);
+            }
+        }
+    }
+
+    #[test]
     fn policy_rejects_invalid_members_and_versions() {
         let header = [1, 2, 3, 0];
         let state = policy_state(header, MEMBERS);
         assert!(!set_policy(state.clone(), header, MEMBERS, MEMBERS).0);
-        let mut zero = MEMBERS;
-        zero[0] = [0; 4];
-        let mut duplicate = MEMBERS;
-        duplicate[1] = duplicate[0];
-        let mut unordered = MEMBERS;
-        unordered.swap(0, 1);
+        for index in 0..3 {
+            let mut zero = MEMBERS;
+            zero[index] = [0; 4];
+            assert!(!set_policy(state.clone(), header, MEMBERS, zero).0);
+        }
+        for (a, b) in [(0, 1), (0, 2), (1, 2)] {
+            let mut duplicate = MEMBERS;
+            duplicate[b] = duplicate[a];
+            assert!(!set_policy(state.clone(), header, MEMBERS, duplicate).0);
+        }
         let mut noncanonical = MEMBERS;
         noncanonical[2][0] = 0xffff_ffff_0000_0001;
-        for next in [zero, duplicate, unordered, noncanonical] {
-            assert!(!set_policy(state.clone(), header, MEMBERS, next).0);
-        }
+        assert!(!set_policy(state.clone(), header, MEMBERS, noncanonical).0);
         let mut next = MEMBERS;
         next[1][3] = 2;
-        for invalid in [[0, 2, 3, 0], [1, 1, 3, 0], [1, 2, 4, 0], [1, 2, 3, 1], [u32::MAX as u64, 2, 3, 0], [1u64 << 32, 2, 3, 0], [0; 4]] {
+        for invalid in [[0, 2, 3, 0], [1, 0, 3, 0], [1, 1, 3, 0], [1, 3, 3, 0], [1, 2, 4, 0], [1, 2, 3, 1], [u32::MAX as u64, 2, 3, 0], [1u64 << 32, 2, 3, 0], [0; 4]] {
             assert!(!set_policy(policy_state(invalid, MEMBERS), invalid, MEMBERS, next).0);
         }
     }
