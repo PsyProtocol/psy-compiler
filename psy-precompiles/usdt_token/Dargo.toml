@@ -5,3 +5,4 @@ authors = [""]
 
 [dependencies]
 deposit_tree = { path = "../deposit_tree" }
+multisig_policy = { path = "../multisig_policy" }
