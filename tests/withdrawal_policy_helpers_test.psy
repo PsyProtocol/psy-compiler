@@ -1,0 +1,98 @@
+// Pure-logic checks for the withdrawal policy rules enforced by
+// psy-precompiles/multisig_policy and the token withdraw entry. The dargo
+// test harness is single-user with empty inputs, so cross-user policy reads
+// and the pre-burn ordering are covered by the genesis generator tests and
+// the bridge e2e suite instead.
+
+fn zero_u32x8() -> [u32; 8] {
+    [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32]
+}
+
+fn eq_u32x8(a: [u32; 8], b: [u32; 8]) -> bool {
+    a[0] == b[0]
+        && a[1] == b[1]
+        && a[2] == b[2]
+        && a[3] == b[3]
+        && a[4] == b[4]
+        && a[5] == b[5]
+        && a[6] == b[6]
+        && a[7] == b[7]
+}
+
+// Mirrors MultisigPolicyContractRef::valid_l1_address: all-zero disables a
+// mapping; any other value must fit in 160 bits (BE limbs 0-2 zero).
+fn valid_l1_address(address: [u32; 8]) -> bool {
+    let nonzero = !eq_u32x8(address, zero_u32x8());
+    let fits_160_bits = address[0] == 0u32 && address[1] == 0u32 && address[2] == 0u32;
+    nonzero && fits_160_bits
+}
+
+// Mirrors the pending-maturity selection used by withdraw: pending values
+// apply only from effective_checkpoint onwards (0 means no pending update).
+fn effective_value(live: Felt, pending: Felt, effective_checkpoint: Felt, current_checkpoint: Felt) -> Felt {
+    let mut value = live;
+    let matured = effective_checkpoint != 0 && current_checkpoint >= effective_checkpoint;
+    if matured {
+        value = pending;
+    };
+    value
+}
+
+// Mirrors the withdraw cooldown gate: 0 is the "never withdrew" sentinel and
+// skips the check entirely.
+fn cooldown_satisfied(last_withdrawal: Felt, cooldown: Felt, current_checkpoint: Felt) -> bool {
+    if last_withdrawal == 0 {
+        true
+    } else {
+        current_checkpoint >= last_withdrawal + cooldown
+    }
+}
+
+#[test]
+fn test_zero_address_is_not_enabled() {
+    assert_eq(valid_l1_address(zero_u32x8()), false, "zero address must not count as enabled");
+}
+
+#[test]
+fn test_160_bit_address_is_valid() {
+    let address: [u32; 8] = [0u32, 0u32, 0u32, 40u32, 1u32, 2u32, 3u32, 4u32];
+    assert_eq(valid_l1_address(address), true, "160-bit address must be valid");
+}
+
+#[test]
+fn test_overwide_address_is_invalid() {
+    let mut address = zero_u32x8();
+    address[2] = 1u32;
+    assert_eq(valid_l1_address(address), false, "address wider than 160 bits must be invalid");
+    let mut high_address = zero_u32x8();
+    high_address[0] = 255u32;
+    assert_eq(valid_l1_address(high_address), false, "address with nonzero top limb must be invalid");
+}
+
+#[test]
+fn test_pending_maturity_selection() {
+    assert_eq(effective_value(5, 9, 0, 500), 5, "no scheduled update keeps live value");
+    assert_eq(effective_value(5, 9, 100, 99), 5, "pending value must not apply before the deadline");
+    assert_eq(effective_value(5, 9, 100, 100), 9, "pending value applies at the deadline");
+    assert_eq(effective_value(5, 9, 100, 101), 9, "pending value applies after the deadline");
+}
+
+#[test]
+fn test_cooldown_gate() {
+    assert_eq(cooldown_satisfied(0, 10, 0), true, "sentinel 0 means the user never withdrew");
+    assert_eq(cooldown_satisfied(10, 3, 12), false, "cooldown must block before last + cooldown");
+    assert_eq(cooldown_satisfied(10, 3, 13), true, "cooldown must pass at last + cooldown");
+    assert_eq(cooldown_satisfied(10, 0, 10), true, "zero cooldown passes immediately");
+}
+
+#[test]
+fn test_cross_token_cooldown_takes_max() {
+    let psy_last: Felt = 4;
+    let usdt_last: Felt = 9;
+    let mut last = psy_last;
+    if usdt_last > psy_last {
+        last = usdt_last;
+    };
+    assert_eq(cooldown_satisfied(last, 3, 11), false, "alternating tokens must not bypass the cooldown");
+    assert_eq(cooldown_satisfied(last, 3, 12), true, "cooldown passes from the later token's withdrawal");
+}

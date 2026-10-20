@@ -9,7 +9,6 @@ COVERAGE_IGNORE_REGEX := '(^|/)(psy-lsp-server/psy-lsp-vscode|psy-wasm/demo-(web
 # Release callers override this explicitly for their target stage.
 PSY_NETWORK ?= localhost
 export PSY_NETWORK
-
 export DARGO_STD_PATH := $(PWD)/psy-std/std.psy
 
 check:
@@ -256,10 +255,10 @@ compile-counter-abi:
 	@cd $(COUNTER_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyCounterContractRef --abi-name counter --method-names set_value increment
 
 compile-multisig-policy-contract:
-	@cd $(MULTISIG_POLICY_CONTRACT_PATH) && $(DARGO) compile --contract-name=MultisigPolicyContractRef --method-names get_policy set_policy
+	@cd $(MULTISIG_POLICY_CONTRACT_PATH) && $(DARGO) compile --contract-name=MultisigPolicyContractRef --method-names get_policy set_policy get_params set_params get_chain_mapping set_chain_mapping
 
 compile-multisig-policy-abi:
-	@cd $(MULTISIG_POLICY_CONTRACT_PATH) && $(DARGO) generate-abi -c MultisigPolicyContractRef --abi-name multisig_policy --output-dir $(ABI_OUTPUT_DIR) --method-names get_policy set_policy
+	@cd $(MULTISIG_POLICY_CONTRACT_PATH) && $(DARGO) generate-abi -c MultisigPolicyContractRef --abi-name multisig_policy --output-dir $(ABI_OUTPUT_DIR) --method-names get_policy set_policy get_params set_params get_chain_mapping set_chain_mapping
 
 PSY_GENESIS ?= $(PWD)/../psy-node/psy-genesis
 GENESIS_CONTRACTS_FILE := $(PSY_GENESIS)/genesis_contracts.json
@@ -295,9 +294,9 @@ gen-deploy-json: build \
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyTokenContractRef --abi-name token --output-dir $(ABI_OUTPUT_DIR) --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn private_transfer private_claim
 	@cd $(USDT_TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c USDTTokenContractRef --abi-name usdt_token --output-dir $(ABI_OUTPUT_DIR) --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn private_transfer private_claim
 	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyDepositTreeContractRef --abi-name deposit_tree --output-dir $(ABI_OUTPUT_DIR) --method-names get_root get_chain_root is_known_root_hash is_known_root set_chain_root append_leaf append_deposit batch_append_deposits_2 batch_append_deposits_5
-	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyWithdrawalTreeContractRef --abi-name withdrawal_tree --output-dir $(ABI_OUTPUT_DIR) --method-names get_root get_chain_root append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
+	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyWithdrawalTreeContractRef --abi-name withdrawal_tree --output-dir $(ABI_OUTPUT_DIR) --method-names set_chain_root get_root get_chain_root append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
 	@cd $(FAUCET_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyFaucetContractRef --abi-name faucet --output-dir $(ABI_OUTPUT_DIR) --method-names faucet
-	@cd $(MULTISIG_POLICY_CONTRACT_PATH) && $(DARGO) generate-abi -c MultisigPolicyContractRef --abi-name multisig_policy --output-dir $(ABI_OUTPUT_DIR) --method-names get_policy set_policy
+	@cd $(MULTISIG_POLICY_CONTRACT_PATH) && $(DARGO) generate-abi -c MultisigPolicyContractRef --abi-name multisig_policy --output-dir $(ABI_OUTPUT_DIR) --method-names get_policy set_policy get_params set_params get_chain_mapping set_chain_mapping
 	@# `compile` does not emit .abi.json — always source it from the freshly generated $(ABI_OUTPUT_DIR)
 	@cargo run --release --package dargo --example gen_deploy_abi_json -- \
 		$(GENESIS_ABI_DIR) \

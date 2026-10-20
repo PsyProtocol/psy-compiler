@@ -1,5 +1,6 @@
 use std::prelude::*;
 use deposit_tree::PsyDepositTreeContractRef;
+use multisig_policy::MultisigPolicyContractRef;
 
 #[derive(Storage)]
 struct OtherUserInfo {
@@ -100,8 +101,10 @@ struct ShieldClaimPublicInputsPreimage {
 #[derive(Storage)]
 pub struct PsyTokenContract {
     pub balance: Felt,
+    // Slot 1 was `reserved_1`; it now records the checkpoint id of the user's
+    // most recent withdrawal for the per-user cooldown. Offset must stay 1.
+    pub last_withdrawal_checkpoint: Felt,
     // Reserved to preserve the deployed storage layout.
-    pub reserved_1: Felt,
     pub reserved_2: Felt,
     pub other_user_info: [OtherUserInfo; 4294967296],
 
@@ -116,6 +119,13 @@ pub struct PsyTokenContract {
 impl PsyTokenContractRef {
     fn deposit_tree_contract_id() -> Felt { 2 }
     fn deposit_tree_user_id() -> Felt { 524288 }
+    fn usdt_token_contract_id() -> Felt { 4 }
+    fn multisig_policy_contract_id() -> Felt { 1 }
+    // Dense registration 15 under UserIdBitsStrategy5 (heights 12/20/1).
+    fn multisig_policy_user_id() -> Felt { 1966080 }
+    fn zero_u32x8() -> [u32; 8] {
+        [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32]
+    }
     fn eq_u32x8(a: [u32; 8], b: [u32; 8]) -> bool {
         a[0] == b[0]
             && a[1] == b[1]
@@ -268,13 +278,81 @@ impl PsyTokenContractRef {
     ) {
         let c = PsyTokenContractRef::new(ContractMetadata::current());
         let amount_felt = Self::u32x8_be_to_felt_u64(amount);
-        let current_balance = c.balance.get();
         assert(amount_felt > 0, "amount must be positive");
+        assert(destination_chain_index < 256, "destination chain index out of range (0-255)");
+        assert(!Self::eq_u32x8(recipient, Self::zero_u32x8()), "recipient must be nonzero");
+        assert(
+            recipient[0] == 0u32 && recipient[1] == 0u32 && recipient[2] == 0u32,
+            "recipient must be a 160-bit address",
+        );
+
+        // The withdrawal policy lives in the fixed governance account's own
+        // instance of contract 1; callers cannot influence which state is read.
+        let policy = MultisigPolicyContractRef::new(ContractMetadata::new(
+            Self::multisig_policy_contract_id(),
+            Self::multisig_policy_user_id(),
+        ));
+        let current_checkpoint = get_checkpoint_id();
+        let scheduled_checkpoint = policy.effective_checkpoint.get();
+        let pending_matured = scheduled_checkpoint != 0 && current_checkpoint >= scheduled_checkpoint;
+
+        let mut paused = policy.paused.get();
+        if pending_matured {
+            paused = policy.pending_paused.get();
+        };
+        assert(paused == 0, "withdrawals are paused");
+
+        let mut per_tx_limit = policy.psy_per_tx_limit.get();
+        if pending_matured {
+            per_tx_limit = policy.pending_psy_limit.get();
+        };
+        assert(amount_felt <= per_tx_limit, "amount exceeds per-withdrawal limit");
+
+        let mut cooldown = policy.cooldown_checkpoints.get();
+        if pending_matured {
+            cooldown = policy.pending_cooldown.get();
+        };
+
+        // The approved mapping both enables the chain and fixes the L1 token.
+        let approved_token_address = policy.psy_l1_addresses[destination_chain_index].get();
+        assert(
+            !Self::eq_u32x8(approved_token_address, Self::zero_u32x8()),
+            "destination chain is not enabled for this token",
+        );
+        assert(
+            token_address[0] == 0u32 && token_address[1] == 0u32 && token_address[2] == 0u32,
+            "l1 token address is not 160-bit",
+        );
+        assert(Self::eq_u32x8(token_address, approved_token_address), "l1 token address does not match governance mapping");
+
+        // The cooldown spans both bridgeable tokens so alternating PSY/USDT
+        // withdrawals cannot bypass it.
+        let own_last_withdrawal = c.last_withdrawal_checkpoint.get();
+        let usdt_last_withdrawal: Felt = Felt::read(
+            get_contract_state_tree_height(Self::usdt_token_contract_id()),
+            get_user_id(),
+            Self::usdt_token_contract_id(),
+            1
+        );
+        let mut last_withdrawal = own_last_withdrawal;
+        if usdt_last_withdrawal > own_last_withdrawal {
+            last_withdrawal = usdt_last_withdrawal;
+        };
+        if last_withdrawal != 0 {
+            assert(
+                current_checkpoint >= last_withdrawal + cooldown,
+                "withdrawal cooldown active",
+            );
+        };
+
+        let current_balance = c.balance.get();
         assert(current_balance >= amount_felt, "insufficient balance");
 
-        c.balance = current_balance - amount_felt;
+        let record_key: Hash = Self::withdrawal_record_key(nonce);
+        assert(!c.state_map.contains_ns(6, record_key), "nonce already used for withdrawal");
 
-        assert(destination_chain_index < 256, "destination chain index out of range (0-255)");
+        c.balance = current_balance - amount_felt;
+        c.last_withdrawal_checkpoint = current_checkpoint;
 
         let sender_user_id = get_user_id();
         let n0: Felt = nonce[0] as Felt;
@@ -297,8 +375,6 @@ impl PsyTokenContractRef {
             n0, n1, n2, n3, n4, n5, n6, n7,
             destination_chain_index,
         ]);
-        let record_key: Hash = Self::withdrawal_record_key(nonce);
-        assert(!c.state_map.contains_ns(6, record_key), "nonce already used for withdrawal");
         c.state_map.insert_ns(6, record_key, leaf_hash);
         let event_data = WithdrawalEvent {
             sender_user_id,

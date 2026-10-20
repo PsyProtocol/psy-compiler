@@ -1,10 +1,45 @@
 use std::prelude::*;
 
+#[derive(Event)]
+pub struct PolicyUpdatedEvent {
+    pub version: Felt,
+    pub paused: Felt,
+    pub psy_per_tx_limit: Felt,
+    pub usdt_per_tx_limit: Felt,
+    pub cooldown_checkpoints: Felt,
+    pub pending_paused: Felt,
+    pub pending_psy_limit: Felt,
+    pub pending_usdt_limit: Felt,
+    pub pending_cooldown: Felt,
+    pub effective_checkpoint: Felt,
+}
+
+#[derive(Event)]
+pub struct ChainMappingUpdatedEvent {
+    pub version: Felt,
+    pub chain_index: Felt,
+    pub l2_contract_id: Felt,
+    pub l1_address: [u32; 8],
+}
+
 #[contract]
 #[derive(Storage)]
 pub struct MultisigPolicyContract {
     pub header: Hash,
     pub members: [Hash; 3],
+    pub version: Felt,
+    pub paused: Felt,
+    pub psy_per_tx_limit: Felt,
+    pub usdt_per_tx_limit: Felt,
+    pub cooldown_checkpoints: Felt,
+    pub loosen_delay_checkpoints: Felt,
+    pub pending_paused: Felt,
+    pub pending_psy_limit: Felt,
+    pub pending_usdt_limit: Felt,
+    pub pending_cooldown: Felt,
+    pub effective_checkpoint: Felt,
+    pub psy_l1_addresses: [[u32; 8]; 256],
+    pub usdt_l1_addresses: [[u32; 8]; 256],
 }
 
 impl MultisigPolicyContractRef {
@@ -80,5 +115,234 @@ impl MultisigPolicyContractRef {
         };
         c.header = [version, 2, 3, 0];
         c.members = next_members;
+    }
+
+    // Dense registration 15 under UserIdBitsStrategy5 (heights 12/20/1).
+    // The governance multisig account is distinct from the bridge account.
+    fn policy_user_id() -> Felt { 1966080 }
+    fn token_contract_id() -> Felt { 0 }
+    fn usdt_token_contract_id() -> Felt { 4 }
+
+    fn zero_u32x8() -> [u32; 8] {
+        [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32]
+    }
+
+    fn eq_u32x8(a: [u32; 8], b: [u32; 8]) -> bool {
+        a[0] == b[0]
+            && a[1] == b[1]
+            && a[2] == b[2]
+            && a[3] == b[3]
+            && a[4] == b[4]
+            && a[5] == b[5]
+            && a[6] == b[6]
+            && a[7] == b[7]
+    }
+
+    // All-zero disables the mapping; otherwise the address must fit in 160 bits
+    // (big-endian limbs 0-2 zero).
+    fn valid_l1_address(address: [u32; 8]) -> bool {
+        let nonzero = !Self::eq_u32x8(address, Self::zero_u32x8());
+        let fits_160_bits = address[0] == 0u32 && address[1] == 0u32 && address[2] == 0u32;
+        nonzero && fits_160_bits
+    }
+
+    #[contract_method]
+    pub fn get_params() -> [Felt; 11] {
+        let c = MultisigPolicyContractRef::new(ContractMetadata::current());
+        [
+            c.version.get(),
+            c.paused.get(),
+            c.psy_per_tx_limit.get(),
+            c.usdt_per_tx_limit.get(),
+            c.cooldown_checkpoints.get(),
+            c.loosen_delay_checkpoints.get(),
+            c.pending_paused.get(),
+            c.pending_psy_limit.get(),
+            c.pending_usdt_limit.get(),
+            c.pending_cooldown.get(),
+            c.effective_checkpoint.get(),
+        ]
+    }
+
+    #[contract_method]
+    pub fn get_chain_mapping(l2_contract_id: Felt, chain_index: Felt) -> [u32; 8] {
+        let c = MultisigPolicyContractRef::new(ContractMetadata::current());
+        let mut address: [u32; 8] = c.psy_l1_addresses[chain_index].get();
+        if l2_contract_id == Self::usdt_token_contract_id() {
+            address = c.usdt_l1_addresses[chain_index].get();
+        };
+        address
+    }
+
+    // Tightening changes (pause, lower limits, longer cooldown) apply
+    // immediately. Loosening changes (unpause, raise limits, shorter cooldown)
+    // are deferred: they land in the pending slots and mature at
+    // effective_checkpoint, which is never scheduled earlier than a pending
+    // value already in flight. A tightening change cancels the pending value
+    // of the field it tightens.
+    #[contract_method]
+    pub fn set_params(
+        expected_version: Felt,
+        paused: Felt,
+        psy_per_tx_limit: Felt,
+        usdt_per_tx_limit: Felt,
+        cooldown_checkpoints: Felt,
+    ) {
+        assert(get_user_id() == Self::policy_user_id(), "only the withdrawal policy account can set withdrawal params");
+        assert(paused == 0 || paused == 1, "paused must be 0 or 1");
+        assert(psy_per_tx_limit > 0, "psy per-tx limit must be positive");
+        assert(usdt_per_tx_limit > 0, "usdt per-tx limit must be positive");
+        assert(cooldown_checkpoints < 4294967296, "cooldown must fit in 32 bits");
+
+        let c = MultisigPolicyContractRef::new(ContractMetadata::current());
+        let version = c.version.get();
+        assert(version == expected_version, "expected policy version mismatch");
+        assert(version < 4294967295, "policy version overflow");
+
+        let current_checkpoint = get_checkpoint_id();
+
+        // Fold a matured pending update into live state before classifying.
+        let scheduled_checkpoint = c.effective_checkpoint.get();
+        if scheduled_checkpoint != 0 && current_checkpoint >= scheduled_checkpoint {
+            c.paused = c.pending_paused.get();
+            c.psy_per_tx_limit = c.pending_psy_limit.get();
+            c.usdt_per_tx_limit = c.pending_usdt_limit.get();
+            c.cooldown_checkpoints = c.pending_cooldown.get();
+            c.pending_paused = 0;
+            c.pending_psy_limit = 0;
+            c.pending_usdt_limit = 0;
+            c.pending_cooldown = 0;
+            c.effective_checkpoint = 0;
+        };
+
+        let live_paused = c.paused.get();
+        let live_psy_limit = c.psy_per_tx_limit.get();
+        let live_usdt_limit = c.usdt_per_tx_limit.get();
+        let live_cooldown = c.cooldown_checkpoints.get();
+
+        let had_pending = c.effective_checkpoint.get() != 0;
+        let mut pending_paused = live_paused;
+        let mut pending_psy_limit = live_psy_limit;
+        let mut pending_usdt_limit = live_usdt_limit;
+        let mut pending_cooldown = live_cooldown;
+        if had_pending {
+            pending_paused = c.pending_paused.get();
+            pending_psy_limit = c.pending_psy_limit.get();
+            pending_usdt_limit = c.pending_usdt_limit.get();
+            pending_cooldown = c.pending_cooldown.get();
+        };
+
+        if paused > live_paused {
+            c.paused = paused;
+            pending_paused = paused;
+        } else {
+            if paused < live_paused {
+                pending_paused = paused;
+            };
+        };
+        if psy_per_tx_limit < live_psy_limit {
+            c.psy_per_tx_limit = psy_per_tx_limit;
+            pending_psy_limit = psy_per_tx_limit;
+        } else {
+            if psy_per_tx_limit > live_psy_limit {
+                pending_psy_limit = psy_per_tx_limit;
+            };
+        };
+        if usdt_per_tx_limit < live_usdt_limit {
+            c.usdt_per_tx_limit = usdt_per_tx_limit;
+            pending_usdt_limit = usdt_per_tx_limit;
+        } else {
+            if usdt_per_tx_limit > live_usdt_limit {
+                pending_usdt_limit = usdt_per_tx_limit;
+            };
+        };
+        if cooldown_checkpoints > live_cooldown {
+            c.cooldown_checkpoints = cooldown_checkpoints;
+            pending_cooldown = cooldown_checkpoints;
+        } else {
+            if cooldown_checkpoints < live_cooldown {
+                pending_cooldown = cooldown_checkpoints;
+            };
+        };
+
+        let pending_differs = pending_paused != c.paused.get()
+            || pending_psy_limit != c.psy_per_tx_limit.get()
+            || pending_usdt_limit != c.usdt_per_tx_limit.get()
+            || pending_cooldown != c.cooldown_checkpoints.get();
+        let mut next_effective_checkpoint: Felt = 0;
+        if pending_differs {
+            let deadline = current_checkpoint + c.loosen_delay_checkpoints.get();
+            next_effective_checkpoint = deadline;
+            if had_pending && c.effective_checkpoint.get() > deadline {
+                next_effective_checkpoint = c.effective_checkpoint.get();
+            };
+        };
+
+        c.pending_paused = pending_paused;
+        c.pending_psy_limit = pending_psy_limit;
+        c.pending_usdt_limit = pending_usdt_limit;
+        c.pending_cooldown = pending_cooldown;
+        c.effective_checkpoint = next_effective_checkpoint;
+
+        let next_version = version + 1;
+        c.version = next_version;
+
+        let event_data = PolicyUpdatedEvent {
+            version: next_version,
+            paused: c.paused.get(),
+            psy_per_tx_limit: c.psy_per_tx_limit.get(),
+            usdt_per_tx_limit: c.usdt_per_tx_limit.get(),
+            cooldown_checkpoints: c.cooldown_checkpoints.get(),
+            pending_paused,
+            pending_psy_limit,
+            pending_usdt_limit,
+            pending_cooldown,
+            effective_checkpoint: next_effective_checkpoint,
+        };
+        event_data.emit();
+    }
+
+    // Chain/token mappings apply in both directions immediately: enabling a new
+    // chain is still gated off-chain by the guardian authorization, which only
+    // signs appends for (chain, l2 contract, l1 token) pairs it approved.
+    #[contract_method]
+    pub fn set_chain_mapping(
+        expected_version: Felt,
+        chain_index: Felt,
+        l2_contract_id: Felt,
+        l1_address: [u32; 8],
+    ) {
+        assert(get_user_id() == Self::policy_user_id(), "only the withdrawal policy account can set chain mappings");
+        assert(chain_index < 256, "chain index out of range (0-255)");
+        assert(
+            l2_contract_id == Self::token_contract_id() || l2_contract_id == Self::usdt_token_contract_id(),
+            "unsupported l2 token contract",
+        );
+        assert(
+            Self::eq_u32x8(l1_address, Self::zero_u32x8()) || Self::valid_l1_address(l1_address),
+            "l1 address must be zero or a 160-bit address",
+        );
+
+        let c = MultisigPolicyContractRef::new(ContractMetadata::current());
+        let version = c.version.get();
+        assert(version == expected_version, "expected policy version mismatch");
+        assert(version < 4294967295, "policy version overflow");
+
+        if l2_contract_id == Self::token_contract_id() {
+            c.psy_l1_addresses[chain_index] = l1_address;
+        } else {
+            c.usdt_l1_addresses[chain_index] = l1_address;
+        };
+
+        let next_version = version + 1;
+        c.version = next_version;
+
+        let event_data = ChainMappingUpdatedEvent {
+            version: next_version,
+            chain_index,
+            l2_contract_id,
+            l1_address,
+        };
+        event_data.emit();
     }
 }

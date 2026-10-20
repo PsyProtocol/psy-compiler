@@ -104,12 +104,12 @@ mod tests {
     fn policy_artifact_and_abi_agree() {
         let artifact: serde_json::Value = serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/multisig_policy.json"))).unwrap();
         let abi: serde_json::Value = serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/multisig_policy.abi.json"))).unwrap();
-        assert_eq!(artifact["state_tree_height"], 4);
-        assert_eq!(abi["contract"]["state_tree_height"], 4);
+        assert_eq!(artifact["state_tree_height"], 11);
+        assert_eq!(abi["contract"]["state_tree_height"], 11);
         assert_eq!(artifact["abi"], abi);
         let mut methods = list_contract_methods("multisig_policy");
         methods.sort();
-        assert_eq!(methods, ["get_policy", "set_policy"]);
+        assert_eq!(methods, ["get_chain_mapping", "get_params", "get_policy", "set_chain_mapping", "set_params", "set_policy"]);
     }
 
     #[test]
@@ -200,7 +200,7 @@ mod tests {
         if !policy_methods.is_empty() {
             assert!(policy_methods.contains(&"get_policy".to_string()));
             assert!(policy_methods.contains(&"set_policy".to_string()));
-            assert_eq!(policy_methods.len(), 2);
+            assert_eq!(policy_methods.len(), 6);
         }
 
         if !usdt_methods.is_empty() {

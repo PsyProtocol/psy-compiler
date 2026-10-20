@@ -21,10 +21,14 @@
       "name": "multisig_policy",
       "path": "multisig_policy",
       "contract_name": "MultisigPolicyContractRef",
-      "declared_state_tree_height": 4,
+      "declared_state_tree_height": 11,
       "method_names": [
         "get_policy",
-        "set_policy"
+        "set_policy",
+        "get_params",
+        "set_params",
+        "get_chain_mapping",
+        "set_chain_mapping"
       ]
     },
     {
