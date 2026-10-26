@@ -27,6 +27,8 @@ mod tests {
             user_id: USER_ID, contract_id: MULTISIG_POLICY_CONTRACT_ID as u64, caller_contract_id: MULTISIG_POLICY_CONTRACT_ID as u64,
             checkpoint_id: 1, nonce: 1, user_public_key_hash: [0; 4],
             session_proof_tree_root: [0; 4],
+            transaction_log: Vec::new(),
+            transaction_stack_hash: [0; 4],
         };
         let inputs: Vec<u64> = expected.into_iter().chain(members.into_iter().flatten()).chain(next.into_iter().flatten()).collect();
         let mut executor = VmExecutor::new(state.clone());
@@ -55,6 +57,8 @@ mod tests {
             user_id: USER_ID, contract_id: MULTISIG_POLICY_CONTRACT_ID as u64, caller_contract_id: MULTISIG_POLICY_CONTRACT_ID as u64,
             checkpoint_id: 1, nonce: 1, user_public_key_hash: [0; 4],
             session_proof_tree_root: [0; 4],
+            transaction_log: Vec::new(),
+            transaction_stack_hash: [0; 4],
         };
         let mut reader = VmExecutor::new(state.clone());
         let result = reader.execute(get_precompiled_contract_function_by_name("multisig_policy", "get_policy").unwrap(), &context, &[]).unwrap();
