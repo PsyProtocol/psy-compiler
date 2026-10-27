@@ -19,7 +19,29 @@ pub struct AbiContract {
     pub name: String,
     pub state_tree_height: u16,
     pub state: Vec<AbiStateField>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_layout: Option<AbiStateLayout>,
     pub methods: Vec<AbiMethod>,
+}
+
+/// Consensus field ranges use felt units, including any leading map padding.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AbiStateLayout {
+    pub layout_version: u16,
+    pub encoding_version: u16,
+    pub field_count: u64,
+    pub slot_count: u64,
+    pub fields: Vec<AbiStateLayoutField>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AbiStateLayoutField {
+    pub field_id: u64,
+    #[serde(rename = "type")]
+    pub ty: TypeRef,
+    pub start_slot: u64,
+    pub payload_offset: u64,
+    pub slot_count: u64,
 }
 
 /// A state field with its absolute slot offset and felt footprint.
@@ -189,6 +211,7 @@ mod tests {
             contract: AbiContract {
                 name: "Wallet".to_string(),
                 state_tree_height: 7,
+                state_layout: None,
                 state: vec![AbiStateField {
                     name: "balances".to_string(),
                     ty: TypeRef::Map {

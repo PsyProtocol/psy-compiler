@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use psy_ast::{DefId, DefaultVisitorContext, FunctionNode, Program, StructNode, UncheckedType, Visibility, VisitorContext};
 
 use crate::{
-    Abi, AbiContract, AbiMethod, AbiParam, AbiStateField, AbiStructField, AbiStructType,
+    Abi, AbiContract, AbiMethod, AbiParam, AbiStateField, AbiStateLayout, AbiStateLayoutField, AbiStructField, AbiStructType,
     AbiTypeKind, MapKind, PrimitiveTypeName, StateMutability, TypeRef,
 };
 
@@ -91,6 +91,10 @@ impl AbiExtractor {
         let (state, _total_virtual_felts) = contract_struct
             .map(|sn| self.extract_canonical_state(&ctx, sn, &struct_nodes, &struct_layouts))
             .unwrap_or_default();
+        let state_layout = self.extract_state_layout(&ctx, contract_struct, &struct_nodes, &struct_layouts)?;
+        if state_tree_height >= 64 || u128::from(state_layout.slot_count) > (1u128 << state_tree_height) * 4 {
+            return Err(psy_common::Error::Message("canonical state layout exceeds contract state tree capacity".to_string()));
+        }
 
         // --- Build methods ---
         let methods = self.extract_canonical_methods(&ctx, &contract_name, &struct_layouts, method_metadata);
@@ -101,6 +105,7 @@ impl AbiExtractor {
                 name: contract_name,
                 state_tree_height,
                 state,
+                state_layout: Some(state_layout),
                 methods,
             },
             types,
@@ -270,6 +275,118 @@ impl AbiExtractor {
         }
 
         (fields, offset)
+    }
+
+    /// Export contiguous felt ranges from the existing typed storage layout.
+    fn extract_state_layout<F: Clone + From<u32>>(
+        &self,
+        ctx: &DefaultVisitorContext<F, ()>,
+        contract_struct: Option<&StructNode>,
+        struct_nodes: &BTreeMap<String, &StructNode>,
+        struct_layouts: &HashMap<String, StructLayout>,
+    ) -> Result<AbiStateLayout, psy_common::Error> {
+        let mut layout = AbiStateLayout {
+            layout_version: 1,
+            encoding_version: 1,
+            field_count: 0,
+            slot_count: 0,
+            fields: Vec::new(),
+        };
+        if let Some(contract) = contract_struct {
+            // Unlike the public state view, consensus layout includes private
+            // fields as well. Names are not part of the consensus field leaf.
+            for (_, field) in &contract.fields {
+                let size = self.state_type_slot_count(ctx, &field.ty, struct_nodes, true, &mut HashSet::new())?;
+                let (stored_size, is_map) = self.canonical_felt_size_and_is_map(ctx, &field.ty, struct_nodes, struct_layouts);
+                if size != stored_size as u64 {
+                    return Err(psy_common::Error::Message("canonical state type differs from compiler storage footprint".to_string()));
+                }
+                let padding = if is_map { (4 - layout.slot_count % 4) % 4 } else { 0 };
+                let slot_count = size.checked_add(padding)
+                    .ok_or_else(|| psy_common::Error::Message("canonical state layout slot count overflow".to_string()))?;
+                let next_slot = layout.slot_count.checked_add(slot_count)
+                    .ok_or_else(|| psy_common::Error::Message("canonical state layout slot count overflow".to_string()))?;
+                layout.fields.push(AbiStateLayoutField {
+                    field_id: layout.fields.len() as u64 + 1,
+                    ty: self.unchecked_type_to_typeref(ctx, &field.ty),
+                    start_slot: layout.slot_count,
+                    payload_offset: padding,
+                    slot_count,
+                });
+                layout.slot_count = next_slot;
+            }
+        }
+        layout.field_count = layout.fields.len() as u64;
+        Ok(layout)
+    }
+
+    // Fail closed when the existing ABI type model cannot describe storage
+    // exactly; metadata export must not change codegen to make a layout fit.
+    fn state_type_slot_count<F: Clone + From<u32>>(
+        &self,
+        ctx: &DefaultVisitorContext<F, ()>,
+        ty: &UncheckedType,
+        structs: &BTreeMap<String, &StructNode>,
+        allow_map: bool,
+        visiting: &mut HashSet<String>,
+    ) -> Result<u64, psy_common::Error> {
+        let invalid = |message: &str| psy_common::Error::Message(message.to_string());
+        match ty {
+            UncheckedType::Basic(identifier) => {
+                let name = ctx.ident(*identifier).0.as_str();
+                match name {
+                    "Felt" | "bool" | "Bool" | "u32" => return Ok(1),
+                    "Hash" => return Ok(4),
+                    _ => {}
+                }
+                if !visiting.insert(name.to_string()) {
+                    return Err(invalid("recursive canonical state type is unsupported"));
+                }
+                let size = if let Some(target) = self.type_alias_target(ctx, name) {
+                    self.state_type_slot_count(ctx, target, structs, allow_map, visiting)?
+                } else {
+                    let definition = structs.get(name).ok_or_else(|| invalid("unknown canonical state type"))?;
+                    if self.is_internal_type(name) || definition.fields.is_empty() {
+                        return Err(invalid("canonical state struct is absent from the ABI type table or empty"));
+                    }
+                    let mut size = 0u64;
+                    for (_, member) in &definition.fields {
+                        if !Self::is_public(&member.visibility) {
+                            return Err(invalid("canonical state struct contains members hidden by the ABI type table"));
+                        }
+                        let member_size = self.state_type_slot_count(ctx, &member.ty, structs, false, visiting)?;
+                        size = size.checked_add(member_size).ok_or_else(|| invalid("canonical state struct size overflow"))?;
+                    }
+                    size
+                };
+                visiting.remove(name);
+                Ok(size)
+            }
+            UncheckedType::Path(path) => self.state_type_slot_count(ctx, &path.target, structs, allow_map, visiting),
+            UncheckedType::Array(item, length, _) => {
+                let length = length.as_u64().filter(|length| *length > 0)
+                    .ok_or_else(|| invalid("canonical state array requires a non-zero length"))?;
+                self.state_type_slot_count(ctx, item, structs, false, visiting)?.checked_mul(length)
+                    .ok_or_else(|| invalid("canonical state array size overflow"))
+            }
+            UncheckedType::Generic(identifier, parameters, _) => {
+                let name = ctx.ident(*identifier).0.as_str();
+                if !allow_map || !matches!(name, "Map" | "NamespacedMap" | "ContractHashMap") || parameters.len() != 3 {
+                    return Err(invalid("canonical state layout requires maps to be top-level and fully typed"));
+                }
+                self.state_type_slot_count(ctx, &parameters[0], structs, false, visiting)?;
+                let value_size = self.state_type_slot_count(ctx, &parameters[1], structs, false, visiting)?;
+                // Existing IMT storage reserves four felts per entry regardless
+                // of V. The node layout must agree without changing that rule.
+                if value_size != 4 {
+                    return Err(invalid("canonical map value must match the four-felt IMT storage entry"));
+                }
+                let capacity = self.const_len_from_type(&parameters[2]).filter(|capacity| *capacity > 0)
+                    .ok_or_else(|| invalid("canonical state map requires a non-zero capacity"))?;
+                (capacity as u64).checked_mul(4).ok_or_else(|| invalid("canonical state map size overflow"))
+            }
+            _ => Err(invalid("canonical state type cannot be represented by the ABI type model")),
+        }
     }
 
     /// Compute felt_size for a type and whether it's a map (for alignment).
