@@ -14,7 +14,8 @@ pub struct PsyFaucetContract {
 
 impl PsyFaucetContractRef {
     #[contract_method]
-    pub fn faucet(user_id: Felt, amount: Felt) {
+    pub fn faucet(amount: Felt) {
+        let user_id = get_user_id();
         let max_amount = 1000000000000;
         let window_size = 120;
         let current_block = get_checkpoint_id();
