@@ -1,9 +1,5 @@
-# <project-root>/.cargo/config.toml
-[env]
-TS_RS_EXPORT_DIR = { value = "psy_sdk/psy-ts-sdk/packages/psy-sdk/src/types", relative = true }
-
-[target.wasm32-unknown-unknown]
-rustflags = [
-    "-C", "panic=abort",
-    '--cfg', 'getrandom_backend="js"'
-]
+# Cargo's built-in SSH client cannot authenticate with github.com in this
+# environment; shell out to the git CLI, which uses the developer's own SSH
+# configuration.
+[net]
+git-fetch-with-cli = true

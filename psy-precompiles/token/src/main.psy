@@ -296,6 +296,7 @@ impl PsyTokenContractRef {
             amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
             n0, n1, n2, n3, n4, n5, n6, n7,
             destination_chain_index,
+            get_contract_id(),
         ]);
         let record_key: Hash = Self::withdrawal_record_key(nonce);
         assert(!c.state_map.contains_ns(6, record_key), "nonce already used for withdrawal");
@@ -372,10 +373,10 @@ impl PsyTokenContractRef {
             preimage.deposit_index
         ]);
         let shield_claim_fingerprint: Hash = [
-            10703802335665618430,
-            10068318241409151045,
-            3414993520734878651,
-            6701097966655937136
+            10300675757615779284,
+            7959431029994071658,
+            2858758774398267815,
+            15642499089729770720
         ];
         let leaf: Hash = hash_two_to_one(shield_claim_fingerprint, public_inputs_hash);
         let mut current: Hash = leaf;

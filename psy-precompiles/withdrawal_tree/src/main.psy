@@ -45,6 +45,7 @@ impl PsyWithdrawalTreeContractRef {
         amount: [u32; 8],
         recipient: [u32; 8],
         nonce: [u32; 8],
+        token_contract_id: Felt,
     ) -> Hash {
         hash([
             sender_user_id,
@@ -57,6 +58,7 @@ impl PsyWithdrawalTreeContractRef {
             nonce[0] as Felt, nonce[1] as Felt, nonce[2] as Felt, nonce[3] as Felt,
             nonce[4] as Felt, nonce[5] as Felt, nonce[6] as Felt, nonce[7] as Felt,
             destination_chain_index,
+            token_contract_id,
         ])
     }
     fn is_zero_u32x8(x: [u32; 8]) -> bool {
@@ -258,6 +260,7 @@ impl PsyWithdrawalTreeContractRef {
             amount,
             recipient,
             nonce,
+            token_contract_id,
         );
         let token_state_map: MapRef<Hash, Hash, 1048576u32> = MapRef::new(
             Self::token_state_map_offset(),
