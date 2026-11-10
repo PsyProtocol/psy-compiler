@@ -58,10 +58,10 @@ pub struct UserInfoEvent {
 pub struct WithdrawalEvent {
     pub sender_user_id: Felt,
     pub destination_chain_index: Felt,
-    pub token_address: [u32; 8],
-    pub amount: [u32; 8],
-    pub recipient: [u32; 8],
-    pub nonce: [u32; 8],
+    pub token_address: u256,
+    pub amount: u256,
+    pub recipient: u256,
+    pub nonce: u256,
 }
 
 struct PrivateClaimProof {
@@ -86,9 +86,9 @@ struct ProofPublicInputsPreimage {
 
 struct ShieldClaimPublicInputsPreimage {
     pub shield_address: Hash,
-    pub amount: [u32; 8],
-    pub token_address: [u32; 8],
-    pub l2_token_contract_id: [u32; 8],
+    pub amount: u256,
+    pub token_address: u256,
+    pub l2_token_contract_id: u256,
     pub source_chain_index: Felt,
     pub deposit_root: Hash,
     pub nullifier_hash: Hash,
@@ -116,124 +116,49 @@ pub struct USDTTokenContract {
 impl USDTTokenContractRef {
     fn deposit_tree_contract_id() -> Felt { 2 }
     fn deposit_tree_user_id() -> Felt { 524288 }
-    fn eq_u32x8(a: [u32; 8], b: [u32; 8]) -> bool {
-        a[0] == b[0]
-            && a[1] == b[1]
-            && a[2] == b[2]
-            && a[3] == b[3]
-            && a[4] == b[4]
-            && a[5] == b[5]
-            && a[6] == b[6]
-            && a[7] == b[7]
+
+    // Wire encoding of a bytes32 value: eight u32 limb felts, most significant
+    // limb first (big-endian word order). A u256 carries the same eight limb
+    // slots, so mem::transmute reinterprets between u256 and [u32; 8]
+    // losslessly: hash preimages, events, and storage felts are unchanged
+    // from the previous [u32; 8] representation.
+    fn felt_u64_to_u256(x: Felt) -> u256 {
+        transmute::<u256>([0u32, 0u32, 0u32, 0u32, 0u32, 0u32, (x >> 32) as u32, (x & 4294967295) as u32])
     }
 
-    fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
-        let data: [Felt; 16] = [
-            left[0] as Felt, left[1] as Felt, left[2] as Felt, left[3] as Felt,
-            left[4] as Felt, left[5] as Felt, left[6] as Felt, left[7] as Felt,
-            right[0] as Felt, right[1] as Felt, right[2] as Felt, right[3] as Felt,
-            right[4] as Felt, right[5] as Felt, right[6] as Felt, right[7] as Felt
-        ];
-        keccak256(data)
+    fn current_contract_id_u256() -> u256 {
+        Self::felt_u64_to_u256(get_contract_id())
     }
 
-    fn hash_to_u32x8(x: Hash) -> [u32; 8] {
-        let mask: Felt = 4294967295;
-        let x0_lo: u32 = (x[0] & mask) as u32;
-        let x0_hi: u32 = (x[0] >> 32) as u32;
-        let x1_lo: u32 = (x[1] & mask) as u32;
-        let x1_hi: u32 = (x[1] >> 32) as u32;
-        let x2_lo: u32 = (x[2] & mask) as u32;
-        let x2_hi: u32 = (x[2] >> 32) as u32;
-        let x3_lo: u32 = (x[3] & mask) as u32;
-        let x3_hi: u32 = (x[3] >> 32) as u32;
-        [x0_lo, x0_hi, x1_lo, x1_hi, x2_lo, x2_hi, x3_lo, x3_hi]
-    }
-
-    fn user_id_to_u32x8_be(user_id: Felt) -> [u32; 8] {
-        // bytes32 big-endian: high 192 bits are zero, low 64 bits are user_id.
-        // Represented as eight u32 limbs in big-endian word order.
-        [
-            0u32,
-            0u32,
-            0u32,
-            0u32,
-            0u32,
-            0u32,
-            (user_id >> 32) as u32,
-            (user_id & 4294967295) as u32,
-        ]
-    }
-
-    fn current_contract_id_u32x8_be() -> [u32; 8] {
-        Self::felt_u64_to_u32x8_be(get_contract_id())
-    }
-
-    fn felt_u64_to_u32x2_be(x: Felt) -> [u32; 2] {
-        [(x >> 32) as u32, (x & 4294967295) as u32]
-    }
-
-    fn felt_u64_to_u32x8_be(x: Felt) -> [u32; 8] {
-        [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, (x >> 32) as u32, (x & 4294967295) as u32]
-    }
-
-    fn u32_shift_factor() -> Felt {
-        let mut factor: Felt = 1;
-        for _i in 0u32..32u32 {
-            factor *= 2;
-        }
-        factor
-    }
-
-    fn u32x2_be_to_felt_u64(x: [u32; 2]) -> Felt {
-        (x[0] as Felt) * Self::u32_shift_factor() + (x[1] as Felt)
-    }
-
-    fn u32x8_be_to_felt_u64(x: [u32; 8]) -> Felt {
+    fn u256_to_felt(x: u256) -> Felt {
+        let limbs = transmute::<[u32; 8]>(x);
         assert(
-            x[0] == 0u32 && x[1] == 0u32 && x[2] == 0u32 && x[3] == 0u32 &&
-            x[4] == 0u32 && x[5] == 0u32,
+            limbs[0] == 0u32 && limbs[1] == 0u32 && limbs[2] == 0u32 && limbs[3] == 0u32 &&
+            limbs[4] == 0u32 && limbs[5] == 0u32,
             "amount exceeds uint64 range"
         );
         assert(
-            x[6] < 4294967295u32 || x[7] == 0u32,
+            limbs[6] < 4294967295u32 || limbs[7] == 0u32,
             "amount exceeds Felt range"
         );
-        (x[6] as Felt) * Self::u32_shift_factor() + (x[7] as Felt)
+        (limbs[6] as Felt) * 4294967296 + (limbs[7] as Felt)
     }
 
-    fn u32x8_to_hash(x: [u32; 8]) -> Hash {
+    fn u256_to_hash(x: u256) -> Hash {
+        let limbs = transmute::<[u32; 8]>(x);
         [
-            (x[0] as Felt) + (x[1] as Felt) * Self::u32_shift_factor(),
-            (x[2] as Felt) + (x[3] as Felt) * Self::u32_shift_factor(),
-            (x[4] as Felt) + (x[5] as Felt) * Self::u32_shift_factor(),
-            (x[6] as Felt) + (x[7] as Felt) * Self::u32_shift_factor(),
+            (limbs[0] as Felt) + (limbs[1] as Felt) * 4294967296,
+            (limbs[2] as Felt) + (limbs[3] as Felt) * 4294967296,
+            (limbs[4] as Felt) + (limbs[5] as Felt) * 4294967296,
+            (limbs[6] as Felt) + (limbs[7] as Felt) * 4294967296,
         ]
     }
-    fn withdrawal_record_key(nonce: [u32; 8]) -> Hash {
+    fn withdrawal_record_key(nonce: u256) -> Hash {
+        let limbs = transmute::<[u32; 8]>(nonce);
         hash([
-            nonce[0] as Felt, nonce[1] as Felt, nonce[2] as Felt, nonce[3] as Felt,
-            nonce[4] as Felt, nonce[5] as Felt, nonce[6] as Felt, nonce[7] as Felt,
+            limbs[0] as Felt, limbs[1] as Felt, limbs[2] as Felt, limbs[3] as Felt,
+            limbs[4] as Felt, limbs[5] as Felt, limbs[6] as Felt, limbs[7] as Felt,
         ])
-    }
-
-    fn poseidon_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
-        Self::hash_to_u32x8(hash_two_to_one(Self::u32x8_to_hash(left), Self::u32x8_to_hash(right)))
-    }
-
-    fn poseidon_merkle_verify(leaf: [u32; 8], index: Felt, siblings: [[u32; 8]; 32]) -> [u32; 8] {
-        let mut current = leaf;
-        for i in 0u32..32u32 {
-            let level_index = i as Felt;
-            let sibling = siblings[level_index];
-            let index_bit: Felt = (index >> level_index) & 1;
-            if index_bit == 0 {
-                current = Self::poseidon_two_to_one(current, sibling);
-            } else {
-                current = Self::poseidon_two_to_one(sibling, current);
-            };
-        }
-        current
     }
 
     fn eq_hash(a: Hash, b: Hash) -> bool {
@@ -243,31 +168,16 @@ impl USDTTokenContractRef {
             && a[3] == b[3]
     }
 
-    fn poseidon_merkle_verify_hash(leaf: Hash, index: Felt, siblings: [[u32; 8]; 32]) -> Hash {
-        let mut current = leaf;
-        for i in 0u32..32u32 {
-            let level_index = i as Felt;
-            let sibling = Self::u32x8_to_hash(siblings[level_index]);
-            let index_bit: Felt = (index >> level_index) & 1;
-            if index_bit == 0 {
-                current = hash_two_to_one(current, sibling);
-            } else {
-                current = hash_two_to_one(sibling, current);
-            };
-        }
-        current
-    }
-
     #[contract_method]
     pub fn withdraw(
         destination_chain_index: Felt,
-        token_address: [u32; 8],
-        amount: [u32; 8],
-        recipient: [u32; 8],
-        nonce: [u32; 8],
+        token_address: u256,
+        amount: u256,
+        recipient: u256,
+        nonce: u256,
     ) {
         let c = USDTTokenContractRef::new(ContractMetadata::current());
-        let amount_felt = Self::u32x8_be_to_felt_u64(amount);
+        let amount_felt = Self::u256_to_felt(amount);
         let current_balance = c.balance.get();
         assert(amount_felt > 0, "amount must be positive");
         assert(current_balance >= amount_felt, "insufficient balance");
@@ -277,24 +187,21 @@ impl USDTTokenContractRef {
         assert(destination_chain_index < 256, "destination chain index out of range (0-255)");
 
         let sender_user_id = get_user_id();
-        let n0: Felt = nonce[0] as Felt;
-        let n1: Felt = nonce[1] as Felt;
-        let n2: Felt = nonce[2] as Felt;
-        let n3: Felt = nonce[3] as Felt;
-        let n4: Felt = nonce[4] as Felt;
-        let n5: Felt = nonce[5] as Felt;
-        let n6: Felt = nonce[6] as Felt;
-        let n7: Felt = nonce[7] as Felt;
+        let recipient_limbs = transmute::<[u32; 8]>(recipient);
+        let token_address_limbs = transmute::<[u32; 8]>(token_address);
+        let amount_limbs = transmute::<[u32; 8]>(amount);
+        let nonce_limbs = transmute::<[u32; 8]>(nonce);
 
         let leaf_hash: Hash = hash([
             sender_user_id,
-            recipient[0] as Felt, recipient[1] as Felt, recipient[2] as Felt, recipient[3] as Felt,
-            recipient[4] as Felt, recipient[5] as Felt, recipient[6] as Felt, recipient[7] as Felt,
-            token_address[0] as Felt, token_address[1] as Felt, token_address[2] as Felt, token_address[3] as Felt,
-            token_address[4] as Felt, token_address[5] as Felt, token_address[6] as Felt, token_address[7] as Felt,
-            amount[0] as Felt, amount[1] as Felt, amount[2] as Felt, amount[3] as Felt,
-            amount[4] as Felt, amount[5] as Felt, amount[6] as Felt, amount[7] as Felt,
-            n0, n1, n2, n3, n4, n5, n6, n7,
+            recipient_limbs[0] as Felt, recipient_limbs[1] as Felt, recipient_limbs[2] as Felt, recipient_limbs[3] as Felt,
+            recipient_limbs[4] as Felt, recipient_limbs[5] as Felt, recipient_limbs[6] as Felt, recipient_limbs[7] as Felt,
+            token_address_limbs[0] as Felt, token_address_limbs[1] as Felt, token_address_limbs[2] as Felt, token_address_limbs[3] as Felt,
+            token_address_limbs[4] as Felt, token_address_limbs[5] as Felt, token_address_limbs[6] as Felt, token_address_limbs[7] as Felt,
+            amount_limbs[0] as Felt, amount_limbs[1] as Felt, amount_limbs[2] as Felt, amount_limbs[3] as Felt,
+            amount_limbs[4] as Felt, amount_limbs[5] as Felt, amount_limbs[6] as Felt, amount_limbs[7] as Felt,
+            nonce_limbs[0] as Felt, nonce_limbs[1] as Felt, nonce_limbs[2] as Felt, nonce_limbs[3] as Felt,
+            nonce_limbs[4] as Felt, nonce_limbs[5] as Felt, nonce_limbs[6] as Felt, nonce_limbs[7] as Felt,
             destination_chain_index,
             get_contract_id(),
         ]);
@@ -315,10 +222,10 @@ impl USDTTokenContractRef {
     pub fn claim_deposit(
         nullifier_hash: Hash,
         shield_address: Hash,
-        token_address: [u32; 8],
-        amount: [u32; 8],
+        token_address: u256,
+        amount: u256,
         source_chain_index: Felt,
-        deposit_root: [u32; 8],
+        deposit_root: u256,
         note_commitment: Hash,
         deposit_index: Felt,
         r0: Felt,
@@ -326,7 +233,7 @@ impl USDTTokenContractRef {
         proof: ShieldClaimProof
     ) {
         let c = USDTTokenContractRef::new(ContractMetadata::current());
-        let amount_felt: Felt = Self::u32x8_be_to_felt_u64(amount);
+        let amount_felt: Felt = Self::u256_to_felt(amount);
         assert(amount_felt > 0, "amount must be positive");
         let expected_shield_address: Hash = hash([
             get_user_id(),
@@ -339,10 +246,11 @@ impl USDTTokenContractRef {
             Self::deposit_tree_contract_id(),
             Self::deposit_tree_user_id(),
         ));
-        let deposit_root_hash = Self::u32x8_to_hash(deposit_root);
+        let deposit_root_hash = Self::u256_to_hash(deposit_root);
+        let deposit_root_limbs = transmute::<[u32; 8]>(deposit_root);
         let known_key: Hash = hash([
-            deposit_root[0] as Felt, deposit_root[1] as Felt, deposit_root[2] as Felt, deposit_root[3] as Felt,
-            deposit_root[4] as Felt, deposit_root[5] as Felt, deposit_root[6] as Felt, deposit_root[7] as Felt,
+            deposit_root_limbs[0] as Felt, deposit_root_limbs[1] as Felt, deposit_root_limbs[2] as Felt, deposit_root_limbs[3] as Felt,
+            deposit_root_limbs[4] as Felt, deposit_root_limbs[5] as Felt, deposit_root_limbs[6] as Felt, deposit_root_limbs[7] as Felt,
         ]);
         let known: bool = deposit_tree.known_roots.contains_ns_other(source_chain_index, known_key);
         assert(known, "deposit root is not known");
@@ -351,21 +259,24 @@ impl USDTTokenContractRef {
             shield_address,
             amount,
             token_address,
-            l2_token_contract_id: Self::current_contract_id_u32x8_be(),
+            l2_token_contract_id: Self::current_contract_id_u256(),
             source_chain_index,
             deposit_root: deposit_root_hash,
             nullifier_hash,
             note_commitment,
             deposit_index,
         };
+        let amount_limbs = transmute::<[u32; 8]>(preimage.amount);
+        let token_address_limbs = transmute::<[u32; 8]>(preimage.token_address);
+        let l2_id_limbs = transmute::<[u32; 8]>(preimage.l2_token_contract_id);
         let public_inputs_hash: Hash = hash([
             preimage.shield_address[0], preimage.shield_address[1], preimage.shield_address[2], preimage.shield_address[3],
-            preimage.amount[0] as Felt, preimage.amount[1] as Felt, preimage.amount[2] as Felt, preimage.amount[3] as Felt,
-            preimage.amount[4] as Felt, preimage.amount[5] as Felt, preimage.amount[6] as Felt, preimage.amount[7] as Felt,
-            preimage.token_address[0] as Felt, preimage.token_address[1] as Felt, preimage.token_address[2] as Felt, preimage.token_address[3] as Felt,
-            preimage.token_address[4] as Felt, preimage.token_address[5] as Felt, preimage.token_address[6] as Felt, preimage.token_address[7] as Felt,
-            preimage.l2_token_contract_id[0] as Felt, preimage.l2_token_contract_id[1] as Felt, preimage.l2_token_contract_id[2] as Felt, preimage.l2_token_contract_id[3] as Felt,
-            preimage.l2_token_contract_id[4] as Felt, preimage.l2_token_contract_id[5] as Felt, preimage.l2_token_contract_id[6] as Felt, preimage.l2_token_contract_id[7] as Felt,
+            amount_limbs[0] as Felt, amount_limbs[1] as Felt, amount_limbs[2] as Felt, amount_limbs[3] as Felt,
+            amount_limbs[4] as Felt, amount_limbs[5] as Felt, amount_limbs[6] as Felt, amount_limbs[7] as Felt,
+            token_address_limbs[0] as Felt, token_address_limbs[1] as Felt, token_address_limbs[2] as Felt, token_address_limbs[3] as Felt,
+            token_address_limbs[4] as Felt, token_address_limbs[5] as Felt, token_address_limbs[6] as Felt, token_address_limbs[7] as Felt,
+            l2_id_limbs[0] as Felt, l2_id_limbs[1] as Felt, l2_id_limbs[2] as Felt, l2_id_limbs[3] as Felt,
+            l2_id_limbs[4] as Felt, l2_id_limbs[5] as Felt, l2_id_limbs[6] as Felt, l2_id_limbs[7] as Felt,
             preimage.source_chain_index,
             preimage.deposit_root[0], preimage.deposit_root[1], preimage.deposit_root[2], preimage.deposit_root[3],
             preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3],
@@ -637,7 +548,7 @@ impl USDTTokenContractRef {
             6028864160300535936,                                                 
             2827549014984201026,                                                  
             3018365102481798071                                                  
-        ];        
+        ];    
         let leaf: Hash = hash_two_to_one(private_note_inclusion_fingerprint, public_inputs_hash);
 
         let mut current: Hash = leaf;

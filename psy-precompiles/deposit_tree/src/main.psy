@@ -4,38 +4,32 @@ use std::prelude::*;
 pub struct DepositLeafAppended {
     pub chain_index: Felt,
     pub index: Felt,
-    pub leaf: [u32; 8],
-    pub new_chain_root: [u32; 8],
-    pub new_global_root: [u32; 8],
+    pub leaf: u256,
+    pub new_chain_root: u256,
+    pub new_global_root: u256,
 }
 
 #[contract]
 #[derive(Storage)]
 pub struct PsyDepositTreeContract {
-    pub root: [u32; 8],
+    pub root: u256,
 
-    pub frontiers: [[u32; 8]; 8192],
+    pub frontiers: [u256; 8192],
     pub chain_counts: [Felt; 256],
     pub global_count: Felt,
     pub _chain_roots_padding: [Felt; 3],
-    pub chain_roots: [[u32; 8]; 256],
+    pub chain_roots: [u256; 256],
 
-    pub agg_tree: [[u32; 8]; 512],
+    pub agg_tree: [u256; 512],
     pub known_roots: Map<Hash, Hash, 1048576u32>,
 }
 
 impl PsyDepositTreeContractRef {
-    fn eq_u32x8(a: [u32; 8], b: [u32; 8]) -> bool {
-        a[0] == b[0]
-            && a[1] == b[1]
-            && a[2] == b[2]
-            && a[3] == b[3]
-            && a[4] == b[4]
-            && a[5] == b[5]
-            && a[6] == b[6]
-            && a[7] == b[7]
-    }
-
+    // Wire encoding of a bytes32 value: eight u32 limb felts, most significant
+    // limb first (big-endian word order). A u256 carries the same eight limb
+    // slots, so transmute reinterprets between u256 and [u32; 8] losslessly:
+    // hash preimages, events, and storage felts are unchanged from the
+    // previous [u32; 8] representation.
     fn felt_u64_to_u32x2(x: Felt) -> [u32; 2] {
         let bits = split_bits(x, 64);
 
@@ -71,6 +65,10 @@ impl PsyDepositTreeContractRef {
         ]
     }
 
+    fn hash_to_u256(x: Hash) -> u256 {
+        transmute::<u256>(Self::hash_to_u32x8(x))
+    }
+
     fn u32_shift_factor() -> Felt {
         let mut factor: Felt = 1;
         for _i in 0u32..32u32 {
@@ -88,29 +86,48 @@ impl PsyDepositTreeContractRef {
         ]
     }
 
-    fn poseidon_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
-        Self::hash_to_u32x8(hash_two_to_one(Self::u32x8_to_hash(left), Self::u32x8_to_hash(right)))
+    fn u256_to_hash(x: u256) -> Hash {
+        Self::u32x8_to_hash(transmute::<[u32; 8]>(x))
     }
 
-    fn keccak_two_to_one(left: [u32; 8], right: [u32; 8]) -> [u32; 8] {
+    fn keccak_two_to_one(left: u256, right: u256) -> u256 {
+        let l = transmute::<[u32; 8]>(left);
+        let r = transmute::<[u32; 8]>(right);
         let data: [Felt; 16] = [
-            left[0] as Felt, left[1] as Felt, left[2] as Felt, left[3] as Felt,
-            left[4] as Felt, left[5] as Felt, left[6] as Felt, left[7] as Felt,
-            right[0] as Felt, right[1] as Felt, right[2] as Felt, right[3] as Felt,
-            right[4] as Felt, right[5] as Felt, right[6] as Felt, right[7] as Felt
+            l[0] as Felt, l[1] as Felt, l[2] as Felt, l[3] as Felt,
+            l[4] as Felt, l[5] as Felt, l[6] as Felt, l[7] as Felt,
+            r[0] as Felt, r[1] as Felt, r[2] as Felt, r[3] as Felt,
+            r[4] as Felt, r[5] as Felt, r[6] as Felt, r[7] as Felt
         ];
-        keccak256(data)
+        transmute::<u256>(keccak256(data))
     }
 
     fn chain_frontier_offset(chain_index: Felt, level: Felt) -> Felt {
         chain_index * 32 + level
     }
 
-    fn known_root_key(root: [u32; 8]) -> Hash {
+    fn known_root_key(root: u256) -> Hash {
+        let limbs = transmute::<[u32; 8]>(root);
         hash([
-            root[0] as Felt, root[1] as Felt, root[2] as Felt, root[3] as Felt,
-            root[4] as Felt, root[5] as Felt, root[6] as Felt, root[7] as Felt,
+            limbs[0] as Felt, limbs[1] as Felt, limbs[2] as Felt, limbs[3] as Felt,
+            limbs[4] as Felt, limbs[5] as Felt, limbs[6] as Felt, limbs[7] as Felt,
         ])
+    }
+
+    fn is_zero_u256(x: u256) -> bool {
+        let limbs = transmute::<[u32; 8]>(x);
+        limbs[0] == 0u32
+            && limbs[1] == 0u32
+            && limbs[2] == 0u32
+            && limbs[3] == 0u32
+            && limbs[4] == 0u32
+            && limbs[5] == 0u32
+            && limbs[6] == 0u32
+            && limbs[7] == 0u32
+    }
+
+    fn zero_u256() -> u256 {
+        transmute::<u256>([0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32])
     }
 
     fn get_chain_count_value(chain_index: Felt) -> Felt {
@@ -119,7 +136,7 @@ impl PsyDepositTreeContractRef {
         c.chain_counts[chain_index].get()
     }
 
-    fn get_chain_root_value(chain_index: Felt) -> [u32; 8] {
+    fn get_chain_root_value(chain_index: Felt) -> u256 {
         assert(chain_index < 256, "chain index out of range");
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         c.chain_roots[chain_index].get()
@@ -144,10 +161,10 @@ impl PsyDepositTreeContractRef {
             let slot = Self::chain_frontier_offset(chain_index, level_index);
             let is_right: Felt = path_index & 1;
             if is_right == 0 {
-                c.frontiers[slot] = Self::hash_to_u32x8(current);
+                c.frontiers[slot] = Self::hash_to_u256(current);
                 current = hash_two_to_one(current, zero);
             } else {
-                let left = Self::u32x8_to_hash(c.frontiers[slot].get());
+                let left = Self::u256_to_hash(c.frontiers[slot].get());
                 current = hash_two_to_one(left, current);
             };
             zero = hash_two_to_one(zero, zero);
@@ -156,7 +173,7 @@ impl PsyDepositTreeContractRef {
 
         c.chain_counts[chain_index] = idx + 1;
         c.global_count = Self::get_global_count_value() + 1;
-        c.chain_roots[chain_index] = Self::hash_to_u32x8(current);
+        c.chain_roots[chain_index] = Self::hash_to_u256(current);
 
         current
     }
@@ -164,8 +181,8 @@ impl PsyDepositTreeContractRef {
     fn update_global_root_for_chain_hash(chain_index: Felt, chain_root: Hash) -> Hash {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         let mut node = 256 + chain_index;
-        c.agg_tree[node] = Self::hash_to_u32x8(chain_root);
-        let mut zero: [u32; 8] = [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32];
+        c.agg_tree[node] = Self::hash_to_u256(chain_root);
+        let mut zero: u256 = Self::zero_u256();
 
         for i in 0u32..8u32 {
             let _level = i as Felt;
@@ -178,10 +195,10 @@ impl PsyDepositTreeContractRef {
             // Unwritten aggregate-tree slots are storage zeroes. Interpret them
             // as the canonical empty subtree for this level so the root follows
             // the same standard Merkle semantics as the L1 verifier.
-            if Self::is_zero_u32x8(left_hash) {
+            if Self::is_zero_u256(left_hash) {
                 left_hash = zero;
             };
-            if Self::is_zero_u32x8(right_hash) {
+            if Self::is_zero_u256(right_hash) {
                 right_hash = zero;
             };
             let parent_hash = Self::keccak_two_to_one(left_hash, right_hash);
@@ -192,14 +209,14 @@ impl PsyDepositTreeContractRef {
 
         let global_root = c.agg_tree[1].get();
         c.root = global_root;
-        Self::u32x8_to_hash(global_root)
+        Self::u256_to_hash(global_root)
     }
 
     #[contract_method]
     pub fn set_chain_root(
         chain_index: Felt,
         total_count: Felt,
-        new_chain_root: [u32; 8]
+        new_chain_root: u256
     ) {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         assert(chain_index < 256, "chain index out of range");
@@ -224,126 +241,91 @@ impl PsyDepositTreeContractRef {
         c.known_roots.insert_ns(chain_index, known_key, [1, 0, 0, 0]);
 
         // Update the 8-layer keccak agg tree
-        let chain_root_hash = Self::u32x8_to_hash(new_chain_root);
+        let chain_root_hash = Self::u256_to_hash(new_chain_root);
         let new_global_root_hash = Self::update_global_root_for_chain_hash(chain_index, chain_root_hash);
-        let _new_global_root = Self::hash_to_u32x8(new_global_root_hash);
+        let _new_global_root = Self::hash_to_u256(new_global_root_hash);
     }
 
     #[contract_method]
-    pub fn get_root() -> [u32; 8] {
+    pub fn get_root() -> u256 {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         c.root.get()
     }
 
     #[contract_method]
-    pub fn get_chain_root(chain_index: Felt) -> [u32; 8] {
+    pub fn get_chain_root(chain_index: Felt) -> u256 {
         Self::get_chain_root_value(chain_index)
     }
 
     #[contract_method]
-    pub fn append_leaf(leaf: [u32; 8]) {
+    pub fn append_leaf(leaf: u256) {
         let chain_index: Felt = 0;
         Self::append_deposit(chain_index, leaf)
     }
 
-    fn is_zero_u32x8(x: [u32; 8]) -> bool {
-        x[0] == 0u32
-            && x[1] == 0u32
-            && x[2] == 0u32
-            && x[3] == 0u32
-            && x[4] == 0u32
-            && x[5] == 0u32
-            && x[6] == 0u32
-            && x[7] == 0u32
-    }
-
     #[contract_method]
-    pub fn batch_append_deposits_2(chain_index: Felt, count: Felt, leaf_data: [u32; 16]) {
+    pub fn batch_append_deposits_2(chain_index: Felt, count: Felt, leaf_data: [u256; 2]) {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         assert(chain_index < 256, "chain index out of range");
         assert(count > 0, "empty deposit batch");
         assert(count <= 2, "deposit batch exceeds max size (2)");
         let mut i: Felt = 0;
         while i < 2 {
-            let offset = i * 8;
-            let o0 = offset;
-            let o1 = offset + 1;
-            let o2 = offset + 2;
-            let o3 = offset + 3;
-            let o4 = offset + 4;
-            let o5 = offset + 5;
-            let o6 = offset + 6;
-            let o7 = offset + 7;
-            let leaf: [u32; 8] = [
-                leaf_data[o0], leaf_data[o1], leaf_data[o2], leaf_data[o3],
-                leaf_data[o4], leaf_data[o5], leaf_data[o6], leaf_data[o7],
-            ];
+            let leaf = leaf_data[i];
             if i < count {
-                let leaf_hash = Self::u32x8_to_hash(leaf);
+                let leaf_hash = Self::u256_to_hash(leaf);
                 let new_chain_root_hash = Self::append_to_chain_hash(chain_index, leaf_hash);
-                let new_chain_root = Self::hash_to_u32x8(new_chain_root_hash);
+                let new_chain_root = Self::hash_to_u256(new_chain_root_hash);
                 let known_key = Self::known_root_key(new_chain_root);
                 c.known_roots.insert_ns(chain_index, known_key, [1, 0, 0, 0]);
             } else {
-                assert(Self::is_zero_u32x8(leaf), "non-zero dummy deposit leaf");
+                assert(Self::is_zero_u256(leaf), "non-zero dummy deposit leaf");
             };
             i += 1;
         }
 
-        let final_chain_root_hash = Self::u32x8_to_hash(Self::get_chain_root_value(chain_index));
+        let final_chain_root_hash = Self::u256_to_hash(Self::get_chain_root_value(chain_index));
         let _new_global_root_hash = Self::update_global_root_for_chain_hash(chain_index, final_chain_root_hash);
     }
 
     #[contract_method]
-    pub fn batch_append_deposits_5(chain_index: Felt, count: Felt, leaf_data: [u32; 40]) {
+    pub fn batch_append_deposits_5(chain_index: Felt, count: Felt, leaf_data: [u256; 5]) {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         assert(chain_index < 256, "chain index out of range");
         assert(count > 0, "empty deposit batch");
         assert(count <= 5, "deposit batch exceeds max size (5)");
         let mut i: Felt = 0;
         while i < 5 {
-            let offset = i * 8;
-            let o0 = offset;
-            let o1 = offset + 1;
-            let o2 = offset + 2;
-            let o3 = offset + 3;
-            let o4 = offset + 4;
-            let o5 = offset + 5;
-            let o6 = offset + 6;
-            let o7 = offset + 7;
-            let leaf: [u32; 8] = [
-                leaf_data[o0], leaf_data[o1], leaf_data[o2], leaf_data[o3],
-                leaf_data[o4], leaf_data[o5], leaf_data[o6], leaf_data[o7],
-            ];
+            let leaf = leaf_data[i];
             if i < count {
-                let leaf_hash = Self::u32x8_to_hash(leaf);
+                let leaf_hash = Self::u256_to_hash(leaf);
                 let new_chain_root_hash = Self::append_to_chain_hash(chain_index, leaf_hash);
-                let new_chain_root = Self::hash_to_u32x8(new_chain_root_hash);
+                let new_chain_root = Self::hash_to_u256(new_chain_root_hash);
                 let known_key = Self::known_root_key(new_chain_root);
                 c.known_roots.insert_ns(chain_index, known_key, [1, 0, 0, 0]);
             } else {
-                assert(Self::is_zero_u32x8(leaf), "non-zero dummy deposit leaf");
+                assert(Self::is_zero_u256(leaf), "non-zero dummy deposit leaf");
             };
             i += 1;
         }
 
-        let final_chain_root_hash = Self::u32x8_to_hash(Self::get_chain_root_value(chain_index));
+        let final_chain_root_hash = Self::u256_to_hash(Self::get_chain_root_value(chain_index));
         let _new_global_root_hash = Self::update_global_root_for_chain_hash(chain_index, final_chain_root_hash);
     }
 
     #[contract_method]
-    pub fn append_deposit(chain_index: Felt, leaf: [u32; 8]) {
+    pub fn append_deposit(chain_index: Felt, leaf: u256) {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         assert(chain_index < 256, "chain index out of range");
         let idx = Self::get_chain_count_value(chain_index);
 
-        let leaf_hash = Self::u32x8_to_hash(leaf);
+        let leaf_hash = Self::u256_to_hash(leaf);
         let new_chain_root_hash = Self::append_to_chain_hash(chain_index, leaf_hash);
-        let new_chain_root = Self::hash_to_u32x8(new_chain_root_hash);
+        let new_chain_root = Self::hash_to_u256(new_chain_root_hash);
         let known_key = Self::known_root_key(new_chain_root);
         c.known_roots.insert_ns(chain_index, known_key, [1, 0, 0, 0]);
         let new_global_root_hash = Self::update_global_root_for_chain_hash(chain_index, new_chain_root_hash);
-        let new_global_root = Self::hash_to_u32x8(new_global_root_hash);
+        let new_global_root = Self::hash_to_u256(new_global_root_hash);
 
         let event_data = DepositLeafAppended {
             chain_index,
@@ -356,7 +338,7 @@ impl PsyDepositTreeContractRef {
     }
 
     #[contract_method]
-    pub fn is_known_root(chain_index: Felt, root: [u32; 8]) -> Felt {
+    pub fn is_known_root(chain_index: Felt, root: u256) -> Felt {
         let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
         let known_key = Self::known_root_key(root);
         let known: bool = c.known_roots.contains_ns(chain_index, known_key);
@@ -376,7 +358,7 @@ impl PsyDepositTreeContractRef {
             (root_hi[1] & 4294967295) as u32,
             (root_hi[1] >> 32) as u32,
         ];
-        let known_key = Self::known_root_key(root);
+        let known_key = Self::known_root_key(transmute::<u256>(root));
         let known: bool = c.known_roots.contains_ns(chain_index, known_key);
         if known { 1 } else { 0 }
     }
