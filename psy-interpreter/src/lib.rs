@@ -2005,6 +2005,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         // `assert!(index < arr.len())` on out-of-bounds constant access.
         if let CheckedValue::Array(_, arr) = &*a.borrow() {
             let length = arr.len();
+            if length == 0 && !self.is_constant(index_felt) {
+                return Err(Error::EmptyArrayIndex { location: Some(index_access_node.location) });
+            }
             if self.is_constant(index_felt) {
                 // Compare in u64 before the host cast. On wasm32, `as usize`
                 // truncates 2^32 + k to k and would accept an out-of-range index.
@@ -2177,6 +2180,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         // `get_path` asserts on a constant out-of-bounds index, so turn that
         // user error into a diagnostic before descending into the target.
         if let CheckedValue::Array(_, values) = &*inner_value.borrow() {
+            if values.is_empty() && !self.is_constant(index_felt.clone()) {
+                return Err(Error::EmptyArrayIndex { location: Some(index_access_node.location) });
+            }
             if self.is_constant(index_felt.clone()) {
                 let index_value = self.context.get_constant_value(index_felt.clone());
                 let length = values.len();

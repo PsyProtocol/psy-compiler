@@ -803,6 +803,21 @@ fn b07_runtime_u32_rem_by_zero_no_panic() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
+fn empty_array_symbolic_index_returns_error() {
+    let sources = [
+        "use std::prelude::*; fn main() { let a: [Felt; 0] = [1; 0]; let i = get_user_id(); let x = a[i]; }",
+        "use std::prelude::*; fn main() { let mut a: [Felt; 0] = [1; 0]; let i = get_user_id(); a[i] = 7; }",
+    ];
+    for source in sources {
+        match run_main(source, "empty_array_symbolic_index") {
+            Ok(Some(error)) => assert!(error.contains("IndexOutOfBounds"), "unexpected error: {error}"),
+            Ok(None) => panic!("indexing an empty array succeeded"),
+            Err(error) => panic!("indexing an empty array panicked: {error}"),
+        }
+    }
+}
+
+#[test]
 fn b08_runtime_array_oob_no_panic() {
     expect_runtime_error(
         "b08_rt_array_oob",

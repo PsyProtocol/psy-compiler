@@ -413,7 +413,7 @@ impl<F: Clone + From<u32> + ContextFelt> CheckedValueRef<F> {
                     let out_of_bounds = ctx.op_lt(index, arr_size);
                     ctx.assert_true(out_of_bounds, "felt index out of bounds");
 
-                    let mut result = arr[0].clone();
+                    let mut result = arr.first()?.clone();
                     for i in 1..arr.len() {
                         let arr_index = ctx.op_const(i as u64);
                         let condition = ctx.op_eq(arr_index, index);

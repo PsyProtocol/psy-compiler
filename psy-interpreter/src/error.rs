@@ -32,6 +32,8 @@ pub enum Error {
         length: usize,
         location: Option<Location>,
     },
+    #[error("IndexOutOfBounds: symbolic index into an empty array")]
+    EmptyArrayIndex { location: Option<Location> },
     #[error("ArrayTooLarge: cannot materialize an array with {length} elements (limit: {limit})")]
     ArrayTooLarge { length: u64, limit: u64, location: Option<Location> },
     #[error("TransmuteSizeMismatch: expected {expected} felts, got {actual}")]
@@ -553,6 +555,14 @@ pub fn lowering_interpreter_error<F: Clone + From<u32> + ContextFelt, C>(error: 
                 report_or_fallback(build_report(location.clone(), "IndexOutOfBounds", msg, &ctx.program))
             } else {
                 msg
+            }
+        }
+        Error::EmptyArrayIndex { location } => {
+            let msg = "Index out of bounds: symbolic index into an empty array.";
+            if let Some(location) = location {
+                report_or_fallback(build_report(*location, "IndexOutOfBounds", msg, &ctx.program))
+            } else {
+                msg.to_string()
             }
         }
         Error::ArrayTooLarge { length, limit, location } => {
