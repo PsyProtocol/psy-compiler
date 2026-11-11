@@ -420,6 +420,25 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         visit(ty, symbols, &mut HashSet::new())
     }
 
+    fn zero_sized_array_footprint(ty: TypeId, ctx: &TypeCheckerVisitorContext<F, C>) -> u64 {
+        match &ctx.symbols[ty] {
+            Type::Array(array) => {
+                let count = match &ctx.symbols[array.size_ty] {
+                    Type::Const(value) => match &*ctx.symbols[value.value].borrow() {
+                        CheckedValue::Felt(value) | CheckedValue::U32(value) => value.get_u64(),
+                        _ => return u64::MAX,
+                    },
+                    _ => return u64::MAX,
+                };
+                let inner = Self::zero_sized_array_footprint(array.inner_ty, ctx);
+                count.saturating_mul(inner.saturating_add(u64::from(ctx.size_of(array.inner_ty) == 0)))
+            }
+            Type::Struct(s) => s.fields.values().map(|field| Self::zero_sized_array_footprint(field.ty, ctx)).fold(0, u64::saturating_add),
+            Type::Tuple(elements) => elements.iter().map(|&ty| Self::zero_sized_array_footprint(ty, ctx)).fold(0, u64::saturating_add),
+            _ => 0,
+        }
+    }
+
     /// Charge `count` elements against the materialization budget.
     fn charge_materialized(&mut self, count: u64, location: Option<Location>) -> Result<()> {
         self.materialized_elements = self.materialized_elements.saturating_add(count);
@@ -1598,9 +1617,15 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                             self.context.hash_two_to_one(&left_array, &right_array).to_vec(),
                         ));
                     }
-                    CheckedIntrinsicExprNode::MemTransmute { data, target_type, .. } => {
+                    CheckedIntrinsicExprNode::MemTransmute { data, target_type, location } => {
                         let data = self.interpret_expr(program, data.clone(), ctx)?;
-                        return Ok(CheckedValueRef::decode_felts(&data.to_felts(), ctx, target_type.clone()));
+                        let felts = data.to_felts();
+                        let expected = self.calculate_type_size(*target_type, ctx);
+                        if felts.len() != expected {
+                            return Err(Error::TransmuteSizeMismatch { expected, actual: felts.len(), location: Some(*location) });
+                        }
+                        self.charge_materialized(Self::zero_sized_array_footprint(*target_type, ctx), Some(*location))?;
+                        return Ok(CheckedValueRef::decode_felts(&felts, ctx, *target_type));
                     }
                     CheckedIntrinsicExprNode::MemSizeOf { query_type: ty, .. } => {
                         let size = self.calculate_type_size(ty.clone(), ctx);
@@ -1660,6 +1685,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let outputs =
                             self.context
                                 .cinvoke_external_contract_function_sync(contract_id, method_id, inputs, output_size.try_into().unwrap());
+                        self.charge_materialized(Self::zero_sized_array_footprint(*type_id, ctx), None)?;
                         return Ok(CheckedValueRef::decode_felts(&outputs, ctx, type_id.clone()));
                     }
                     CheckedIntrinsicExprNode::InvokeDeferred {

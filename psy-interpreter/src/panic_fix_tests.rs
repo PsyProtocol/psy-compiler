@@ -374,6 +374,58 @@ fn b28_internal_function_arguments_are_not_charged_again() {
     assert_eq!(c.interpreter.materialized_elements, MAX_TOTAL_MATERIALIZED_ELEMENTS);
 }
 
+#[test]
+fn nested_array_storage_read_compiles() {
+    let source = "use std::prelude::*;\n#[contract]\n#[derive(Storage)]\npub struct Grid { pub cells: [[Felt; 3]; 2] }\n#[contract_method]\npub fn read_all() -> Felt { let v = Grid::read(0, 0, 0, 0); return v.cells[1][2]; }\nfn main() {}";
+    let mut graph = psy_common::Graph::new();
+    graph.add_node(std::path::PathBuf::from("/virtual/src/main.psy"));
+    let result = super::interpret_virtual_files(
+        Some("GridRef".to_string()),
+        vec!["read_all".to_string()],
+        graph,
+        vec![(std::path::PathBuf::from("/virtual/src/main.psy"), std::sync::Arc::from(source))],
+    );
+    assert!(result.is_ok(), "nested array storage read failed: {:?}", result.err());
+}
+
+#[test]
+fn nested_empty_array_storage_read_compiles() {
+    let source = "use std::prelude::*;\n#[contract]\n#[derive(Storage)]\npub struct Grid { pub cells: [[Felt; 0]; 2], pub other: Felt }\n#[contract_method]\npub fn read_all() -> Felt { let v = Grid::read(0, 0, 0, 0); let row = v.cells[1]; return v.other; }\nfn main() {}";
+    let mut graph = psy_common::Graph::new();
+    graph.add_node(std::path::PathBuf::from("/virtual/src/main.psy"));
+    let result = super::interpret_virtual_files(
+        Some("GridRef".to_string()),
+        vec!["read_all".to_string()],
+        graph,
+        vec![(std::path::PathBuf::from("/virtual/src/main.psy"), std::sync::Arc::from(source))],
+    );
+    assert!(result.is_ok(), "nested empty array storage read failed: {:?}", result.err());
+}
+
+#[test]
+fn transmute_mismatched_felt_lengths_returns_error() {
+    for source in [
+        "use std::prelude::*; fn main() { let x: [Felt; 2] = transmute::<[Felt; 2], Felt>(1); }",
+        "use std::prelude::*; fn main() { let x: [Felt; 2] = transmute::<[Felt; 2], [Felt; 3]>([1, 2, 3]); }",
+    ] {
+        match run_main(source, "transmute_mismatched_felt_lengths") {
+            Ok(Some(error)) => assert!(error.contains("TransmuteSizeMismatch"), "unexpected error: {error}"),
+            Ok(None) => panic!("transmute with mismatched sizes succeeded"),
+            Err(error) => panic!("transmute panicked: {error}"),
+        }
+    }
+}
+
+#[test]
+fn transmute_zero_sized_arrays_respects_materialization_budget() {
+    let source = "use std::prelude::*; fn main() { let x: [[Felt; 0]; 5000000] = transmute::<[[Felt; 0]; 5000000], [Felt; 0]>([1; 0]); }";
+    match run_main(source, "transmute_zero_sized_array_budget") {
+        Ok(Some(error)) => assert!(error.contains("ArrayTooLarge"), "unexpected error: {error}"),
+        Ok(None) => panic!("oversized transmute succeeded"),
+        Err(error) => panic!("oversized transmute panicked: {error}"),
+    }
+}
+
 /// A whole-struct Storage::read materializes the struct's full range via
 /// __storage_read_range — previously the last uncharged allocation path: a
 /// contract with several 1M-array fields read gigabytes past the budget

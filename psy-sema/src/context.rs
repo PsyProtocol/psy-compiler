@@ -8,7 +8,7 @@ use psy_ast::{
 use psy_common::Graph;
 use psy_vm::dpn::ops::context_trait::ContextFelt;
 
-use crate::{ExpectedFunctionSignature, LocationIndices, ReferenceId, SymbolTable, Type, TypeId};
+use crate::{CheckedValue, ExpectedFunctionSignature, LocationIndices, ReferenceId, SymbolTable, Type, TypeId};
 
 pub struct TypeCheckerVisitorContext<F: Clone + From<u32> + ContextFelt, C> {
     path_stack: Vec<NodeId>,
@@ -182,6 +182,17 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeCheckerVisitorContext<F, C> {
             Type::Bool => 1usize,
             Type::U32 => 1usize,
             Type::Struct(s) => s.fields.iter().map(|(_, field)| self.size_of(field.ty)).sum(),
+            Type::Array(array) => {
+                let count = match &self.symbols[array.size_ty] {
+                    Type::Const(value) => match &*self.symbols[value.value].borrow() {
+                        CheckedValue::Felt(value) | CheckedValue::U32(value) => value.get_u64() as usize,
+                        _ => panic!("Array size must be a numeric constant"),
+                    },
+                    _ => panic!("Array size must be a const type"),
+                };
+                self.size_of(array.inner_ty) * count
+            }
+            Type::Tuple(elements) => elements.iter().map(|&ty| self.size_of(ty)).sum(),
             _ => todo!(),
         }
     }
@@ -380,12 +391,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
-    fn size_of_rejects_unsupported_shapes() {
+    fn size_of_counts_tuple_elements() {
         let mut context = ctx();
         let felt = context.symbols.create_type(Type::Felt).unwrap();
         let tuple = context.symbols.create_type(Type::Tuple(vec![felt, felt])).unwrap();
-        let _ = context.size_of(tuple);
+        assert_eq!(context.size_of(tuple), 2);
     }
 
     // The mutation hooks of the type-checker context are deliberately
