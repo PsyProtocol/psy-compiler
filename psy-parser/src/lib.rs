@@ -3,7 +3,7 @@ pub mod recursive;
 
 use std::{
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 pub use error::{Error, Result};
@@ -75,18 +75,12 @@ impl<'a, 'b, F: ContextFelt + From<u32>, C: DPNContext<F>> Parser<'a, 'b, F, C> 
 
         // Keep the source alive independently so parsing can mutably borrow the
         // rest of the program.
-        let source = program
-            .file_resolver
-            .resolve_content_arc(&file_id)
-            .ok_or(Error::FileUnresolved)?;
+        let source = program.file_resolver.resolve_content_arc(&file_id).ok_or(Error::FileUnresolved)?;
         let module = recursive::parse_module_into(
             recursive::ParseModuleInput {
                 source: &source,
                 file_id,
-                module_name: Identifier::new(
-                    module_name,
-                    Location::new(file_id, location.start, location.end),
-                ),
+                module_name: Identifier::new(module_name, Location::new(file_id, location.start, location.end)),
                 visibility,
             },
             program,
@@ -221,26 +215,65 @@ fn is_valid_module_name(name: &str) -> bool {
         return false;
     };
 
-    (first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|character| character.is_ascii_alphanumeric() || character == '_')
+    (first.is_ascii_alphabetic() || first == '_') && chars.all(|character| character.is_ascii_alphanumeric() || character == '_')
+}
+
+/// Lexically normalize a path without filesystem access (no canonicalize).
+fn lexically_normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => match out.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    out.pop();
+                }
+                Some(Component::RootDir | Component::Prefix(_)) => {}
+                _ => out.push(".."),
+            },
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// Build the path used for module naming.
+/// Absolute paths (including WASM virtual roots) are preserved; relative paths
+/// are joined with `cwd` when provided. Never requires the file to exist.
+fn entry_path_for_module_name(file_path: &Path, cwd: Option<&Path>) -> PathBuf {
+    let joined = if file_path.is_absolute() {
+        file_path.to_path_buf()
+    } else if let Some(cwd) = cwd {
+        cwd.join(file_path)
+    } else {
+        file_path.to_path_buf()
+    };
+    lexically_normalize(&joined)
+}
+
+/// Derive the crate/module name string from an entry path.
+/// For `main`/`lib`, uses the package directory (`…/<pkg>/src/main.psy` →
+/// `<pkg>`). Falls back to the file stem when the package directory cannot be
+/// derived — never panics on relative `src/main.psy`.
+fn module_name_from_entry_path(file_path: &Path, cwd: Option<&Path>) -> String {
+    let normalized = entry_path_for_module_name(file_path, cwd);
+    let stem = normalized.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
+    match stem {
+        "lib" | "main" => normalized
+            .parent()
+            .and_then(|parent| parent.parent())
+            .and_then(|p| p.file_stem())
+            .and_then(|s| s.to_str())
+            .unwrap_or(stem)
+            .to_string(),
+        other => other.to_string(),
+    }
 }
 
 pub fn resolve_module_name<F: Clone + From<u32>>(program: &mut Program<F>, file_path: &Path) -> IdentId {
-    let interner = &mut program.interner;
-    let file_name_without_extension = file_path.file_stem().and_then(|s| s.to_str()).unwrap();
-    let module_name = match file_name_without_extension {
-        "lib" | "main" => {
-            // Get the parent directory name
-            file_path
-                .parent()
-                .and_then(|parent| parent.parent())
-                .and_then(|p| p.file_stem())
-                .and_then(|s| s.to_str())
-                .unwrap()
-        }
-        s => s,
-    };
-    interner.intern_ident(module_name)
+    let cwd = std::env::current_dir().ok();
+    let module_name = module_name_from_entry_path(file_path, cwd.as_deref());
+    program.interner.intern_ident(module_name)
 }
 
 fn std_path() -> PathBuf {
@@ -298,13 +331,13 @@ fn preload_embedded_std<F: Clone + From<u32>>(program: &mut Program<F>) {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use psy_ast::Program;
     use psy_common::Graph;
     use psy_vm::dpn::ops::exec_context::QExecContext;
 
-    use super::Parser;
+    use super::{module_name_from_entry_path, resolve_module_name, Parser};
 
     #[test]
     fn module_file_names_use_identifier_syntax() {
@@ -313,6 +346,97 @@ mod tests {
         for name in ["", "42foo", "foo-bar", "foo.bar", "foo/bar", "foo bar", "包"] {
             assert!(!super::is_valid_module_name(name), "accepted invalid module name {name:?}");
         }
+    }
+
+    #[test]
+    fn lexical_paths_preserve_unresolved_parents_and_stop_at_root() {
+        assert_eq!(
+            super::entry_path_for_module_name(Path::new("../../pkg/src/main.psy"), None),
+            Path::new("../../pkg/src/main.psy")
+        );
+        assert_eq!(
+            super::entry_path_for_module_name(Path::new("/../../pkg/src/main.psy"), None),
+            Path::new("/pkg/src/main.psy")
+        );
+    }
+
+    #[test]
+    fn relative_src_main_names_match_absolute_package_dir() {
+        // Explicit cwd avoids set_current_dir (not concurrency-safe).
+        let cwd = Path::new("/tmp/qa_pkg/contract");
+        let absolute = Path::new("/tmp/qa_pkg/contract/src/main.psy");
+        let expected = module_name_from_entry_path(absolute, None);
+        assert_eq!(expected, "contract");
+        assert_eq!(module_name_from_entry_path(Path::new("src/main.psy"), Some(cwd)), expected);
+        assert_eq!(module_name_from_entry_path(Path::new("./src/main.psy"), Some(cwd)), expected);
+        assert_eq!(module_name_from_entry_path(Path::new("src/./main.psy"), Some(cwd)), expected);
+    }
+
+    #[test]
+    fn relative_src_main_without_cwd_does_not_panic() {
+        // Original crash shape: relative `src/main.psy` → empty grandparent → unwrap
+        // None.
+        assert_eq!(module_name_from_entry_path(Path::new("src/main.psy"), None), "main");
+        assert_eq!(module_name_from_entry_path(Path::new("./src/main.psy"), None), "main");
+        assert_eq!(module_name_from_entry_path(Path::new("main.psy"), None), "main");
+    }
+
+    #[test]
+    fn absolute_and_wasm_virtual_entry_paths_keep_prior_naming() {
+        assert_eq!(
+            module_name_from_entry_path(Path::new("/pkg/src/main.psy"), Some(Path::new("/ignored/cwd"))),
+            "pkg"
+        );
+        assert_eq!(module_name_from_entry_path(Path::new("/pkg/src/lib.psy"), None), "pkg");
+        assert_eq!(module_name_from_entry_path(Path::new("/__psy_std__/std.psy"), None), "std");
+        // `/__psy_std__/lib.psy` has no package-dir stem under `/`; fall back to stem.
+        assert_eq!(module_name_from_entry_path(Path::new("/__psy_std__/lib.psy"), None), "lib");
+        assert_eq!(module_name_from_entry_path(Path::new("foo.psy"), Some(Path::new("/tmp/contract"))), "foo");
+    }
+
+    #[test]
+    fn resolve_module_name_interns_absolute_main_package_dir() {
+        let mut program: Program<u32> = Program::new();
+        let id = resolve_module_name(&mut program, Path::new("/tmp/contract/src/main.psy"));
+        assert_eq!(program.interner[id].0.as_str(), "contract");
+    }
+
+    #[test]
+    fn parse_module_relative_src_main_does_not_unwrap_panic() {
+        let path = PathBuf::from("src/main.psy");
+        let mut program = Program::new();
+        let file_id = program.file_resolver.add_file(path.clone(), "fn helper() {}");
+        let mut ctx = QExecContext::new();
+        // Must not abort the process. Ok when cwd's package dir is a valid
+        // identifier; InvalidModuleName when tests run from a hyphenated
+        // checkout directory. Either is preferable to Option::unwrap panic.
+        let result = Parser::parse_module(
+            &mut program,
+            &mut ctx,
+            &path,
+            psy_ast::Location::new(file_id, 0, 0),
+            psy_ast::Visibility::Public,
+        );
+        assert!(
+            result.is_ok() || matches!(result, Err(super::Error::InvalidModuleName)),
+            "unexpected error for relative src/main.psy: {result:?}"
+        );
+    }
+
+    #[test]
+    fn parse_module_absolute_src_main_uses_package_dir_name() {
+        let path = PathBuf::from("/tmp/contract/src/main.psy");
+        let mut program = Program::new();
+        let file_id = program.file_resolver.add_file(path.clone(), "fn helper() {}");
+        let mut ctx = QExecContext::new();
+        Parser::parse_module(
+            &mut program,
+            &mut ctx,
+            &path,
+            psy_ast::Location::new(file_id, 0, 0),
+            psy_ast::Visibility::Public,
+        )
+        .expect("absolute .../contract/src/main.psy must parse");
     }
 
     #[test]
@@ -359,15 +483,9 @@ mod parse_edge_tests {
         let mut program = Program::new();
         let file_id = program.file_resolver.add_file(path.clone(), src);
         let mut ctx = QExecContext::new();
-        Parser::parse_module(
-            &mut program,
-            &mut ctx,
-            &path,
-            psy_ast::Location::new(file_id, 0, 0),
-            Visibility::Public,
-        )
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+        Parser::parse_module(&mut program, &mut ctx, &path, psy_ast::Location::new(file_id, 0, 0), Visibility::Public)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     fn ok(label: &str, src: &str) {
@@ -455,17 +573,29 @@ mod parse_edge_tests {
     fn function_bodies_and_self_parameters_are_guarded() {
         err("module fn without a body", "fn f();", "body");
         err("top-level fn with a parameter named self", "fn f(self: Felt) {}", "self");
-        fails("impl method with self after another parameter", "pub struct P { pub x: Felt }\nimpl P { pub fn m(x: Felt, self: Self) {} }");
-        fails("trait method with self after another parameter", "pub trait T { pub fn m(x: Felt, self: Self); }");
+        fails(
+            "impl method with self after another parameter",
+            "pub struct P { pub x: Felt }\nimpl P { pub fn m(x: Felt, self: Self) {} }",
+        );
+        fails(
+            "trait method with self after another parameter",
+            "pub trait T { pub fn m(x: Felt, self: Self); }",
+        );
     }
 
     #[test]
     fn impl_and_trait_bodies_guard_ordering_and_eof() {
         err("eof inside an impl body", "pub struct P { pub x: Felt }\nimpl P {", "end of file");
-        fails("associated type after methods in an impl", "pub struct P { pub x: Felt }\nimpl P { pub fn m() {}\n    pub type T = Felt; }");
+        fails(
+            "associated type after methods in an impl",
+            "pub struct P { pub x: Felt }\nimpl P { pub fn m() {}\n    pub type T = Felt; }",
+        );
         err("eof inside a trait body", "pub trait T {", "end of file");
         fails("associated type after methods in a trait", "pub trait T { pub fn m();\n    pub type X; }");
-        ok("associated type before methods in a trait", "pub trait T { pub type X;\n    pub fn m(); }");
+        ok(
+            "associated type before methods in a trait",
+            "pub trait T { pub type X;\n    pub fn m(); }",
+        );
     }
 
     #[test]
@@ -511,25 +641,52 @@ mod parse_edge_tests {
         fails("turbofish on a call result without another call", "fn main() { let x = g()::<Felt>; }");
         ok("bare method turbofish without a call", "fn main() { let r = p.m::<Felt>; }");
         ok("less-than comparison is not generic probing", "fn main() { let x = 1 < 2; }");
-        ok("generic arguments on a non-generic struct literal fall back to comparison", "pub struct Q { pub x: Felt }\nfn main() { let q = Q<Felt> { x: 1 }; }");
-        ok("mismatched generic arguments on a struct literal fall back to comparison", "pub struct G<T> { pub v: T }\nfn main() { let g = G<Felt, Felt> { v: 1 }; }");
-        fails("garbage inside turbofish arguments", "pub mod m { pub fn g<T>(x: T) {} }\nfn main() { m::<Felt(1); }");
-        fails("eof inside turbofish arguments", "pub mod m { pub fn g<T>(x: T) {} }\nfn main() { m::<Felt");
+        ok(
+            "generic arguments on a non-generic struct literal fall back to comparison",
+            "pub struct Q { pub x: Felt }\nfn main() { let q = Q<Felt> { x: 1 }; }",
+        );
+        ok(
+            "mismatched generic arguments on a struct literal fall back to comparison",
+            "pub struct G<T> { pub v: T }\nfn main() { let g = G<Felt, Felt> { v: 1 }; }",
+        );
+        fails(
+            "garbage inside turbofish arguments",
+            "pub mod m { pub fn g<T>(x: T) {} }\nfn main() { m::<Felt(1); }",
+        );
+        fails(
+            "eof inside turbofish arguments",
+            "pub mod m { pub fn g<T>(x: T) {} }\nfn main() { m::<Felt",
+        );
     }
 
     #[test]
     fn lambda_parameter_list_edges() {
         ok("zero-parameter closure", "fn main() { let f = || -> Felt { return 1; }; }");
         ok("two-parameter closure", "fn main() { let f = |a: Felt, b: Felt| -> Felt { return a; }; }");
-        ok("closure parameter trailing comma", "fn main() { let f = |a: Felt,| -> Felt { return a; }; }");
-        ok("closure with a bare self parameter", "fn main() { let f = |self| -> Felt { return 1; }; }");
-        ok("immediately invoked closure", "fn main() { let x = (|v: Felt| -> Felt { return v; })(1); }");
+        ok(
+            "closure parameter trailing comma",
+            "fn main() { let f = |a: Felt,| -> Felt { return a; }; }",
+        );
+        ok(
+            "closure with a bare self parameter",
+            "fn main() { let f = |self| -> Felt { return 1; }; }",
+        );
+        ok(
+            "immediately invoked closure",
+            "fn main() { let x = (|v: Felt| -> Felt { return v; })(1); }",
+        );
     }
 
     #[test]
     fn match_struct_literal_and_array_edges() {
-        ok("match body holding only comments", "fn main() { let v = match 1 { // only a comment\n }; }");
-        ok("comment before a struct literal closing brace", "fn main() { let p = S { x: 1, // c\n }; }");
+        ok(
+            "match body holding only comments",
+            "fn main() { let v = match 1 { // only a comment\n }; }",
+        );
+        ok(
+            "comment before a struct literal closing brace",
+            "fn main() { let p = S { x: 1, // c\n }; }",
+        );
         err("eof after the array repeat separator", "fn main() { let b = [0;", "end of file");
         err("eof where a semicolon is expected", "fn main() { let x = 1", "end of file");
     }
@@ -554,7 +711,13 @@ mod parse_edge_tests {
     fn type_position_generic_and_size_edges() {
         fails("generic arguments on an array type", "fn f(x: [Felt; 3]<Felt>) {}");
         fails("non-literal array size", "fn f(x: [Felt; true]) {}");
-        ok("generic target on a module path", "pub mod m { pub struct H<T> { pub v: T } }\nfn f(x: m::<H<Felt>>) {}");
-        ok("trailing comma in explicit generic arguments", "pub mod m { pub fn g<T>(x: T) {} }\nfn main() { m::<Felt,>(1); }");
+        ok(
+            "generic target on a module path",
+            "pub mod m { pub struct H<T> { pub v: T } }\nfn f(x: m::<H<Felt>>) {}",
+        );
+        ok(
+            "trailing comma in explicit generic arguments",
+            "pub mod m { pub fn g<T>(x: T) {} }\nfn main() { m::<Felt,>(1); }",
+        );
     }
 }
