@@ -176,7 +176,9 @@ jobs:
           test -x "$smoke/bin/dargo"
           test -f "$smoke/lib/psy-std/Dargo.toml"
           test -f "$smoke/lib/psy-std/std.psy"
-          "$smoke/bin/dargo" --version
+          actual_version="$("$smoke/bin/dargo" --version)"
+          test "$actual_version" = "dargo ${RELEASE_TAG#v}"
+          printf "%s\n" "$actual_version"
           "$smoke/bin/dargo" --help
 
       - name: Upload packaged archive
