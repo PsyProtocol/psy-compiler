@@ -29,17 +29,17 @@ repository = "https://github.com/PsyProtocol/psy-compiler"
 [workspace.dependencies]
 zstd = { version = "0.13", features = ["zstdmt"] }
 # psy-node crates pinned to the official PsyProtocol/psy-node Git revision in each dependency below; preserve package aliases and feature selections.
-psy_vm = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "5d44615e53dd4f7da2fbc365715f97ebe4d218f0", default-features = false }
-psy_crypto = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "5d44615e53dd4f7da2fbc365715f97ebe4d218f0" }
-psy_data = { package = "psy_client_data", git = "https://github.com/PsyProtocol/psy-node.git", rev = "5d44615e53dd4f7da2fbc365715f97ebe4d218f0", default-features = false }
-psy_common_core = { package = "psy_client_common", git = "https://github.com/PsyProtocol/psy-node.git", rev = "5d44615e53dd4f7da2fbc365715f97ebe4d218f0" }
-psy_config = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "5d44615e53dd4f7da2fbc365715f97ebe4d218f0" }
-psy_prover = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "5d44615e53dd4f7da2fbc365715f97ebe4d218f0", default-features = false }
-psy_common_circuit = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "5d44615e53dd4f7da2fbc365715f97ebe4d218f0", default-features = false }
-psy_dpn_circuit = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "5d44615e53dd4f7da2fbc365715f97ebe4d218f0", default-features = false }
-psy_ups_circuit = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "5d44615e53dd4f7da2fbc365715f97ebe4d218f0" }
-psy_network_circuit = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "5d44615e53dd4f7da2fbc365715f97ebe4d218f0" }
-kvq = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "5d44615e53dd4f7da2fbc365715f97ebe4d218f0" }
+psy_vm = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "86cc462d958d493315ab3d56db942c0346b32bac", default-features = false }
+psy_crypto = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "86cc462d958d493315ab3d56db942c0346b32bac" }
+psy_data = { package = "psy_client_data", git = "https://github.com/PsyProtocol/psy-node.git", rev = "86cc462d958d493315ab3d56db942c0346b32bac", default-features = false }
+psy_common_core = { package = "psy_client_common", git = "https://github.com/PsyProtocol/psy-node.git", rev = "86cc462d958d493315ab3d56db942c0346b32bac" }
+psy_config = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "86cc462d958d493315ab3d56db942c0346b32bac" }
+psy_prover = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "86cc462d958d493315ab3d56db942c0346b32bac", default-features = false }
+psy_common_circuit = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "86cc462d958d493315ab3d56db942c0346b32bac", default-features = false }
+psy_dpn_circuit = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "86cc462d958d493315ab3d56db942c0346b32bac", default-features = false }
+psy_ups_circuit = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "86cc462d958d493315ab3d56db942c0346b32bac" }
+psy_network_circuit = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "86cc462d958d493315ab3d56db942c0346b32bac" }
+kvq = { git = "https://github.com/PsyProtocol/psy-node.git", rev = "86cc462d958d493315ab3d56db942c0346b32bac" }
 
 # Local compiler packages
 psy_common = { package = "psy_compiler_common", path = "./psy-common" }
@@ -241,11 +241,21 @@ ecdsa = "0.16.0"
 [profile.release]
 debug = false
 
-# Match the sibling psy-node proving backend across the whole dependency graph.
+# Match psy-node's proving backend across the whole dependency graph.
 [patch."https://github.com/PsyProtocol/plonky2-hwa"]
 plonky2 = { git = "https://www.github.com/PsyProtocol/plonky2-hwa", rev = "736572e9dd3ca93566471cf5a2a1cb67a13fe01d" }
 plonky2_field = { git = "https://www.github.com/PsyProtocol/plonky2-hwa", rev = "736572e9dd3ca93566471cf5a2a1cb67a13fe01d" }
 plonky2_maybe_rayon = { git = "https://www.github.com/PsyProtocol/plonky2-hwa", rev = "736572e9dd3ca93566471cf5a2a1cb67a13fe01d" }
 plonky2_util = { git = "https://www.github.com/PsyProtocol/plonky2-hwa", rev = "736572e9dd3ca93566471cf5a2a1cb67a13fe01d" }
 
+# Redirect psy-node's compiler Git dependencies to this working tree so node resolves the same compiler identity as the local build.
+[patch."https://github.com/PsyProtocol/psy-compiler.git"]
+psy-abi = { path = "./psy-abi" }
+psy-interpreter = { path = "./psy-interpreter" }
+psy-ast = { path = "./psy-ast" }
+psy_compiler_common = { path = "./psy-common" }
+psy-parser = { path = "./psy-parser" }
+psy-sema = { path = "./psy-sema" }
+psy-fmt = { path = "./psy-fmt" }
+psy-lexer = { path = "./psy-lexer" }
 
