@@ -340,3 +340,43 @@ fn deposit_tree_canonical_abi_classifies_reads_and_mutations_without_name_heuris
         vec![param("return", primitive(PrimitiveTypeName::Felt), 1)],
     );
 }
+
+/// A named literal capacity must survive into the compiler artifact. Sema
+/// does not rewrite the source AST the extractor reads, so the name has to
+/// resolve here. Capacity 4 occupies the sentinel plus four leaves: 20 felts.
+#[test]
+#[serial]
+fn named_literal_map_capacity_is_emitted_in_the_compiler_artifact() {
+    let output = psy_interpreter::compile(
+        r#"
+        const CAPACITY: u32 = 4u32;
+
+        #[contract]
+        #[derive(Storage)]
+        pub struct Named {
+            pub cells: Map<Felt, Felt, CAPACITY>,
+        }
+
+        #[contract::view_method]
+        pub fn peek() -> Felt {
+            let c = NamedRef::new(ContractMetadata::current());
+            return c.cells.offset;
+        }
+        "#,
+    )
+    .expect("compile named capacity");
+
+    let artifact = output.to_compilation_artifact();
+    let cells = artifact
+        .abi
+        .contract
+        .state
+        .iter()
+        .find(|field| field.name == "cells")
+        .expect("cells state field");
+    match &cells.ty {
+        TypeRef::Map { capacity, .. } => assert_eq!(*capacity, 4),
+        other => panic!("cells is not a map: {other:?}"),
+    }
+    assert_eq!(cells.felt_size, 20);
+}

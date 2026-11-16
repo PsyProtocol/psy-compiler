@@ -10,8 +10,10 @@ psy-sema = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
-insta = { workspace = true }
 psy-fmt = { workspace = true }
+insta = { workspace = true }
+bincode = { workspace = true }
+serde_json = { workspace = true }
 plonky2 = { workspace = true }
 indexmap = { workspace = true }
 enum-as-inner = { workspace = true }
@@ -23,6 +25,9 @@ psy_data = { workspace = true }
 psy_common = { workspace = true }
 psy_config = { workspace = true }
 psy_common_circuit = { workspace = true }
+psy-abi = { workspace = true }
+serde = { workspace = true }
+serde_cbor = { workspace = true }
 
 [features]
 # default = ["is_sync"]
@@ -31,7 +36,6 @@ is_sync = [
 ]
 
 [dev-dependencies]
-psy_prover = { workspace = true }
 psy_common_circuit = { workspace = true }
 serial_test = { workspace = true }
 kvq = { workspace = true }

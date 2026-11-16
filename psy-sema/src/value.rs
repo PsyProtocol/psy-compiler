@@ -321,12 +321,26 @@ impl<F: Clone + From<u32> + ContextFelt> CheckedValueRef<F> {
             return Ok(());
         }
 
+        // Constant array indexes are checked before the write lock. The assert
+        // panics, and panicking while `borrow_mut` is held poisons the value.
+        if let Some(index) = path[0].as_felt() {
+            if is_constant_op(ctx.get_op_type(*index)) {
+                let index_value = ctx.get_constant_value(*index);
+                let length = match &*self.borrow() {
+                    CheckedValue::Array(_, arr) => u64::try_from(arr.len()).expect("array length fits in u64"),
+                    _ => unreachable!(),
+                };
+                assert!(index_value < length, "array index must less than array length");
+            }
+        }
+
         match &mut *self.borrow_mut() {
             CheckedValue::Array(_, arr) => {
                 let index = path[0].as_felt().unwrap();
                 let rest = &path[1..];
                 if is_constant_op(ctx.get_op_type(*index)) {
-                    let index = ctx.get_constant_value(*index) as usize;
+                    let index_value = ctx.get_constant_value(*index);
+                    let index = usize::try_from(index_value).expect("in-range index fits usize");
                     if let Some(inner) = arr.get_mut(index) {
                         inner.set_path(ctx, rest, index_condition, value)?;
                     }
@@ -381,8 +395,10 @@ impl<F: Clone + From<u32> + ContextFelt> CheckedValueRef<F> {
                 let index = path[0].clone().into_felt().unwrap();
                 let rest = &path[1..];
                 if is_constant_op(ctx.get_op_type(index)) {
-                    let index = ctx.get_constant_value(index) as usize;
-                    assert!(index < arr.len(), "array index must less than array length");
+                    let index_value = ctx.get_constant_value(index);
+                    let length = u64::try_from(arr.len()).expect("array length fits in u64");
+                    assert!(index_value < length, "array index must less than array length");
+                    let index = usize::try_from(index_value).expect("in-range index fits usize");
                     arr.get(index).and_then(|inner| inner.get_path(ctx, rest))
                 } else {
                     let arr_size = ctx.op_const(arr.len() as u64);
@@ -831,6 +847,35 @@ mod tests {
             .get_path(&mut ctx, &[IndexPath::Felt(index)])
             .expect("symbolic index read must produce a selected value");
         assert!(selected.borrow().is_felt());
+    }
+
+    /// `2^32 + k` is below the Goldilocks modulus, so it stays a constant
+    /// index. The length comparison is `u64`, so the index is rejected before
+    /// any `usize` cast on both 32-bit and 64-bit hosts.
+    #[test]
+    fn constant_index_above_u32_rejects_before_host_cast() {
+        let mut ctx = QExecContext::new();
+        let wide = ctx.op_const(1u64 << 32);
+        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let array = CheckedValueRef::<SymFeltRef>::new_rc(CheckedValue::Array(
+                TypeId::from(0usize),
+                vec![felt_value(10), felt_value(20)],
+            ));
+            array.get_path(&mut ctx, &[IndexPath::Felt(wide)])
+        }));
+        assert!(read.is_err(), "2^32 must not alias element 0");
+
+        let aliased = ctx.op_const((1u64 << 32) + 1);
+        let write = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut array = CheckedValueRef::<SymFeltRef>::new_rc(CheckedValue::Array(
+                TypeId::from(0usize),
+                vec![felt_value(10), felt_value(20)],
+            ));
+            array
+                .set_path(&mut ctx, &[IndexPath::Felt(aliased)], &mut vec![], felt_value(7))
+                .expect("in-bounds constant writes return Ok")
+        }));
+        assert!(write.is_err(), "2^32 + 1 must not write element 1");
     }
 
 

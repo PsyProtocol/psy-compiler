@@ -268,6 +268,18 @@ fn b18_u32_pow_overflow_is_arithmetic_overflow() {
     );
 }
 
+/// `2^192 mod p = 1`, which fits u32. The precheck must follow `u32_exp`
+/// (field pow, then the u32 range), not integer `checked_pow`. The stub std
+/// keeps this off a backup checkout the parser cannot load.
+#[test]
+fn b18_u32_pow_field_residue_fits() {
+    let source = "fn main() { let value = 2u32 ** 192u32; assert_eq(value, 1u32, \"pow\"); }";
+    match crate::exec_edge_tests::exec_source_with_stub_std("b18_u32_pow_field_residue", source) {
+        Ok(()) => {}
+        Err(message) => panic!("[b18_u32_pow_field_residue] expected success, got:\n{message}"),
+    }
+}
+
 /// Non-overflowing u32 powers keep working (regression guard for the
 /// pre-check itself).
 #[test]

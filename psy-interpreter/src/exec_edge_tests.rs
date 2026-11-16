@@ -6,8 +6,10 @@
 //
 // Every case drives `main` through an independent interpreter and symbol table.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 
+use psy_ast::Program;
+use psy_common::Graph;
 use psy_vm::dpn::{
     ops::{exec_context::QExecContext, sym_felt::SymFeltRef},
     vm::{compile::PsyCompileResult, def::DPNFunctionCircuitDefinition},
@@ -62,6 +64,62 @@ fn exec_source(label: &str, source: &str) -> Result<(), String> {
     };
     let _ = std::fs::remove_file(&path);
     result
+}
+
+/// Same path as `exec_source`, but the program carries its own std. The
+/// parser still loads whatever `DARGO_STD_PATH` names; pre-registering those
+/// paths makes this program ignore a backup or unparsable checkout.
+pub(crate) fn exec_source_with_stub_std(label: &str, source: &str) -> Result<(), String> {
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("psy_exec_{n}.psy"));
+    let std_root = std_path_for_stub();
+    let std_dir = std_root.parent().expect("std.psy has a parent").to_path_buf();
+
+    let program = Program::new();
+    program.file_resolver.add_file(path.clone(), Arc::<str>::from(source));
+    program.file_resolver.add_file(std_root, Arc::<str>::from("pub mod prelude;"));
+    program.file_resolver.add_file(std_dir.join("prelude.psy"), Arc::<str>::from("mod primitive;"));
+    // Sema installs Felt when it reaches the module named `primitive`.
+    program.file_resolver.add_file(std_dir.join("primitive.psy"), Arc::<str>::from(""));
+
+    let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
+    let mut graph = Graph::new();
+    graph.add_node(path);
+    let result = {
+        let (mut typechecker, mut ctx) = interpreter
+            .typecheck_with_program(graph, program)
+            .map_err(|e| format!("typecheck: {e:#}"))?;
+        interpreter
+            .interpret(&mut typechecker, &mut ctx, None::<Ident>, vec![], stub_compile_fn)
+            .map(|_| ())
+            .map_err(|e| format!("interpret: {e:#}"))
+    };
+    result.map_err(|message| format!("[{label}] {message}"))
+}
+
+fn std_path_for_stub() -> std::path::PathBuf {
+    if let Ok(std_path) = std::env::var("DARGO_STD_PATH") {
+        return std::path::PathBuf::from(std_path);
+    }
+    let mut dir = Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    while let Some(current) = dir {
+        let candidate = current.join("psy-std").join("std.psy");
+        if candidate.exists() {
+            return candidate;
+        }
+        dir = current.parent().map(std::path::Path::to_path_buf);
+    }
+    panic!("psy-std/std.psy not found above {}", env!("CARGO_MANIFEST_DIR"));
+}
+
+fn exec_rejects_with_stub_std(label: &str, source: &str, needle: &str) {
+    match exec_source_with_stub_std(label, source) {
+        Ok(()) => panic!("[{label}] expected execution failure containing `{needle}`, got success"),
+        Err(message) => assert!(
+            message.to_lowercase().contains(&needle.to_lowercase()),
+            "[{label}] expected failure containing `{needle}`, got:\n{message}"
+        ),
+    }
 }
 
 fn exec_accepts(label: &str, source: &str) {
@@ -228,6 +286,38 @@ fn main() {
 }
 "#,
         "index",
+    );
+}
+
+/// `2^32 + k` is a legal Felt index. Comparing it with the array length as
+/// `u64` rejects it on every host; casting to `usize` first aliases element
+/// `k` on wasm32. The stub std keeps this check off the default std checkout:
+/// a backup `storage.psy` fails in the parser before the index is reached.
+#[test]
+fn constant_index_above_u32_rejects_independent_of_host_width() {
+    exec_rejects_with_stub_std(
+        "constant index 2^32",
+        r#"
+
+fn main() {
+    let values: [Felt; 2] = [10, 20];
+    let v = values[4294967296];
+    assert_eq(v, 10, "unreachable");
+}
+"#,
+        "IndexOutOfBounds",
+    );
+    exec_rejects_with_stub_std(
+        "constant index 2^32 + 1 assignment",
+        r#"
+
+fn main() {
+    let mut values: [Felt; 2] = [10, 20];
+    values[4294967297] = 7;
+    assert_eq(values[1], 20, "element must stay unchanged");
+}
+"#,
+        "IndexOutOfBounds",
     );
 }
 

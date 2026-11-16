@@ -1,0 +1,21 @@
+[package]
+edition = "2021"
+name = "psy-prover-tests"
+version = "0.1.0"
+
+[dependencies]
+anyhow = { workspace = true }
+insta = { workspace = true }
+kvq = { workspace = true }
+plonky2 = { workspace = true }
+psy-interpreter = { workspace = true }
+psy_common = { workspace = true }
+psy-sema = { workspace = true }
+psy_common_circuit = { workspace = true }
+psy_config = { workspace = true }
+psy_crypto = { workspace = true }
+psy_data = { workspace = true }
+psy_prover = { workspace = true }
+psy_vm = { workspace = true }
+serial_test = { workspace = true }
+tokio = { workspace = true }

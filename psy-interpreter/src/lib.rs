@@ -6,8 +6,9 @@ mod preprocess;
 
 use std::{
     collections::{HashMap, HashSet},
+    fs,
     iter::once,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -16,7 +17,9 @@ use indexmap::IndexMap;
 pub use preprocess::StorageProcessor;
 use psy_ast::*;
 use psy_common::Graph;
+use psy_config::network_constants::VM_TYPE_STANRDARD_DAPEN_V1;
 use psy_crypto::hash::utils::gen_dapen_contract_function_method_id;
+use psy_data::qdata::contract::{ContractCodeDefinition, ContractFunctionCodeDefinition};
 use psy_fmt::Formatter;
 use psy_parser::Parser;
 use psy_sema::{Error as SemaError, *};
@@ -25,10 +28,12 @@ use psy_vm::dpn::{
         context_trait::{ContextFelt, DPNContext, ToFelts},
         exec_context::QExecContext,
         op_types::DPNOpType,
+        semantics::u32_exp,
         sym_felt::SymFeltRef,
     },
     vm::{compile::PsyCompileResult, def::DPNFunctionCircuitDefinition},
 };
+use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use crate::{
@@ -38,6 +43,215 @@ use crate::{
 
 const MAX_MATERIALIZED_ARRAY_ELEMENTS: usize = 1 << 20;
 const MAX_TOTAL_MATERIALIZED_ELEMENTS: u64 = 1 << 22;
+
+/// Compiler output consumed by deployment, update, and simulation tooling.
+///
+/// `contract_code` carries the deployable function bytes, `circuit_definitions`
+/// are the per-method circuits, and `abi` includes the canonical state layout.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractOutput {
+    pub contract_code: ContractCodeDefinition,
+    pub circuit_definitions: Vec<DPNFunctionCircuitDefinition>,
+    pub abi: psy_abi::Abi,
+}
+
+/// Unified JSON artifact written by the compiler and read by deploy tooling.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompilationArtifact {
+    pub state_tree_height: u16,
+    pub circuit_definitions: Vec<DPNFunctionCircuitDefinition>,
+    pub abi: psy_abi::Abi,
+}
+
+impl ContractOutput {
+    pub fn to_bytes(&self) -> anyhow::Result<Vec<u8>> {
+        bincode::serialize(&self.contract_code).map_err(|error| anyhow::anyhow!(error))
+    }
+
+    pub fn abi_to_json(&self) -> anyhow::Result<String> {
+        self.abi.to_json().map_err(|error| anyhow::anyhow!(error))
+    }
+
+    pub fn to_compilation_artifact(&self) -> CompilationArtifact {
+        CompilationArtifact {
+            state_tree_height: self.contract_code.state_tree_height,
+            circuit_definitions: self.circuit_definitions.clone(),
+            abi: self.abi.clone(),
+        }
+    }
+
+    pub fn to_compilation_artifact_json(&self) -> anyhow::Result<String> {
+        serde_json::to_string(&self.to_compilation_artifact()).map_err(|error| anyhow::anyhow!(error))
+    }
+
+    pub fn method_count(&self) -> usize {
+        self.contract_code.functions.len()
+    }
+
+    pub fn state_tree_height(&self) -> u16 {
+        self.contract_code.state_tree_height
+    }
+}
+
+/// Compile one contract source string into deployable artifacts.
+///
+/// The source is compiled as the crate root. Every contract method is
+/// interpreted; the ABI state layout is extracted from the same program.
+pub fn compile(source: &str) -> anyhow::Result<ContractOutput> {
+    // `main.psy` names the module from its grandparent directory, which a
+    // virtual entry does not have. An ordinary filename is a valid module.
+    let entry = PathBuf::from("/psy-virtual/contract.psy");
+    compile_loaded(&[(entry.clone(), source.to_string())], &entry, None)
+}
+
+/// Compile a multi-file contract crate from its root file.
+///
+/// Sibling `.psy` / `.psy.rs` files declared with `mod` are loaded relative to
+/// the root, using the root file's extension.
+pub fn compile_crate(root_file: &Path) -> anyhow::Result<ContractOutput> {
+    let root = root_file
+        .canonicalize()
+        .map_err(|error| anyhow::anyhow!("failed to resolve contract root {}: {error}", root_file.display()))?;
+    let sources = load_crate_sources(&root)?;
+    compile_loaded(&sources, &root, None)
+}
+
+fn compile_loaded(sources: &[(PathBuf, String)], entry: &Path, contract_name: Option<String>) -> anyhow::Result<ContractOutput> {
+    let mut graph = Graph::new();
+    graph.add_node(entry.to_path_buf());
+    let files = sources
+        .iter()
+        .map(|(path, source)| (path.clone(), Arc::<str>::from(source.as_str())))
+        .collect();
+    let mut result = interpret_virtual_files(contract_name, Vec::new(), graph, files)?;
+    contract_output_from_interpret(&mut result)
+}
+
+fn contract_output_from_interpret(result: &mut InterpretResult) -> anyhow::Result<ContractOutput> {
+    let extractor = psy_abi::AbiExtractor::new("contract".to_string());
+    let state_tree_height = extractor.compute_state_tree_height(&mut result.ctx.program);
+    let method_metadata = result
+        .compile_results
+        .iter()
+        .map(|function| (function.name.clone(), (function.method_id, function.is_view_function())))
+        .collect::<HashMap<_, _>>();
+    let abi = extractor
+        .extract_abi(&mut result.ctx.program, state_tree_height, &method_metadata)
+        .map_err(|error| anyhow::anyhow!(error))?;
+    let functions = result
+        .compile_results
+        .iter()
+        .map(|circuit| {
+            Ok(ContractFunctionCodeDefinition {
+                method_id: circuit.method_id,
+                num_inputs: u32::try_from(circuit.circuit_inputs.len()).map_err(|_| anyhow::anyhow!("method input count does not fit in u32"))?,
+                num_outputs: u32::try_from(circuit.circuit_outputs.len()).map_err(|_| anyhow::anyhow!("method output count does not fit in u32"))?,
+                vm_type: VM_TYPE_STANRDARD_DAPEN_V1,
+                code: serde_cbor::to_vec(circuit)?,
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(ContractOutput {
+        contract_code: ContractCodeDefinition { state_tree_height, functions },
+        circuit_definitions: std::mem::take(&mut result.compile_results),
+        abi,
+    })
+}
+
+fn load_crate_sources(root: &Path) -> anyhow::Result<Vec<(PathBuf, String)>> {
+    let mut pending = vec![root.to_path_buf()];
+    let mut seen = HashSet::new();
+    let mut sources = Vec::new();
+    while let Some(path) = pending.pop() {
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let source = fs::read_to_string(&path).map_err(|error| anyhow::anyhow!("failed to read {}: {error}", path.display()))?;
+        let extension = module_file_suffix(&path);
+        let parent = path.parent().unwrap_or(Path::new("."));
+        for module_name in declared_modules(&source) {
+            pending.push(parent.join(format!("{module_name}.{extension}")));
+        }
+        sources.push((path, source));
+    }
+    Ok(sources)
+}
+
+fn module_file_suffix(path: &Path) -> String {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return "psy".to_string();
+    };
+    let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+        return "psy".to_string();
+    };
+    name.strip_prefix(stem)
+        .map(|suffix| suffix.trim_start_matches('.'))
+        .filter(|suffix| !suffix.is_empty())
+        .unwrap_or("psy")
+        .to_string()
+}
+
+/// Module names declared as `mod name;` outside comments and string literals.
+fn declared_modules(source: &str) -> Vec<String> {
+    let bytes = source.as_bytes();
+    let mut modules = Vec::new();
+    let mut index = 0;
+    let mut line_start = true;
+    while index < bytes.len() {
+        match bytes[index] {
+            b' ' | b'\t' | b'\r' => index += 1,
+            b'\n' => {
+                line_start = true;
+                index += 1;
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'/') => {
+                index = source[index..].find('\n').map(|offset| index + offset + 1).unwrap_or(bytes.len());
+                line_start = true;
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                index = source[index + 2..]
+                    .find("*/")
+                    .map(|offset| index + 2 + offset + 2)
+                    .unwrap_or(bytes.len());
+            }
+            b'"' => {
+                index += 1;
+                while index < bytes.len() && bytes[index] != b'"' {
+                    index += if bytes[index] == b'\\' { 2 } else { 1 };
+                }
+                index = (index + 1).min(bytes.len());
+                line_start = false;
+            }
+            _ if line_start && source[index..].starts_with("pub ") => {
+                index += 4;
+            }
+            _ if line_start && source[index..].starts_with("mod ") => {
+                index += 4;
+                while matches!(bytes.get(index), Some(b' ' | b'\t')) {
+                    index += 1;
+                }
+                let start = index;
+                while matches!(bytes.get(index), Some(byte) if byte.is_ascii_alphanumeric() || *byte == b'_') {
+                    index += 1;
+                }
+                while matches!(bytes.get(index), Some(b' ' | b'\t')) {
+                    index += 1;
+                }
+                if bytes.get(index) == Some(&b';') && start < index {
+                    modules.push(source[start..index].trim().to_string());
+                    // the name span excludes trailing spaces, so the next scan
+                    // starts at the semicolon rather than past it
+                }
+                line_start = false;
+            }
+            _ => {
+                line_start = false;
+                index += 1;
+            }
+        }
+    }
+    modules
+}
 
 pub struct InterpretResult {
     pub compile_results: Vec<DPNFunctionCircuitDefinition>,
@@ -1037,11 +1251,11 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         Add => a + b > 0xffffffff,
                         Sub => a < b,
                         Mul => a * b > 0xffffffff,
-                        // Both operands originate from u32 values, so the
-                        // exponent cast is safe. The guard itself must use
-                        // checked arithmetic: a large base can overflow u64
-                        // even when the exponent is at most 32.
-                        Pow => a.checked_pow(b as u32).map_or(true, |value| value > 0xffffffff),
+                        // Same rule as the VM: `base^exp mod p`, then the
+                        // canonical residue must fit u32. Integer `checked_pow`
+                        // rejects values such as `2u32 ** 192u32`, whose field
+                        // residue is 1.
+                        Pow => u32_exp("u32 exp", a, b).is_err(),
                         _ => false,
                     };
                     if overflow {
@@ -1766,10 +1980,13 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         if let CheckedValue::Array(_, arr) = &*a.borrow() {
             let length = arr.len();
             if self.is_constant(index_felt) {
-                let idx = self.context.get_constant_value(index_felt) as usize;
-                if idx >= length {
+                // Compare in u64 before the host cast. On wasm32, `as usize`
+                // truncates 2^32 + k to k and would accept an out-of-range index.
+                let index_value = self.context.get_constant_value(index_felt);
+                let length_value = u64::try_from(length).expect("array length fits in u64");
+                if index_value >= length_value {
                     return Err(Error::IndexOutOfBounds {
-                        index: idx,
+                        index: usize::try_from(index_value).unwrap_or(usize::MAX),
                         length,
                         location: Some(index_access_node.location),
                     });
@@ -1935,11 +2152,13 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         // user error into a diagnostic before descending into the target.
         if let CheckedValue::Array(_, values) = &*inner_value.borrow() {
             if self.is_constant(index_felt.clone()) {
-                let index_value = self.context.get_constant_value(index_felt.clone()) as usize;
-                if index_value >= values.len() {
+                let index_value = self.context.get_constant_value(index_felt.clone());
+                let length = values.len();
+                let length_value = u64::try_from(length).expect("array length fits in u64");
+                if index_value >= length_value {
                     return Err(Error::IndexOutOfBounds {
-                        index: index_value,
-                        length: values.len(),
+                        index: usize::try_from(index_value).unwrap_or(usize::MAX),
+                        length,
                         location: Some(index_access_node.location),
                     });
                 }
@@ -2183,29 +2402,6 @@ mod tests {
         io::{BufWriter, Write},
         time::{SystemTime, UNIX_EPOCH},
     };
-
-    use insta::assert_snapshot;
-    use kvq::memory::simple::KVQSimpleMemoryBackingStore;
-    use plonky2::field::{goldilocks_field::GoldilocksField, types::Field};
-    use psy_common::data::qhashout::QHashOut;
-    use psy_common_circuit::circuits::zk_signature3::manager::SimplePsyZKSignatureManager;
-    use psy_config::network_constants::GLOBAL_USER_TREE_HEIGHT;
-    use psy_crypto::signature::zk::wallet::SimplePsyPrivateKey;
-    use psy_data::{
-        config::store_config::{PsyFelt, PsyHasher, C, D},
-        qblock::{cmds::register_user::QBCRegisterUser, process::simple::SimpleBlockProcessor},
-        qdata::checkpoint::{PsyBlockState, PsyCheckpointLeaf, PsyCheckpointLeafStats},
-        qstore::controllers::proving_session::PsyLocalProvingSessionStore,
-        traits::qdatastore::qmetadata::{QMetaDataStoreReaderSync, QMetaDataStoreWriterSync},
-    };
-    use psy_prover::session::gen_contract_deploy_and_circuits_for_functions;
-    use psy_vm::{
-        dpn::{
-            ops::{exec_context::QExecContext, sym_felt::SymFeltRef},
-            vm::compile::PsyCompileResult,
-        },
-        vm::exec::PsyEvalSessionResult,
-    };
     use serial_test::serial;
 
     use super::*;
@@ -2225,87 +2421,6 @@ mod tests {
         assert_eq!(result.compile_results[0].name, "main");
         println!("compile_result: {:?}", result.compile_results);
     }
-
-    #[tokio::test(flavor = "multi_thread")]
-    #[serial]
-    async fn test_interpreter() {
-        psy_common::setup_logging().ok();
-
-        insta::glob!("../../tests", "{struct*.psy,fn_test.psy,fn_chain_call_test.psy}", |path| {
-            let mut interpreter = Interpreter::<SymFeltRef, _>::new(QExecContext::new());
-            let (mut typechecker, mut ctx) = interpreter.typecheck_single(path.into()).unwrap();
-
-            let compile_results = interpreter
-                .interpret(
-                    &mut typechecker,
-                    &mut ctx,
-                    None,
-                    vec!["main"],
-                    |context, (method_name, method_id, outputs)| {
-                        PsyCompileResult::compile_exec(method_name, method_id, &context.store, &context, &outputs)
-                    },
-                )
-                .unwrap();
-
-            let priv_key = QHashOut::rand();
-            let wallet = SimplePsyZKSignatureManager::<C, D>::new();
-            let priv_key_w = SimplePsyPrivateKey::new(priv_key);
-            let pub_key_param = priv_key_w.get_public_key_param::<PsyHasher>();
-            let contract_state_tree_height = GLOBAL_USER_TREE_HEIGHT as usize;
-
-            let deployer: u64 = 0;
-            let (_circuits, deploy_cmd) =
-                gen_contract_deploy_and_circuits_for_functions::<C, D>(deployer, contract_state_tree_height as u8, &compile_results).unwrap();
-
-            let mut lps = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    let store = KVQSimpleMemoryBackingStore::new();
-                    store.set_block_state(&PsyBlockState::get_genesis_value())?;
-                    store.set_checkpoint_leaf_data(
-                        0,
-                        &PsyCheckpointLeaf {
-                            global_chain_root: QHashOut::ZERO,
-                            stats: PsyCheckpointLeafStats::new_empty(),
-                        },
-                    )?;
-                    let final_store = SimpleBlockProcessor::prepare_environment_with_real_contract(
-                        vec![QBCRegisterUser::new(wallet.get_zksig_circuit_fingerprint(), pub_key_param)],
-                        vec![deploy_cmd],
-                        store,
-                    )
-                    .await?;
-                    let latest_block_state = final_store.get_latest_block_state().await?;
-                    let checkpoint_id = PsyFelt::from_canonical_u64(latest_block_state.checkpoint_id);
-                    let user_id = PsyFelt::from_canonical_u64(5);
-                    Ok::<_, anyhow::Error>(PsyLocalProvingSessionStore::<_, _, PsyHasher>::new_at(
-                        final_store,
-                        checkpoint_id,
-                        user_id,
-                        PsyFelt::ZERO,
-                        PsyFelt::ZERO,
-                        GLOBAL_USER_TREE_HEIGHT as usize,
-                    ))
-                })
-            })
-            .unwrap();
-            let contract_id = GoldilocksField::from_canonical_u64(2);
-
-            let cfc_input = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    PsyEvalSessionResult::new()
-                        .exec_contract_call(&mut lps, contract_id, &compile_results[0], vec![])
-                        .await
-                })
-            })
-            .unwrap();
-
-            println!("result_vm: {:?}", cfc_input.outputs);
-            println!("result_events: {:?}", cfc_input.events);
-
-            assert_snapshot!(ctx.debug_scope(ScopeId::root()))
-        });
-    }
-
     #[test]
     #[serial]
     fn test_format_file() {
@@ -2359,7 +2474,7 @@ fn main() {}
         };
         let err_msg = format!("{err:#}");
         assert!(
-            err_msg.contains("Only one Map is currently supported per contract"),
+            err_msg.contains("Map must be a direct top-level contract field"),
             "unexpected error: {err_msg}"
         );
 
@@ -2941,7 +3056,7 @@ mod sema_edge_tests {
 }
 
 #[cfg(test)]
-mod exec_edge_tests {
+pub(crate) mod exec_edge_tests {
     include!("exec_edge_tests.rs");
 }
 

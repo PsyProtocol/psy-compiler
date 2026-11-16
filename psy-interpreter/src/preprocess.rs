@@ -57,6 +57,344 @@ impl<'a> StorageProcessor<'a> {
         })
     }
 
+    /// The type a path denotes: its root, then each segment, then the
+    /// target. A member is an associated type on an inherent or trait impl
+    /// of that prefix. An unresolved member is `None` — the caller fails
+    /// closed instead of inspecting the member name as a standalone type.
+    fn resolve_associated_path<F: Clone + From<u32>, C, V>(
+        &self,
+        path: &PathNode,
+        ctx: &V,
+    ) -> Option<UncheckedType>
+    where
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
+    {
+        let root = path.root.as_ref()?;
+        let mut current = root.clone();
+        for member in path.segments.iter().chain(std::iter::once(&path.target)) {
+            let member_id = member.as_basic().map(|ident| ident.id)?;
+            current = self.associated_type_of(&current, member_id, ctx)?;
+        }
+        Some(current)
+    }
+
+    fn associated_type_of<F: Clone + From<u32>, C, V>(
+        &self,
+        owner: &UncheckedType,
+        member: IdentId,
+        ctx: &V,
+    ) -> Option<UncheckedType>
+    where
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
+    {
+        let owner_id = match owner {
+            UncheckedType::Basic(ident) => ident.id,
+            UncheckedType::Generic(_, _, _) => return None,
+            _ => return None,
+        };
+        let mut found = None;
+        for def in ctx.program().defs.iter() {
+            let (implementor, associated) = match def {
+                DefinitionNode::Impl(node) => (&node.ty, &node.associated_types),
+                DefinitionNode::TraitImpl(node) => (&node.ty, &node.associated_types),
+                _ => continue,
+            };
+            let UncheckedType::Basic(ident) = implementor else {
+                continue;
+            };
+            let implementor_id = ident.id;
+            if implementor_id != owner_id {
+                continue;
+            }
+            let Some((_, value)) = associated.iter().find(|(name, _)| name.id == member) else {
+                continue;
+            };
+            if found.replace(value.ty.clone()).is_some() {
+                return None;
+            }
+        }
+        found
+    }
+
+    /// A rooted path resolves only when every member is a single associated
+    /// type. Missing and ambiguous members fail closed.
+    fn associated_path_is_resolved<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
+    >(
+        &self,
+        ty: &UncheckedType,
+        ctx: &mut V,
+        seen: &mut HashSet<String>,
+    ) -> bool {
+        if !seen.insert(format!("{ty:?}")) {
+            return false;
+        }
+        let resolved = match ty {
+            UncheckedType::Path(path) => {
+                if path.root.is_some() {
+                    let Some(resolved) = self.resolve_associated_path(path, ctx) else {
+                        return false;
+                    };
+                    self.associated_path_is_resolved(&resolved, ctx, seen)
+                } else {
+                    self.associated_path_is_resolved(&path.target, ctx, seen)
+                }
+            }
+            UncheckedType::Generic(_, params, _) | UncheckedType::Tuple(params, _) => {
+                params.iter().all(|param| self.associated_path_is_resolved(param, ctx, seen))
+            }
+            UncheckedType::Array(elem, _, _) => self.associated_path_is_resolved(elem, ctx, seen),
+            UncheckedType::Basic(ident) => match self.type_alias_target_type(ident.id, ctx) {
+                Some(target) => self.associated_path_is_resolved(&target, ctx, seen),
+                None => {
+                    let struct_id = self.underlying_struct_id(ident.id, ctx);
+                    self.find_struct_definition(struct_id, ctx).is_none_or(|definition| {
+                        definition
+                            .fields
+                            .values()
+                            .all(|field| self.associated_path_is_resolved(&field.ty, ctx, seen))
+                    })
+                }
+            },
+            UncheckedType::FunctionSignature(signature, _) => signature
+                .parameters
+                .iter()
+                .chain(signature.return_type.iter())
+                .all(|item| self.associated_path_is_resolved(item, ctx, seen)),
+            _ => true,
+        };
+        seen.remove(&format!("{ty:?}"));
+        resolved
+    }
+
+
+
+    fn type_alias_target_type<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
+    >(
+        &self,
+        ident_id: IdentId,
+        ctx: &mut V,
+    ) -> Option<UncheckedType> {
+        ctx.program().defs.iter().find_map(|def| match def {
+            DefinitionNode::TypeAlias(alias) if alias.name.id == ident_id => Some(alias.ty.clone()),
+            _ => None,
+        })
+    }
+
+
+    /// A type is map-bearing if it is or contains a map. Map-bearing fields
+    /// start at a 4-felt-aligned offset, since a map's footprint
+    /// `(capacity + 1) * 4` packs whole state-tree leaves.
+    fn is_map_bearing_type<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
+    >(
+        &self,
+        ty: &UncheckedType,
+        ctx: &mut V,
+        visiting: &mut HashSet<IdentId>,
+    ) -> bool {
+        match ty {
+            UncheckedType::Generic(ident, params, _) => {
+                let name = ctx.ident(ident.id).0.as_str();
+                match name {
+                    "Map" | "NamespacedMap" | "ContractHashMap" | "MapRef" | "NamespacedMapRef" => params.len() == 3,
+                    "StorageRef" => params.len() == 1 && self.is_map_bearing_type(&params[0], ctx, visiting),
+                    "ArrayRef" => params.len() == 2 && self.is_map_bearing_type(&params[0], ctx, visiting),
+                    _ => params.iter().any(|param| self.is_map_bearing_type(param, ctx, visiting)),
+                }
+            }
+            UncheckedType::Array(elem_ty, _, _) => self.is_map_bearing_type(elem_ty, ctx, visiting),
+            UncheckedType::Path(path) => {
+                if path.root.is_some() {
+                    return match self.resolve_associated_path(path, ctx) {
+                        Some(resolved) => self.is_map_bearing_type(&resolved, ctx, visiting),
+                        None => false,
+                    };
+                }
+                self.is_map_bearing_type(&path.target, ctx, visiting)
+            }
+            UncheckedType::Basic(ident) => {
+                if let Some(target) = self.type_alias_target_type(ident.id, ctx) {
+                    return self.is_map_bearing_type(&target, ctx, visiting);
+                }
+                // A generated Ref names its source struct. A user struct
+                // that merely ends in "Ref" is inspected by its own members.
+                let struct_id = self.underlying_struct_id(ident.id, ctx);
+                if !visiting.insert(struct_id) {
+                    return false;
+                }
+                let bearing = self
+                    .find_struct_definition(struct_id, ctx)
+                    .map(|s| s.fields.values().any(|field| self.is_map_bearing_type(&field.ty, ctx, visiting)))
+                    .unwrap_or(false);
+                visiting.remove(&struct_id);
+                bearing
+            }
+            UncheckedType::Tuple(items, _) => items.iter().any(|item| self.is_map_bearing_type(item, ctx, visiting)),
+            UncheckedType::FunctionSignature(signature, _) => signature
+                .parameters
+                .iter()
+                .chain(signature.return_type.iter())
+                .any(|ty| self.is_map_bearing_type(ty, ctx, visiting)),
+            _ => false,
+        }
+    }
+
+    /// The source struct a generated `FooRef` stands for. User structs are
+    /// never rewritten by their suffix: only a generated struct whose name is
+    /// `source + "Ref"` maps back, and only when that source exists.
+    fn underlying_struct_id<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
+    >(
+        &self,
+        ident_id: IdentId,
+        ctx: &mut V,
+    ) -> IdentId {
+        let Some(node) = self.find_struct_definition(ident_id, ctx) else {
+            return ident_id;
+        };
+        if !node.is_generated {
+            return ident_id;
+        }
+        let Some(base) = ctx.ident(ident_id).0.strip_suffix("Ref").map(str::to_string) else {
+            return ident_id;
+        };
+        let base_id = ctx.intern(base.as_str());
+        if self.find_struct_definition(base_id, ctx).is_some() {
+            base_id
+        } else {
+            ident_id
+        }
+    }
+
+    /// A concrete numeric capacity, including one named by a `const` item.
+    /// An unresolved name is not a capacity; the typechecker reports it.
+    fn resolved_capacity<
+        F: Clone + From<u32> + ContextFelt,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
+    >(
+        &self,
+        ty: &UncheckedType,
+        ctx: &mut V,
+        seen: &mut HashSet<IdentId>,
+    ) -> Option<u64> {
+        match ty {
+            UncheckedType::Const(value, _) => value.as_u64().filter(|capacity| *capacity > 0),
+            UncheckedType::Basic(ident) => {
+                if !seen.insert(ident.id) {
+                    return None;
+                }
+                let value = ctx.program().defs.iter().find_map(|def| match def {
+                    DefinitionNode::Const(item) if item.name.id == ident.id => Some(item.value),
+                    _ => None,
+                });
+                let Some(value) = value else {
+                    return None;
+                };
+                match ctx.expression(value) {
+                    ExprNode::Value(ValueNode::U32(felt, _)) | ExprNode::Value(ValueNode::Felt(felt, _)) => {
+                        let capacity = felt.get_u64();
+                        (capacity > 0).then_some(capacity)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether a direct map's key or value itself contains a map. Aliases,
+    /// paths, arrays, and composites all count; the map's own name does not.
+    fn map_argument_is_map_bearing<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
+    >(
+        &self,
+        ty: &UncheckedType,
+        ctx: &mut V,
+    ) -> bool {
+        match ty {
+            UncheckedType::Generic(_, params, _) if params.len() == 3 && self.is_direct_map_type(ty, ctx) => {
+                params[..2]
+                    .iter()
+                    .any(|argument| self.is_map_bearing_type(argument, ctx, &mut HashSet::new()))
+            }
+            _ => false,
+        }
+    }
+
+    /// A map written directly as `Map`/`NamespacedMap`/`ContractHashMap`, not
+    /// one reached through an alias, path, array, or struct.
+    fn is_direct_map_type<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
+    >(
+        &self,
+        ty: &UncheckedType,
+        ctx: &mut V,
+    ) -> bool {
+        matches!(
+            ty,
+            UncheckedType::Generic(ident, params, _)
+                if params.len() == 3
+                    && matches!(
+                        ctx.ident(ident.id).0.as_str(),
+                        "Map" | "NamespacedMap" | "ContractHashMap"
+                    )
+        )
+    }
+
+    /// `offset + ((4 - (offset % 4)) % 4)` — aligns the running offset up to
+    /// a multiple of 4 before a map-bearing field starts.
+    fn generate_aligned_offset<
+        F: Clone + From<u32>,
+        C,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
+    >(
+        &self,
+        offset: ExprId,
+        attr: &AttrNode,
+        ctx: &mut V,
+    ) -> ExprId {
+        let four = ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(4), attr.location)));
+        let rem = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
+            lhs: offset,
+            operator: BinaryOperator::Mod,
+            rhs: four,
+            location: attr.location,
+        }));
+        let diff = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
+            lhs: four,
+            operator: BinaryOperator::Sub,
+            rhs: rem,
+            location: attr.location,
+        }));
+        let padding = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
+            lhs: diff,
+            operator: BinaryOperator::Mod,
+            rhs: four,
+            location: attr.location,
+        }));
+        ctx.alloc_expression(ExprNode::Binary(BinaryNode {
+            lhs: offset,
+            operator: BinaryOperator::Add,
+            rhs: padding,
+            location: attr.location,
+        }))
+    }
+
     fn count_maps_in_type<
         F: Clone + From<u32>,
         C,
@@ -68,21 +406,49 @@ impl<'a> StorageProcessor<'a> {
         visiting: &mut HashSet<IdentId>,
     ) -> usize {
         match ty {
-            UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("Map") => 1,
+            UncheckedType::Generic(ident, params, _)
+                if params.len() == 3
+                    && matches!(
+                        ctx.ident(ident.id).0.as_str(),
+                        "Map" | "NamespacedMap" | "ContractHashMap"
+                    ) =>
+            {
+                1
+            }
             UncheckedType::Array(elem_ty, _, _) => self.count_maps_in_type(elem_ty, ctx, visiting),
+            UncheckedType::Path(path) => {
+                if path.root.is_some() {
+                    return match self.resolve_associated_path(path, ctx) {
+                        Some(resolved) => self.count_maps_in_type(&resolved, ctx, visiting),
+                        None => 0,
+                    };
+                }
+                self.count_maps_in_type(&path.target, ctx, visiting)
+            }
             UncheckedType::Basic(ident) => {
-                if !visiting.insert(ident.id) {
+                if let Some(target) = self.type_alias_target_type(ident.id, ctx) {
+                    return self.count_maps_in_type(&target, ctx, visiting);
+                }
+                let struct_id = self.underlying_struct_id(ident.id, ctx);
+                if !visiting.insert(struct_id) {
                     return 0;
                 }
                 let total = self
-                    .find_struct_definition(ident.id, ctx)
+                    .find_struct_definition(struct_id, ctx)
                     .map(|s| s.fields.values().map(|field| self.count_maps_in_type(&field.ty, ctx, visiting)).sum())
                     .unwrap_or(0);
-                visiting.remove(&ident.id);
+                visiting.remove(&struct_id);
                 total
             }
             UncheckedType::Generic(_, params, _) => params.iter().map(|param| self.count_maps_in_type(param, ctx, visiting)).sum(),
-            _ => 0,
+            UncheckedType::Tuple(items, _) => items.iter().map(|item| self.count_maps_in_type(item, ctx, visiting)).sum(),
+            UncheckedType::FunctionSignature(signature, _) => signature
+                .parameters
+                .iter()
+                .chain(signature.return_type.iter())
+                .map(|ty| self.count_maps_in_type(ty, ctx, visiting))
+                .sum(),
+            UncheckedType::Const(_, _) | UncheckedType::TraitCast(_, _, _) | UncheckedType::Unknown => 0,
         }
     }
 
@@ -123,7 +489,7 @@ impl<'a> StorageProcessor<'a> {
         }
     }
 
-    fn generate_storage_impl<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
+    fn generate_storage_impl<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>>(
         &self,
         struct_node: &StructNode,
         attr: &AttrNode,
@@ -299,7 +665,7 @@ impl<'a> StorageProcessor<'a> {
         }
     }
 
-    fn generate_new_method<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
+    fn generate_new_method<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>>(
         &self,
         struct_node: &StructNode,
         attr: &AttrNode,
@@ -321,8 +687,12 @@ impl<'a> StorageProcessor<'a> {
         };
         let mut offset = initial_offset;
         let mut field_inits = IndexMap::new();
+        let mut visiting = HashSet::new();
 
         for (field_name, field) in &struct_node.fields {
+            if self.is_map_bearing_type(&field.ty, ctx, &mut visiting) {
+                offset = self.generate_aligned_offset(offset, attr, ctx);
+            }
             let (inner_ty, size, target_type) = if self.has_ref_type_attr(&field.attrs, ctx) {
                 let base_type = match &field.ty {
                     UncheckedType::Basic(ident) => {
@@ -456,7 +826,7 @@ impl<'a> StorageProcessor<'a> {
         ctx.alloc_definition(DefinitionNode::Function(function))
     }
 
-    fn generate_accessor_impl<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
+    fn generate_accessor_impl<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>>(
         &self,
         struct_node: &StructNode,
         attr: &AttrNode,
@@ -473,7 +843,11 @@ impl<'a> StorageProcessor<'a> {
 
         // Add per-field accessors for #[storage] structs or array fields
         let mut offset = ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(0), attr.location)));
+        let mut visiting = HashSet::new();
         for (field_name, field) in &struct_node.fields {
+            if self.is_map_bearing_type(&field.ty, ctx, &mut visiting) {
+                offset = self.generate_aligned_offset(offset, attr, ctx);
+            }
             let (inner_ty, size) = if is_ref_struct && self.has_ref_type_attr(&field.attrs, ctx) {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
@@ -819,6 +1193,13 @@ impl<'a> StorageProcessor<'a> {
     ) -> ExprId {
         let size_ident = Identifier::new(ctx.intern("size"), attr.location);
         let base_type = match field_type {
+            UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("MapRef") || ident.id == ctx.intern("NamespacedMapRef") => {
+                if params.len() != 3 {
+                    panic!("Map reference must have exactly three generic parameters");
+                }
+                let storage_name = if ident.id == ctx.intern("MapRef") { "Map" } else { "NamespacedMap" };
+                UncheckedType::Generic(Identifier::new(ctx.intern(storage_name), attr.location), params.clone(), attr.location)
+            }
             UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
                 if params.len() != 1 {
                     panic!("StorageRef must have exactly one generic parameter");
@@ -883,7 +1264,7 @@ impl<'a> StorageProcessor<'a> {
     fn generate_storage_size_method<
         F: Clone + From<u32>,
         C,
-        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
     >(
         &self,
         struct_node: &StructNode,
@@ -896,7 +1277,11 @@ impl<'a> StorageProcessor<'a> {
             // Empty storage structs occupy zero slots.
             None => ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(0), attr.location))),
         };
+        let mut visiting = HashSet::new();
         for (_, field) in fields {
+            if self.is_map_bearing_type(&field.ty, ctx, &mut visiting) {
+                sum = self.generate_aligned_offset(sum, attr, ctx);
+            }
             let node = BinaryNode {
                 lhs: sum,
                 operator: BinaryOperator::Add,
@@ -935,7 +1320,7 @@ impl<'a> StorageProcessor<'a> {
     fn generate_storage_read_method<
         F: Clone + From<u32>,
         C,
-        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
     >(
         &self,
         struct_node: &StructNode,
@@ -977,7 +1362,11 @@ impl<'a> StorageProcessor<'a> {
 
         let mut field_reads = IndexMap::new();
         let mut offset = offset_expr;
+        let mut visiting = HashSet::new();
         for (field_name, field) in &struct_node.fields {
+            if self.is_map_bearing_type(&field.ty, ctx, &mut visiting) {
+                offset = self.generate_aligned_offset(offset, attr, ctx);
+            }
             let inner_ty = match &field.ty {
                 UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
                     if params.len() != 1 {
@@ -1063,7 +1452,7 @@ impl<'a> StorageProcessor<'a> {
     fn generate_storage_write_method<
         F: Clone + From<u32>,
         C,
-        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>,
+        V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>,
     >(
         &self,
         struct_node: &StructNode,
@@ -1089,7 +1478,11 @@ impl<'a> StorageProcessor<'a> {
 
         let mut field_writes = Vec::new();
         let mut offset = offset_expr;
+        let mut visiting = HashSet::new();
         for (field_name, field) in &struct_node.fields {
+            if self.is_map_bearing_type(&field.ty, ctx, &mut visiting) {
+                offset = self.generate_aligned_offset(offset, attr, ctx);
+            }
             let inner_ty = match &field.ty {
                 UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("StorageRef") => {
                     if params.len() != 1 {
@@ -1156,7 +1549,7 @@ impl<'a> StorageProcessor<'a> {
         ctx.alloc_definition(DefinitionNode::Function(f))
     }
 
-    fn generate_struct_getter<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
+    fn generate_struct_getter<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>>(
         &self,
         struct_node: &StructNode,
         attr: &AttrNode,
@@ -1173,7 +1566,11 @@ impl<'a> StorageProcessor<'a> {
 
         let mut field_reads = IndexMap::new();
         let mut offset = ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(0), attr.location)));
+        let mut visiting = HashSet::new();
         for (field_name, field) in &struct_node.fields {
+            if self.is_map_bearing_type(&field.ty, ctx, &mut visiting) {
+                offset = self.generate_aligned_offset(offset, attr, ctx);
+            }
             let (inner_ty, size) = if self.has_ref_type_attr(&field.attrs, ctx) {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
@@ -1340,7 +1737,7 @@ impl<'a> StorageProcessor<'a> {
         ctx.alloc_definition(DefinitionNode::Function(function))
     }
 
-    fn generate_struct_setter<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
+    fn generate_struct_setter<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>>(
         &self,
         struct_node: &StructNode,
         attr: &AttrNode,
@@ -1365,7 +1762,11 @@ impl<'a> StorageProcessor<'a> {
 
         let mut stmts = Vec::new();
         let mut offset = ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(0), attr.location)));
+        let mut visiting = HashSet::new();
         for (field_name, field) in &struct_node.fields {
+            if self.is_map_bearing_type(&field.ty, ctx, &mut visiting) {
+                offset = self.generate_aligned_offset(offset, attr, ctx);
+            }
             let (inner_ty, size) = if self.has_ref_type_attr(&field.attrs, ctx) {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
@@ -2331,7 +2732,52 @@ impl<'a, F: Clone + From<u32> + ContextFelt + 'static, C> AstVisitor<F, C> for S
             .iter()
             .any(|a| a.is_derive() && a.properties.iter().any(|p| p.id == storage_trait_id));
 
-        if has_contract_attr && has_storage_derive {
+        // Nested maps were never deployable: the state-layout protocol rejects
+        // an aligned map below a top-level field, and a map's value width is 0.
+        // Only a map that is itself a direct field of the contract struct is
+        // legal. This covers aliases, path types, arrays of maps, and structs
+        // (including their private fields) that contain a map.
+        //
+        // The root is the same predicate ABI extraction uses: `#[contract]` or
+        // `#[storage]`, whether or not the struct also derives Storage. A
+        // generated Ref is excluded; its MapRef fields are the storage view of
+        // a source field, not a second map.
+        let has_storage_attr = s.attrs.iter().any(|a| a.name == storage_attribute_id);
+        let is_layout_root = (has_contract_attr || has_storage_attr || has_storage_derive) && !s.is_generated;
+        if is_layout_root {
+            for (field_name, field) in &s.fields {
+                if !self.associated_path_is_resolved(&field.ty, ctx, &mut HashSet::new()) {
+                    return Err(psy_common::Error::Message(format!(
+                        "unresolved associated type (field '{}' of '{}')",
+                        ctx.ident(field_name.id),
+                        ctx.ident(s.name.id)
+                    )));
+                }
+                let direct_contract_map =
+                    has_contract_attr && self.is_direct_map_type(&field.ty, ctx) && !self.map_argument_is_map_bearing(&field.ty, ctx);
+                if !direct_contract_map && self.is_map_bearing_type(&field.ty, ctx, &mut HashSet::new()) {
+                    return Err(psy_common::Error::Message(format!(
+                        "Map must be a direct top-level contract field (field '{}' of '{}')",
+                        ctx.ident(field_name.id),
+                        ctx.ident(s.name.id)
+                    )));
+                }
+                if direct_contract_map {
+                    let UncheckedType::Generic(_, params, _) = &field.ty else {
+                        unreachable!("direct map has three generic arguments");
+                    };
+                    if self.resolved_capacity(&params[2], ctx, &mut HashSet::new()).is_none() {
+                        return Err(psy_common::Error::Message(format!(
+                            "Map capacity must be a concrete non-zero constant (field '{}' of '{}')",
+                            ctx.ident(field_name.id),
+                            ctx.ident(s.name.id)
+                        )));
+                    }
+                }
+            }
+        }
+
+        if is_layout_root && has_contract_attr {
             let total_maps = self.count_maps_in_struct(&s, ctx);
             if total_maps > 1 {
                 return Err(psy_common::Error::Message(format!(

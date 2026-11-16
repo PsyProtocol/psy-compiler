@@ -1842,13 +1842,13 @@ mod tests {
         assert!(result.success, "expected compile success, got {:?}", result.error);
 
         let contract_code = result.contract_code.expect("missing contract_code");
-        // A map with capacity 128 requires seven Merkle levels.
-        assert_eq!(contract_code["state_tree_height"].as_u64(), Some(7));
+        // Capacity 128 plus its sentinel leaf is 129 leaves.
+        assert_eq!(contract_code["state_tree_height"].as_u64(), Some(8));
         assert!(contract_code["functions"].as_array().is_some_and(|items| !items.is_empty()));
 
         let abi = result.abi.expect("missing abi");
         assert_eq!(abi["contract"]["name"].as_str(), Some("MapContract"));
-        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(7));
+        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(8));
         let state = abi["contract"]["state"].as_array().expect("state array");
         assert!(!state.is_empty());
         assert_eq!(state[0]["name"].as_str(), Some("balances"));
@@ -1930,7 +1930,7 @@ mod tests {
         let abi = result.abi.expect("missing abi");
         assert_eq!(abi["schema_version"].as_str(), Some("2.0.0"));
         assert_eq!(abi["contract"]["name"].as_str(), Some("MapContract"));
-        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(7));
+        assert_eq!(abi["contract"]["state_tree_height"].as_u64(), Some(8));
 
         // State field should use TypeRef with kind: "map"
         let state = abi["contract"]["state"].as_array().expect("state array");

@@ -1049,10 +1049,8 @@ fn second_map_in_contract_is_rejected() {
 }
 
 #[test]
-fn map_nested_in_array_field_typechecks() {
-    // A single Map nested inside an array field counts as one map and is
-    // accepted.
-    expect_exec(
+fn map_nested_in_array_field_is_rejected() {
+    expect_failure(
         "map_in_array",
         r#"
         #[contract]
@@ -1065,6 +1063,54 @@ fn map_nested_in_array_field_typechecks() {
             return 0;
         }
         "#,
+        "Map must be a direct top-level contract field",
+    );
+}
+
+#[test]
+fn map_nested_in_struct_is_rejected() {
+    expect_failure(
+        "map_in_struct",
+        r#"
+        #[derive(Storage)]
+        pub struct Holder {
+            pub prefix: Felt,
+            pub balances: Map<Felt, Felt, 4u32>,
+            pub tail: Felt,
+        }
+
+        #[contract]
+        #[derive(Storage)]
+        pub struct Wrapped {
+            pub holder: Holder,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "Map must be a direct top-level contract field",
+    );
+}
+
+#[test]
+fn map_behind_alias_is_rejected() {
+    expect_failure(
+        "map_alias",
+        r#"
+        type Balances = Map<Felt, Felt, 4u32>;
+
+        #[contract]
+        #[derive(Storage)]
+        pub struct Aliased {
+            pub balances: Balances,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "Map must be a direct top-level contract field",
     );
 }
 
@@ -1196,6 +1242,409 @@ fn psy_test_runner_runs_contract_storage_tests() {
         Outcome::Panicked(msg) => panic!("[tests_storage] expected success, got PANIC:\n{msg}"),
     }
 }
+
+#[test]
+fn map_capacity_four_places_following_felt_after_sentinel() {
+    expect_exec(
+        "map_layout_offset",
+        r#"
+        #[contract]
+        #[derive(Storage)]
+        pub struct MapLayout {
+            pub balances: Map<Felt, Felt, 4u32>,
+            pub after: Felt,
+        }
+
+        fn main() -> Felt {
+            let c = MapLayoutRef::new(ContractMetadata::current());
+            assert_eq(c.balances.offset, 0, "map starts at the contract base");
+            assert_eq(c.after.offset, 20, "felt follows sentinel and capacity");
+            return c.after.offset;
+        }
+        "#,
+    );
+}
+
+#[test]
+fn map_after_scalar_field_starts_at_aligned_offset() {
+    expect_exec(
+        "map_alignment",
+        r#"
+        #[contract]
+        #[derive(Storage)]
+        pub struct AlignedMap {
+            pub prefix: Felt,
+            pub balances: Map<Felt, Felt, 4u32>,
+            pub tail: Felt,
+        }
+
+        fn main() -> Felt {
+            let c = AlignedMapRef::new(ContractMetadata::current());
+            assert_eq(c.prefix.offset, 0, "prefix at the contract base");
+            assert_eq(c.balances.offset, 4, "map aligned up to a multiple of 4");
+            assert_eq(c.tail.offset, 24, "tail follows sentinel and capacity leaves");
+            assert_eq(AlignedMap::size(), 25, "size includes alignment padding");
+            return c.tail.offset;
+        }
+        "#,
+    );
+}
+
+#[test]
+fn namespaced_map_after_scalar_field_starts_at_aligned_offset() {
+    expect_exec(
+        "namespaced_map_alignment",
+        r#"
+        #[contract]
+        #[derive(Storage)]
+        pub struct AlignedNsMap {
+            pub prefix: Felt,
+            pub balances: NamespacedMap<Felt, Felt, 4u32>,
+            pub tail: Felt,
+        }
+
+        fn main() -> Felt {
+            let c = AlignedNsMapRef::new(ContractMetadata::current());
+            assert_eq(c.prefix.offset, 0, "prefix at the contract base");
+            assert_eq(c.balances.offset, 4, "namespaced map aligned to a multiple of 4");
+            assert_eq(c.tail.offset, 24, "tail follows sentinel and capacity leaves");
+            assert_eq(AlignedNsMap::size(), 25, "size includes alignment padding");
+            return c.tail.offset;
+        }
+        "#,
+    );
+}
+
+#[test]
+fn struct_containing_map_is_rejected() {
+    expect_failure(
+        "struct_map_layout",
+        r#"
+        #[derive(Storage)]
+        pub struct MapHolder {
+            pub prefix: Felt,
+            pub balances: Map<Felt, Felt, 4u32>,
+            pub tail: Felt,
+        }
+
+        fn main() -> Felt {
+            return MapHolder::size();
+        }
+        "#,
+        "Map must be a direct top-level contract field",
+    );
+}
+
+#[test]
+fn map_of_map_is_rejected_as_direct_map() {
+    expect_failure(
+        "map_of_map",
+        r#"
+        #[contract]
+        #[derive(Storage)]
+        pub struct Nested {
+            pub cells: Map<Felt, Map<Felt, Felt, 4u32>, 4u32>,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "Map must be a direct top-level contract field",
+    );
+}
+
+#[test]
+fn contract_map_without_storage_derive_is_rejected() {
+    expect_failure(
+        "contract_map_no_derive",
+        r#"
+        #[contract]
+        pub struct Bare {
+            pub cells: Map<Felt, Map<Felt, Felt, 4u32>, 4u32>,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "Map must be a direct top-level contract field",
+    );
+}
+
+#[test]
+fn user_struct_named_vault_ref_containing_map_is_rejected() {
+    expect_failure(
+        "vault_ref_user_struct",
+        r#"
+        #[derive(Storage)]
+        pub struct VaultRef {
+            pub balances: Map<Felt, Felt, 4u32>,
+        }
+
+        #[contract]
+        #[derive(Storage)]
+        pub struct Holder {
+            pub vault: VaultRef,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "Map must be a direct top-level contract field",
+    );
+}
+
+#[test]
+fn two_namespaced_maps_are_rejected() {
+    expect_failure(
+        "two_namespaced_maps",
+        r#"
+        #[contract]
+        #[derive(Storage)]
+        pub struct TwoNamespaced {
+            pub left: NamespacedMap<Felt, Felt, 4u32>,
+            pub right: NamespacedMap<Felt, Felt, 4u32>,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "Only one Map",
+    );
+}
+
+#[test]
+fn bare_contract_with_two_namespaced_maps_is_rejected() {
+    expect_failure(
+        "bare_two_namespaced",
+        r#"
+        #[contract]
+        pub struct BareTwo {
+            pub left: NamespacedMap<Felt, Felt, 4u32>,
+            pub right: NamespacedMap<Felt, Felt, 4u32>,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "Only one Map",
+    );
+}
+
+#[test]
+fn tuple_of_two_maps_is_rejected() {
+    expect_failure(
+        "tuple_two_maps",
+        r#"
+        #[contract]
+        #[derive(Storage)]
+        pub struct Paired {
+            pub cells: (Map<Felt, Felt, 4u32>, NamespacedMap<Felt, Felt, 4u32>),
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "Map must be a direct top-level contract field",
+    );
+}
+
+#[test]
+fn unresolved_contract_hash_map_is_an_ordinary_compiler_error() {
+    expect_failure(
+        "unresolved_contract_hash_map",
+        r#"
+        #[contract]
+        #[derive(Storage)]
+        pub struct Hashed {
+            pub cells: ContractHashMap<Felt, Felt, 4u32>,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "unresolved type",
+    );
+}
+#[test]
+fn two_associated_type_map_fields_are_rejected() {
+    expect_failure(
+        "two_assoc_maps",
+        r#"
+        pub struct Carrier {}
+
+        impl Carrier {
+            pub type Left = Map<Felt, Felt, 4u32>;
+            pub type Right = Map<Felt, Felt, 4u32>;
+        }
+
+        #[contract]
+        #[derive(Storage)]
+        pub struct TwoAssoc {
+            pub left: Carrier::Left,
+            pub right: Carrier::Right,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "Map must be a direct top-level contract field",
+    );
+}
+
+#[test]
+fn map_keyed_by_associated_map_is_rejected() {
+    expect_failure(
+        "map_keyed_by_assoc",
+        r#"
+        pub struct Carrier {}
+
+        impl Carrier {
+            pub type Cells = Map<Felt, Felt, 4u32>;
+        }
+
+        #[contract]
+        #[derive(Storage)]
+        pub struct Keyed {
+            pub cells: Map<Carrier::Cells, Felt, 4u32>,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "Map must be a direct top-level contract field",
+    );
+}
+
+#[test]
+fn unresolved_associated_storage_type_is_rejected() {
+    expect_failure(
+        "unresolved_assoc_storage",
+        r#"
+        pub struct Carrier {}
+
+        #[contract]
+        #[derive(Storage)]
+        pub struct Missing {
+            pub cells: Carrier::Cells,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "unresolved associated type",
+    );
+}
+#[test]
+fn generic_associated_map_is_rejected() {
+    expect_failure(
+        "generic_assoc_map",
+        r#"
+        pub struct Carrier<T> {}
+
+        impl<T> Carrier<T> {
+            pub type Cells = T;
+        }
+
+        #[contract]
+        #[derive(Storage)]
+        pub struct Hidden {
+            pub cells: Carrier::<Map<Felt, Felt, 4u32>>::Cells,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "unresolved associated type",
+    );
+}
+
+#[test]
+fn cyclic_associated_type_is_rejected() {
+    expect_failure(
+        "cyclic_assoc_type",
+        r#"
+        pub struct Carrier {}
+
+        impl Carrier {
+            pub type Cells = Carrier::Cells;
+        }
+
+        #[contract]
+        #[derive(Storage)]
+        pub struct Looped {
+            pub cells: Carrier::Cells,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "unresolved associated type",
+    );
+}
+    #[test]
+    fn nested_cyclic_associated_type_is_rejected() {
+        expect_failure(
+            "nested_cyclic_assoc_type",
+            r#"
+            pub struct Carrier {}
+
+            impl Carrier {
+                pub type Cells = Carrier::Cells;
+            }
+
+            pub struct Pocket {
+                pub cells: Carrier::Cells,
+            }
+
+            #[contract]
+            pub struct Root {
+                pub pocket: Pocket,
+            }
+
+            fn main() -> Felt {
+                return 0;
+            }
+            "#,
+            "unresolved associated type",
+        );
+    }
+
+
+
+
+#[test]
+fn symbolic_map_capacity_is_rejected() {
+    expect_failure(
+        "symbolic_map_capacity",
+        r#"
+        const CAPACITY: u32 = 1 + 1;
+
+        #[contract]
+        #[derive(Storage)]
+        pub struct Open {
+            pub cells: Map<Felt, Felt, CAPACITY>,
+        }
+
+        fn main() -> Felt {
+            return 0;
+        }
+        "#,
+        "Map capacity must be a concrete non-zero constant",
+    );
+}
+
 
 // ---------------------------------------------------------------------------
 // Void main / block expressions
