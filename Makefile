@@ -266,7 +266,7 @@ compile-multisig-policy-contract: build
 compile-multisig-policy-abi:
 	@cd $(MULTISIG_POLICY_CONTRACT_PATH) && $(DARGO) generate-abi -c MultisigPolicyContractRef --abi-name multisig_policy --output-dir $(ABI_OUTPUT_DIR) --method-names get_policy set_policy
 
-PSY_GENESIS ?= $(PWD)/../psy-node/psy-genesis
+PSY_GENESIS ?= $(PWD)/../psy-genesis
 GENESIS_CONTRACTS_FILE := $(PSY_GENESIS)/genesis_contracts.json
 GENESIS_ABI_DIR := $(PSY_GENESIS)/genesis_abi
 ABI_OUTPUT_DIR := $(PWD)/target/genesis_abi
