@@ -217,10 +217,17 @@ PARAMETERS               := 1,2
 interpret:
 	@RUST_LOG=${LOG_LEVEL} ./target/${PROFILE}/dargo execute --program-dir $(dir ${FILE}) --debug --entry-path $(notdir ${FILE}) --parameters ${PARAMETERS}
 
-compile-token-contract:
+# psy-precompiles/build.rs also writes <contract>/target/<name>.json from
+# precompiles.json (order there must stay identical to the explicit lists
+# below). Every compile target therefore depends on `build` so make never lets
+# build.rs overwrite a dargo-compile artifact concurrently: the explicit
+# --method-names order is the single canonical function ordering feeding
+# gen-deploy-json. ABI generation sorts methods alphabetically; its list only
+# decides which methods are present.
+compile-token-contract: build
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyTokenContractRef --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn private_transfer private_claim
 
-compile-usdt-token-contract:
+compile-usdt-token-contract: build
 	@cd $(USDT_TOKEN_CONTRACT_PATH) && $(DARGO) compile --contract-name=USDTTokenContractRef --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn private_transfer private_claim
 
 compile-usdt-token-abi:
@@ -229,19 +236,19 @@ compile-usdt-token-abi:
 compile-token-abi:
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyTokenContractRef --abi-name token --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn private_transfer private_claim
 
-compile-withdrawal-tree-contract:
+compile-withdrawal-tree-contract: build
 	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyWithdrawalTreeContractRef --method-names set_chain_root get_root get_chain_root append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
 
 compile-withdrawal-tree-abi:
 	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyWithdrawalTreeContractRef --abi-name withdrawal_tree --method-names set_chain_root get_root get_chain_root append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
 
-compile-deposit-tree-contract:
+compile-deposit-tree-contract: build
 	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyDepositTreeContractRef --method-names get_root get_chain_root is_known_root_hash is_known_root set_chain_root append_leaf append_deposit batch_append_deposits_2 batch_append_deposits_5
 
 compile-deposit-tree-abi:
 	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyDepositTreeContractRef --abi-name deposit_tree --method-names get_root get_chain_root is_known_root_hash is_known_root set_chain_root append_leaf append_deposit batch_append_deposits_2 batch_append_deposits_5
 
-compile-faucet-contract:
+compile-faucet-contract: build
 	@cd $(FAUCET_CONTRACT_PATH) && $(DARGO) compile --contract-name=PsyFaucetContractRef --method-names faucet
 
 compile-faucet-contract-abi:
@@ -253,7 +260,7 @@ compile-counter-contract:
 compile-counter-abi:
 	@cd $(COUNTER_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyCounterContractRef --abi-name counter --method-names set_value increment
 
-compile-multisig-policy-contract:
+compile-multisig-policy-contract: build
 	@cd $(MULTISIG_POLICY_CONTRACT_PATH) && $(DARGO) compile --contract-name=MultisigPolicyContractRef --method-names get_policy set_policy
 
 compile-multisig-policy-abi:
@@ -293,7 +300,7 @@ gen-deploy-json: build \
 	@cd $(TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyTokenContractRef --abi-name token --output-dir $(ABI_OUTPUT_DIR) --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn private_transfer private_claim
 	@cd $(USDT_TOKEN_CONTRACT_PATH) && $(DARGO) generate-abi -c USDTTokenContractRef --abi-name usdt_token --output-dir $(ABI_OUTPUT_DIR) --method-names withdraw claim_deposit mint transfer claim batch_transfer_2 batch_transfer_5 burn private_transfer private_claim
 	@cd $(DEPOSIT_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyDepositTreeContractRef --abi-name deposit_tree --output-dir $(ABI_OUTPUT_DIR) --method-names get_root get_chain_root is_known_root_hash is_known_root set_chain_root append_leaf append_deposit batch_append_deposits_2 batch_append_deposits_5
-	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyWithdrawalTreeContractRef --abi-name withdrawal_tree --output-dir $(ABI_OUTPUT_DIR) --method-names get_root get_chain_root append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
+	@cd $(WITHDRAWAL_TREE_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyWithdrawalTreeContractRef --abi-name withdrawal_tree --output-dir $(ABI_OUTPUT_DIR) --method-names set_chain_root get_root get_chain_root append_leaf append_withdrawal batch_append_withdrawals_2 batch_append_withdrawals_5
 	@cd $(FAUCET_CONTRACT_PATH) && $(DARGO) generate-abi -c PsyFaucetContractRef --abi-name faucet --output-dir $(ABI_OUTPUT_DIR) --method-names faucet
 	@cd $(MULTISIG_POLICY_CONTRACT_PATH) && $(DARGO) generate-abi -c MultisigPolicyContractRef --abi-name multisig_policy --output-dir $(ABI_OUTPUT_DIR) --method-names get_policy set_policy
 	@# `compile` does not emit .abi.json — always source it from the freshly generated $(ABI_OUTPUT_DIR)

@@ -8,11 +8,11 @@
         "withdraw",
         "claim_deposit",
         "mint",
-        "burn",
         "transfer",
+        "claim",
         "batch_transfer_2",
         "batch_transfer_5",
-        "claim",
+        "burn",
         "private_transfer",
         "private_claim"
       ]
@@ -48,9 +48,9 @@
       "path": "withdrawal_tree",
       "contract_name": "PsyWithdrawalTreeContractRef",
       "method_names": [
+        "set_chain_root",
         "get_root",
         "get_chain_root",
-        "set_chain_root",
         "append_leaf",
         "append_withdrawal",
         "batch_append_withdrawals_2",
@@ -65,11 +65,11 @@
         "withdraw",
         "claim_deposit",
         "mint",
-        "burn",
         "transfer",
+        "claim",
         "batch_transfer_2",
         "batch_transfer_5",
-        "claim",
+        "burn",
         "private_transfer",
         "private_claim"
       ]
