@@ -144,10 +144,18 @@ impl<F: Clone + From<u32> + ContextFelt, C: DPNContext<F>> FeltRepr<F, C> for Ch
             }
             Type::Array(checked_array_node) => {
                 let size = ctx.size_of(checked_array_node.inner_ty);
-                let values = felts
-                    .chunks(size)
-                    .map(|chunk| FeltRepr::decode_felts(chunk, ctx, checked_array_node.inner_ty))
-                    .collect();
+                let values = if size == 0 {
+                    let count = match &ctx.symbols[checked_array_node.size_ty] {
+                        Type::Const(value) => match &*ctx.symbols[value.value].borrow() {
+                            CheckedValue::Felt(value) | CheckedValue::U32(value) => value.get_u64() as usize,
+                            _ => panic!("Array size must be a numeric constant"),
+                        },
+                        _ => panic!("Array size must be a const type"),
+                    };
+                    (0..count).map(|_| FeltRepr::decode_felts(&[], ctx, checked_array_node.inner_ty)).collect()
+                } else {
+                    felts.chunks(size).map(|chunk| FeltRepr::decode_felts(chunk, ctx, checked_array_node.inner_ty)).collect()
+                };
 
                 Self::new_rc(CheckedValue::Array(target_type, values))
             }
@@ -405,7 +413,7 @@ impl<F: Clone + From<u32> + ContextFelt> CheckedValueRef<F> {
                     let out_of_bounds = ctx.op_lt(index, arr_size);
                     ctx.assert_true(out_of_bounds, "felt index out of bounds");
 
-                    let mut result = arr[0].clone();
+                    let mut result = arr.first()?.clone();
                     for i in 1..arr.len() {
                         let arr_index = ctx.op_const(i as u64);
                         let condition = ctx.op_eq(arr_index, index);

@@ -396,8 +396,11 @@ impl USDTTokenContractRef {
         assert(current == expected_root, "proof tree root mismatch");
 
         assert(c.state_map.contains_ns(4, nullifier_hash) == false, "shield claim already used");
+        let current_balance = c.balance.get();
+        let new_balance = current_balance + amount_felt;
+        assert(new_balance > current_balance, "balance overflow");
         c.state_map.insert_ns(4, nullifier_hash, [1, 0, 0, 0]);
-        c.balance += amount_felt;
+        c.balance = new_balance;
         let event_data = DepositClaimEvent {
             shield_address,
             nullifier_hash,
@@ -416,7 +419,10 @@ impl USDTTokenContractRef {
         assert(deployer == get_user_id(), "only deployer can mint");
 
         let c = USDTTokenContractRef::new(ContractMetadata::current());
-        c.balance += amount;
+        let current_balance = c.balance.get();
+        let new_balance = current_balance + amount;
+        assert(new_balance > current_balance, "balance overflow");
+        c.balance = new_balance;
     }
 
     #[contract_method]
@@ -473,13 +479,16 @@ impl USDTTokenContractRef {
         let mut sender_info = c.other_user_info[sender].get();
         assert(sender_info.amount_claimed < sender_total_sent, "no tokens to claim from this sender");
         let claimed = sender_total_sent - sender_info.amount_claimed;
+        let current_balance = c.balance.get();
+        let new_balance = current_balance + claimed;
+        assert(new_balance > current_balance, "balance overflow");
 
         c.other_user_info[sender] = OtherUserInfo {
             amount_sent: sender_info.amount_sent,
             amount_claimed: sender_total_sent
         };
 
-        c.balance += claimed;
+        c.balance = new_balance;
 
         let claim_event = ClaimEvent {
             from: sender,
@@ -663,11 +672,14 @@ impl USDTTokenContractRef {
 
         let expected_receiver: Hash = hash([get_user_id(), 1337, random0, random1]);
         assert(preimage.receiver == expected_receiver, "receiver does not match claiming user");
+        let current_balance = c.balance.get();
+        let new_balance = current_balance + preimage.amount;
+        assert(new_balance > current_balance, "balance overflow");
         let nullifier_key: Hash = preimage.nullifier_hash;
         assert(c.state_map.contains_ns(1, nullifier_key) == false, "nullifier already claimed");
         c.state_map.insert_ns(1, nullifier_key, [1, 0, 0, 0]);
 
-        c.balance += preimage.amount;
+        c.balance = new_balance;
         let claim_event = PrivateClaimEvent {
             shield_address: receiver,
             nullifier_hash,

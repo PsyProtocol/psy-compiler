@@ -32,8 +32,12 @@ pub enum Error {
         length: usize,
         location: Option<Location>,
     },
+    #[error("IndexOutOfBounds: symbolic index into an empty array")]
+    EmptyArrayIndex { location: Option<Location> },
     #[error("ArrayTooLarge: cannot materialize an array with {length} elements (limit: {limit})")]
     ArrayTooLarge { length: u64, limit: u64, location: Option<Location> },
+    #[error("TransmuteSizeMismatch: expected {expected} felts, got {actual}")]
+    TransmuteSizeMismatch { expected: usize, actual: usize, location: Option<Location> },
     #[error("ArrayAllocationFailed: cannot reserve storage for {length} array elements")]
     ArrayAllocationFailed { length: usize, location: Option<Location> },
     #[error("UnsupportedRecursion: recursive function calls cannot be interpreted")]
@@ -553,6 +557,14 @@ pub fn lowering_interpreter_error<F: Clone + From<u32> + ContextFelt, C>(error: 
                 msg
             }
         }
+        Error::EmptyArrayIndex { location } => {
+            let msg = "Index out of bounds: symbolic index into an empty array.";
+            if let Some(location) = location {
+                report_or_fallback(build_report(*location, "IndexOutOfBounds", msg, &ctx.program))
+            } else {
+                msg.to_string()
+            }
+        }
         Error::ArrayTooLarge { length, limit, location } => {
             let msg = format!(
                 "Cannot materialize an array with {} elements; the interpreter limit is {}.",
@@ -560,6 +572,14 @@ pub fn lowering_interpreter_error<F: Clone + From<u32> + ContextFelt, C>(error: 
             );
             if let Some(location) = location {
                 report_or_fallback(build_report(*location, "ArrayTooLarge", msg, &ctx.program))
+            } else {
+                msg
+            }
+        }
+        Error::TransmuteSizeMismatch { expected, actual, location } => {
+            let msg = format!("TransmuteSizeMismatch: expected {} felts, got {}.", expected, actual);
+            if let Some(location) = location {
+                report_or_fallback(build_report(*location, "TransmuteSizeMismatch", msg, &ctx.program))
             } else {
                 msg
             }

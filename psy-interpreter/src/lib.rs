@@ -420,6 +420,25 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         visit(ty, symbols, &mut HashSet::new())
     }
 
+    fn zero_sized_array_footprint(ty: TypeId, ctx: &TypeCheckerVisitorContext<F, C>) -> u64 {
+        match &ctx.symbols[ty] {
+            Type::Array(array) => {
+                let count = match &ctx.symbols[array.size_ty] {
+                    Type::Const(value) => match &*ctx.symbols[value.value].borrow() {
+                        CheckedValue::Felt(value) | CheckedValue::U32(value) => value.get_u64(),
+                        _ => return u64::MAX,
+                    },
+                    _ => return u64::MAX,
+                };
+                let inner = Self::zero_sized_array_footprint(array.inner_ty, ctx);
+                count.saturating_mul(inner.saturating_add(u64::from(ctx.size_of(array.inner_ty) == 0)))
+            }
+            Type::Struct(s) => s.fields.values().map(|field| Self::zero_sized_array_footprint(field.ty, ctx)).fold(0, u64::saturating_add),
+            Type::Tuple(elements) => elements.iter().map(|&ty| Self::zero_sized_array_footprint(ty, ctx)).fold(0, u64::saturating_add),
+            _ => 0,
+        }
+    }
+
     /// Charge `count` elements against the materialization budget.
     fn charge_materialized(&mut self, count: u64, location: Option<Location>) -> Result<()> {
         self.materialized_elements = self.materialized_elements.saturating_add(count);
@@ -1598,9 +1617,15 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                             self.context.hash_two_to_one(&left_array, &right_array).to_vec(),
                         ));
                     }
-                    CheckedIntrinsicExprNode::MemTransmute { data, target_type, .. } => {
+                    CheckedIntrinsicExprNode::MemTransmute { data, target_type, location } => {
                         let data = self.interpret_expr(program, data.clone(), ctx)?;
-                        return Ok(CheckedValueRef::decode_felts(&data.to_felts(), ctx, target_type.clone()));
+                        let felts = data.to_felts();
+                        let expected = self.calculate_type_size(*target_type, ctx);
+                        if felts.len() != expected {
+                            return Err(Error::TransmuteSizeMismatch { expected, actual: felts.len(), location: Some(*location) });
+                        }
+                        self.charge_materialized(Self::zero_sized_array_footprint(*target_type, ctx), Some(*location))?;
+                        return Ok(CheckedValueRef::decode_felts(&felts, ctx, *target_type));
                     }
                     CheckedIntrinsicExprNode::MemSizeOf { query_type: ty, .. } => {
                         let size = self.calculate_type_size(ty.clone(), ctx);
@@ -1660,6 +1685,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                         let outputs =
                             self.context
                                 .cinvoke_external_contract_function_sync(contract_id, method_id, inputs, output_size.try_into().unwrap());
+                        self.charge_materialized(Self::zero_sized_array_footprint(*type_id, ctx), None)?;
                         return Ok(CheckedValueRef::decode_felts(&outputs, ctx, type_id.clone()));
                     }
                     CheckedIntrinsicExprNode::InvokeDeferred {
@@ -1979,6 +2005,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         // `assert!(index < arr.len())` on out-of-bounds constant access.
         if let CheckedValue::Array(_, arr) = &*a.borrow() {
             let length = arr.len();
+            if length == 0 && !self.is_constant(index_felt) {
+                return Err(Error::EmptyArrayIndex { location: Some(index_access_node.location) });
+            }
             if self.is_constant(index_felt) {
                 // Compare in u64 before the host cast. On wasm32, `as usize`
                 // truncates 2^32 + k to k and would accept an out-of-range index.
@@ -2151,6 +2180,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         // `get_path` asserts on a constant out-of-bounds index, so turn that
         // user error into a diagnostic before descending into the target.
         if let CheckedValue::Array(_, values) = &*inner_value.borrow() {
+            if values.is_empty() && !self.is_constant(index_felt.clone()) {
+                return Err(Error::EmptyArrayIndex { location: Some(index_access_node.location) });
+            }
             if self.is_constant(index_felt.clone()) {
                 let index_value = self.context.get_constant_value(index_felt.clone());
                 let length = values.len();
