@@ -2306,6 +2306,11 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         let mut result = self.interpret_expr(program, node.if_branch.body, ctx)?;
 
         for condition in &node.elseif_branches {
+            // The predicate is only reachable when every previous branch was
+            // false: evaluate it under the `!prev` gate so its asserts are
+            // not dropped with the previous branch's constant-false gate.
+            self.context.start_else_block();
+
             let predicate = self.interpret_expr(program, condition.predicate, ctx)?.to_bool();
 
             self.context.start_else_if_block(predicate);
@@ -2360,6 +2365,10 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
         for arm in match_cases {
             if let Some(pattern_expr) = &arm.pattern {
+                // Same gate discipline as else-if predicates: the arm
+                // pattern is only reachable when no earlier arm matched.
+                self.context.start_else_block();
+
                 let matched = self.match_pattern(program, ctx, pattern_expr, &scrutinee_value)?;
                 self.context.start_else_if_block(matched);
                 let body_value = self.interpret_expr(program, arm.body, ctx)?;

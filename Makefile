@@ -95,6 +95,7 @@ ci:
 	@$(DARGO_CLI_TEST) tests/loop_variable_shadowing_test.psy
 	@$(DARGO_CLI_TEST) tests/compound_assign_side_effect_index_test.psy
 	@$(DARGO_CLI_TEST) tests/u32_underflow_test.psy
+	@$(DARGO_CLI_TEST) tests/elseif_match_guard_gate_test.psy
 
 	@$(DARGO_CLI_COMPILE) ctx_test.psy
 	@$(DARGO_CLI_COMPILE) storage_test.psy --contract-name=SimpleContract --method-names set_a set_b set_c set_d get_a get_b get_c get_d
