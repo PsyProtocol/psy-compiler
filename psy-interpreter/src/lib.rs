@@ -1001,7 +1001,9 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         );
 
         for (parameter, arg) in parameters.iter().zip(args.into_iter()) {
-            ctx.symbols.set_variable(ctx.symbols[type_id].scope_id(), parameter.name.id, arg)?
+            // Bind a copy: callee-side field mutation of a composite
+            // parameter must not alias the caller's value (by-value semantics).
+            ctx.symbols.set_variable(ctx.symbols[type_id].scope_id(), parameter.name.id, arg.clone())?
         }
         Ok(ControlState::Return(self.interpret_expr(
             program,
@@ -2266,9 +2268,10 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     #[instrument(level = "debug", skip_all)]
     fn interpret_variable(&mut self, program: &CheckedProgram<F>, stmt_id: StmtId, ctx: &mut TypeCheckerVisitorContext<F, C>) -> Result<()> {
         let node = program[stmt_id].as_variable().unwrap();
-        let value = self.interpret_expr(program, node.value, ctx)?;
+        // Bind a copy so `let b = a` cannot alias `a`'s cells.
+        let value = self.interpret_expr(program, node.value, ctx)?.clone();
 
-        ctx.symbols.set_variable(node.scope_id, node.name.id, value.clone())?;
+        ctx.symbols.set_variable(node.scope_id, node.name.id, value)?;
         Ok(())
     }
 

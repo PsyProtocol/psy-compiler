@@ -1,0 +1,32 @@
+// Regression for issue #114: a scalar-only struct is passed and copied by
+// value. Mutating a copy (via `let` or a `mut` parameter) must not change
+// the caller's original.
+#[derive(Storage)]
+pub struct Wallet {
+    pub balance: Felt,
+}
+
+fn zero_out(mut w: Wallet) {
+    w.balance = 0;
+}
+
+#[test]
+fn test_scalar_struct_copy_isolated_via_let() {
+    let a = Wallet {
+        balance: 100,
+    };
+    let mut b = a;
+    b.balance = 0;
+    assert_eq(a.balance, 100, "let-copy mutation must not affect the original");
+}
+
+#[test]
+fn test_scalar_struct_copy_isolated_via_call() {
+    let a = Wallet {
+        balance: 100,
+    };
+    let b = a;
+    zero_out(b);
+    assert_eq(a.balance, 100, "mut parameter must not alias the caller's value");
+    assert_eq(b.balance, 100, "callee-side mutation is not visible to the caller");
+}

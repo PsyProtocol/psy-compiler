@@ -60,12 +60,18 @@ impl<F: Clone + From<u32> + ContextFelt> Clone for CheckedValueRef<F> {
             CheckedValue::Felt(f) => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::Felt(f.clone())))),
             CheckedValue::Bool(b) => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::Bool(b.clone())))),
             CheckedValue::U32(u) => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::U32(u.clone())))),
-            CheckedValue::Array(_type_id, _values) => CheckedValueRef(self.0.clone()),
+            CheckedValue::Array(type_id, values) => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::Array(
+                type_id.clone(),
+                values.iter().map(|v| v.clone()).collect(),
+            )))),
             CheckedValue::Tuple { type_id, elements } => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::Tuple {
                 type_id: type_id.clone(),
                 elements: elements.iter().map(|(t, v)| (t.clone(), v.clone())).collect(),
             }))),
-            CheckedValue::Struct(_type_id, _fields) => CheckedValueRef(self.0.clone()),
+            CheckedValue::Struct(type_id, fields) => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::Struct(
+                type_id.clone(),
+                fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            )))),
             CheckedValue::Type(type_id) => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::Type(type_id.clone())))),
         }
     }
