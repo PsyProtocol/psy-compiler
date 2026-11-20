@@ -685,13 +685,9 @@ mod tests {
         assert!(felt_value(0).as_type().is_none());
     }
 
-    /// A symbolic (non-constant) index expression: built from an op so the
-    /// op type is `Add`, exercising the conditional select paths rather than
-    /// the constant-index fast path.
+    /// A genuine symbolic input cannot be reduced by constant folding.
     fn symbolic_index(ctx: &mut QExecContext) -> SymFeltRef {
-        let one = ctx.op_const(1);
-        let two = ctx.op_const(1);
-        ctx.op_add(one, two)
+        ctx.add_input()
     }
 
     #[test]

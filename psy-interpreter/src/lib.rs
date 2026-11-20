@@ -29,6 +29,7 @@ use psy_vm::dpn::{
         exec_context::QExecContext,
         op_types::DPNOpType,
         semantics::u32_exp,
+        state_cmd::types::MAX_STATE_RANGE_FELTS,
         sym_felt::SymFeltRef,
     },
     vm::{compile::PsyCompileResult, def::DPNFunctionCircuitDefinition},
@@ -1660,6 +1661,16 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                             MAX_MATERIALIZED_ARRAY_ELEMENTS as u64
                         };
                         self.charge_materialized(length_value, Some(*location))?;
+                        if self.is_constant(length) && length_value > MAX_STATE_RANGE_FELTS {
+                            return Err(Error::ArrayTooLarge {
+                                length: length_value,
+                                limit: MAX_STATE_RANGE_FELTS,
+                                location: Some(*location),
+                            });
+                        }
+                        if self.is_constant(length) && length_value == 0 {
+                            return Ok(CheckedValueRef::from_vec(UNKOWN_TYPE, Vec::new()));
+                        }
                         let values =
                             self.context
                                 .get_other_user_contract_state_range_at(contract_state_tree_height, user_id, contract_id, offset, length);
@@ -1668,7 +1679,10 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     CheckedIntrinsicExprNode::StorageWriteRange { offset, values, .. } => {
                         let offset = self.interpret_expr(program, offset.clone(), ctx)?;
                         let values = self.interpret_expr(program, values.clone(), ctx)?;
-                        self.context.cset_state_range_at(offset.to_felt(), &values.to_felts());
+                        let values = values.to_felts();
+                        if !values.is_empty() {
+                            self.context.cset_state_range_at(offset.to_felt(), &values);
+                        }
                         return Ok(CheckedValueRef::new_rc(CheckedValue::Type(VOID_TYPE)));
                     }
                     CheckedIntrinsicExprNode::InvokeSync {

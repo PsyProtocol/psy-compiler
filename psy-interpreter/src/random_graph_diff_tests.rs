@@ -1051,10 +1051,7 @@ fn apply_op(op: U32Op, l: u32, r: u32) -> Result<u32, MirrorErr> {
                 Ok(l % r)
             }
         }
-        U32Op::Pow => match (l as u64).checked_pow(r as u32) {
-            Some(value) if value <= 0xffff_ffff => Ok(value as u32),
-            _ => Err(MirrorErr::Overflow),
-        },
+        U32Op::Pow => u32::try_from(f_pow(l as u64, r as u64)).map_err(|_| MirrorErr::Overflow),
         U32Op::And => Ok(l & r),
         U32Op::Or => Ok(l | r),
         U32Op::Xor => Ok(l ^ r),
@@ -1502,6 +1499,11 @@ fn check_seed(seed: u64) -> Outcome {
             );
         }
     }
+}
+
+#[test]
+fn u32_field_pow_regression_seed() {
+    check_seed(8837571914638298015);
 }
 
 #[test]
