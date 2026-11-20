@@ -1,0 +1,29 @@
+// Regression for issue #104: a compound assignment must evaluate its target
+// place exactly once. `place += amount` where the index has a side effect
+// (here bump() writes storage) must not advance the slot twice.
+#[contract]
+#[derive(Storage)]
+pub struct C {
+    pub arr: [Felt; 3],
+    pub idx: Felt,
+}
+
+impl CRef {
+    #[contract_method]
+    pub fn bump() -> Felt {
+        let c = CRef::new(ContractMetadata::current());
+        c.idx += 1;
+        return c.idx.get();
+    }
+}
+
+#[test]
+fn test_compound_assign_single_eval_of_side_effecting_index() {
+    let c = CRef::new(ContractMetadata::current());
+    c.idx = 0;
+    c.arr[CRef::bump()] += 10;
+    assert_eq(c.idx, 1, "side-effecting index evaluated exactly once");
+    assert_eq(c.arr[1], 10, "compound assign wrote to a single slot");
+    assert_eq(c.arr[0], 0, "arr[0] untouched");
+    assert_eq(c.arr[2], 0, "arr[2] untouched");
+}

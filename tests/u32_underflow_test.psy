@@ -1,0 +1,11 @@
+// Regression for issue #105: checked u32 subtraction must trap on
+// underflow instead of wrapping into the Goldilocks field. `0 - 1` must
+// fail, not silently become a huge credit.
+#[test]
+#[should_panic]
+fn test_u32_underflow_traps() {
+    let mut balance: u32 = 0u32;
+    let amount: u32 = 1u32;
+    balance = balance - amount;
+    assert_eq(balance, 0u32, "checked u32 underflow must trap, not wrap");
+}

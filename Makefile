@@ -91,6 +91,10 @@ ci:
 	@$(DARGO_CLI_TEST) tests/imt_single_map_prove_test.psy
 	@$(DARGO_CLI_TEST) tests/imt_ordering_prove_test.psy
 	@$(DARGO_CLI_TEST) tests/imt_post_map_field_prove_test.psy
+	@$(DARGO_CLI_TEST) tests/branch_local_assignment_test.psy
+	@$(DARGO_CLI_TEST) tests/loop_variable_shadowing_test.psy
+	@$(DARGO_CLI_TEST) tests/compound_assign_side_effect_index_test.psy
+	@$(DARGO_CLI_TEST) tests/u32_underflow_test.psy
 
 	@$(DARGO_CLI_COMPILE) ctx_test.psy
 	@$(DARGO_CLI_COMPILE) storage_test.psy --contract-name=SimpleContract --method-names set_a set_b set_c set_d get_a get_b get_c get_d

@@ -1,0 +1,15 @@
+// Regression for issue #103: an inner `for` reusing the outer loop's
+// variable name must shadow it, not corrupt it. Expected total is
+// 3 * (1 + 2 * 10) = 63; without shadowing the inner loop's increments
+// bleed into the outer loop variable.
+#[test]
+fn test_nested_loop_variable_shadowing() {
+    let mut total: Felt = 0;
+    for i in 0u32..3u32 {
+        total += 1;
+        for i in 0u32..2u32 {
+            total += 10;
+        }
+    }
+    assert_eq(total, 63, "inner loop must shadow the outer variable");
+}
