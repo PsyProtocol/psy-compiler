@@ -596,10 +596,11 @@ mod tests {
             TypeId::from(0usize),
             vec![felt_value(1)],
         ));
-        // Arrays compare by Arc identity: a clone shares storage, a fresh
-        // allocation with equal contents does not.
-        assert_eq!(array_a, clone);
+        // Containers remain identity-compared; deep clones have equal contents
+        // while remaining independent allocations.
+        assert_ne!(array_a, clone);
         assert_ne!(array_a, array_b);
+        assert_eq!(array_a.to_felts(), clone.to_felts());
     }
 
     #[test]
@@ -614,7 +615,7 @@ mod tests {
         let index = ctx.op_const(1);
         let second = array.get_path(&mut ctx, &[IndexPath::Felt(index)]).unwrap();
         assert_eq!(second, felt_value(20));
-        assert_eq!(array.get_path(&mut ctx, &[]).unwrap(), array);
+        assert_eq!(array.get_path(&mut ctx, &[]).unwrap().to_felts().len(), 2);
 
         let tuple = CheckedValueRef::<SymFeltRef>::new_rc(CheckedValue::Tuple {
             type_id: TypeId::from(0usize),
@@ -639,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn clone_of_scalars_is_independent_while_arrays_share_storage() {
+    fn clone_of_scalars_and_arrays_is_independent() {
         let scalar = felt_value(3);
         let mut cloned = scalar.clone();
         cloned = felt_value(4);
@@ -649,11 +650,16 @@ mod tests {
             TypeId::from(0usize),
             vec![felt_value(1)],
         ));
-        let alias = array.clone();
-        assert!(std::ptr::eq(
-            Arc::as_ptr(&array.as_rc()),
-            Arc::as_ptr(&alias.as_rc())
-        ));
+        let mut clone = array.clone();
+        clone
+            .set_path(
+                &mut QExecContext::new(),
+                &[],
+                &mut vec![],
+                CheckedValueRef::from_vec(TypeId::from(0usize), [SymFeltRef::new_constant(2)]),
+            )
+            .unwrap();
+        assert_eq!(array.to_felts()[0].get_constant_value(), 1);
     }
 
     #[test]
