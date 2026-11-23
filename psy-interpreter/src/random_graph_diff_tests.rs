@@ -1051,10 +1051,7 @@ fn apply_op(op: U32Op, l: u32, r: u32) -> Result<u32, MirrorErr> {
                 Ok(l % r)
             }
         }
-        U32Op::Pow => match (l as u64).checked_pow(r as u32) {
-            Some(value) if value <= 0xffff_ffff => Ok(value as u32),
-            _ => Err(MirrorErr::Overflow),
-        },
+        U32Op::Pow => u32::try_from(f_pow(l as u64, r as u64)).map_err(|_| MirrorErr::Overflow),
         U32Op::And => Ok(l & r),
         U32Op::Or => Ok(l | r),
         U32Op::Xor => Ok(l ^ r),
@@ -1415,11 +1412,13 @@ fn psy_run_with(source: &str, inputs: Inputs) -> PsyOutcome {
             if felts.is_empty() {
                 return PsyOutcome::Errored("[main returned no values]".to_string());
             }
-            let scalar = matches!(
+            // This test harness returns one-limb values as u64 and keeps
+            // wider uint values as limb vectors.
+            let single_limb = matches!(
                 &*value.borrow(),
-                CheckedValue::U32(_) | CheckedValue::Felt(_) | CheckedValue::Bool(_)
+                CheckedValue::Uint(_, UintWidth::U32) | CheckedValue::Felt(_) | CheckedValue::Bool(_)
             );
-            if scalar && interpreter.is_constant(felts[0].clone()) {
+            if single_limb && interpreter.is_constant(felts[0].clone()) {
                 return PsyOutcome::Returned(felts[0].get_constant_value());
             }
             if matches!(inputs, Inputs::Symbolic) {
@@ -1439,7 +1438,7 @@ fn psy_run_with(source: &str, inputs: Inputs) -> PsyOutcome {
             }));
             match resolved {
                 Err(p) => PsyOutcome::Panicked(format!("[resolve panicked] {}", panic_message(&p))),
-                Ok(values) if scalar => PsyOutcome::Returned(values[0]),
+                Ok(values) if single_limb => PsyOutcome::Returned(values[0]),
                 Ok(values) => PsyOutcome::ReturnedVec(values),
             }
         }
@@ -1502,6 +1501,11 @@ fn check_seed(seed: u64) -> Outcome {
             );
         }
     }
+}
+
+#[test]
+fn u32_field_pow_regression_seed() {
+    check_seed(8837571914638298015);
 }
 
 #[test]

@@ -6,6 +6,30 @@ struct FaucetClaim {
     pub amount_transferred: Felt,
 }
 
+fn claim_is_initialized(window_start_block: Felt, amount_transferred: Felt) -> bool {
+    window_start_block != 0 || amount_transferred != 0
+}
+
+fn next_amount_transferred(
+    initialized: bool,
+    window_start_block: Felt,
+    previous_amount: Felt,
+    current_block: Felt,
+    amount: Felt,
+    max_amount: Felt,
+    window_size: Felt,
+) -> Felt {
+    let window_expired = current_block >= (window_start_block + window_size);
+    if !initialized || window_expired {
+        amount
+    } else {
+        assert(previous_amount < max_amount, "faucet already claimed for window");
+        let amount_transferred = previous_amount + amount;
+        assert(amount_transferred <= max_amount, "faucet limit exceeded");
+        amount_transferred
+    }
+}
+
 #[contract]
 #[derive(Storage)]
 pub struct PsyFaucetContract {
@@ -24,18 +48,17 @@ impl PsyFaucetContractRef {
         let c = PsyFaucetContractRef::new(ContractMetadata::current());
         let claim = c.claims[user_id].get();
         let window_expired = current_block >= (claim.window_start_block + window_size);
-
-        if claim.window_start_block == 0 || window_expired {
+        let initialized = claim_is_initialized(claim.window_start_block, claim.amount_transferred);
+        let amount_transferred = next_amount_transferred(
+            initialized, claim.window_start_block, claim.amount_transferred,
+            current_block, amount, max_amount, window_size
+        );
+        if !initialized || window_expired {
             c.claims[user_id] = FaucetClaim {
                 window_start_block: current_block,
-                amount_transferred: amount,
+                amount_transferred,
             };
         } else {
-            assert(claim.amount_transferred < max_amount, "faucet already claimed for window");
-
-            let amount_transferred = claim.amount_transferred + amount;
-            assert(amount_transferred <= max_amount, "faucet limit exceeded");
-
             c.claims[user_id] = FaucetClaim {
                 window_start_block: claim.window_start_block,
                 amount_transferred,
@@ -45,4 +68,14 @@ impl PsyFaucetContractRef {
         // PsyTokenContract ABI: transfer(recipient: Felt, amount: Felt).
         invoke_deferred(0, 2789897329, [user_id, amount]);
     }
+}
+
+#[test]
+fn checkpoint_zero_does_not_reinitialize_claim_window() {
+    let first = next_amount_transferred(claim_is_initialized(0, 0), 0, 0, 0, 600, 1000, 120);
+    assert(first == 600, "first claim amount is recorded");
+    let initialized = claim_is_initialized(0, first);
+    assert(initialized, "checkpoint zero claim is recognized as initialized");
+    let second = next_amount_transferred(initialized, 0, first, 0, 400, 1000, 120);
+    assert(second == 1000, "second claim accumulates in checkpoint zero window");
 }

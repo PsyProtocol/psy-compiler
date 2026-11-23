@@ -91,6 +91,14 @@ ci:
 	@$(DARGO_CLI_TEST) tests/imt_single_map_prove_test.psy
 	@$(DARGO_CLI_TEST) tests/imt_ordering_prove_test.psy
 	@$(DARGO_CLI_TEST) tests/imt_post_map_field_prove_test.psy
+	@$(DARGO_CLI_TEST) tests/branch_local_assignment_test.psy
+	@$(DARGO_CLI_TEST) tests/loop_variable_shadowing_test.psy
+	@$(DARGO_CLI_TEST) tests/compound_assign_side_effect_index_test.psy
+	@$(DARGO_CLI_TEST) tests/u32_underflow_test.psy
+	@$(DARGO_CLI_TEST) tests/elseif_match_guard_gate_test.psy
+	@$(DARGO_CLI_TEST) tests/scalar_struct_copy_semantics_test.psy
+	@$(DARGO_CLI_TEST) tests/uint.psy
+	@$(DARGO_CLI_EXECUTE) uint.psy --parameters 2,3
 
 	@$(DARGO_CLI_COMPILE) ctx_test.psy
 	@$(DARGO_CLI_COMPILE) storage_test.psy --contract-name=SimpleContract --method-names set_a set_b set_c set_d get_a get_b get_c get_d
@@ -266,7 +274,7 @@ compile-multisig-policy-contract: build
 compile-multisig-policy-abi:
 	@cd $(MULTISIG_POLICY_CONTRACT_PATH) && $(DARGO) generate-abi -c MultisigPolicyContractRef --abi-name multisig_policy --output-dir $(ABI_OUTPUT_DIR) --method-names get_policy set_policy
 
-PSY_GENESIS ?= $(PWD)/../psy-genesis
+PSY_GENESIS ?= $(PWD)/../psy-node/psy-genesis
 GENESIS_CONTRACTS_FILE := $(PSY_GENESIS)/genesis_contracts.json
 GENESIS_ABI_DIR := $(PSY_GENESIS)/genesis_abi
 ABI_OUTPUT_DIR := $(PWD)/target/genesis_abi

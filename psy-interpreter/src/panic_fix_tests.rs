@@ -263,7 +263,7 @@ fn b18_u32_pow_overflow_is_arithmetic_overflow() {
     // the invalid operation reach the VM.
     expect_runtime_error(
         "b18_u32_pow_guard_overflow",
-        "fn main() -> u32 { return 4294967295u32 ** 3u32; }",
+        "fn main() -> u32 { return 4294967294u32 ** 3u32; }",
         "ArithmeticOverflow",
     );
 }
@@ -278,6 +278,8 @@ fn b18_u32_pow_field_residue_fits() {
         Ok(()) => {}
         Err(message) => panic!("[b18_u32_pow_field_residue] expected success, got:\n{message}"),
     }
+    let source = "fn main() { let value = 4294967295u32 ** 3u32; assert_eq(value, 1u32, \"pow\"); }";
+    crate::exec_edge_tests::exec_source_with_stub_std("b18_u32_pow_large_residue", source).expect("field residue fits u32");
 }
 
 /// Non-overflowing u32 powers keep working (regression guard for the
@@ -374,10 +376,60 @@ fn b28_internal_function_arguments_are_not_charged_again() {
     assert_eq!(c.interpreter.materialized_elements, MAX_TOTAL_MATERIALIZED_ELEMENTS);
 }
 
-/// A whole-struct Storage::read materializes the struct's full range via
-/// __storage_read_range — previously the last uncharged allocation path: a
-/// contract with several 1M-array fields read gigabytes past the budget
-/// with no cap (self-audit finding after P1/P2).
+#[test]
+fn nested_array_storage_read_compiles() {
+    let source = "use std::prelude::*;\n#[contract]\n#[derive(Storage)]\npub struct Grid { pub cells: [[Felt; 3]; 2] }\n#[contract_method]\npub fn read_all() -> Felt { let v = Grid::read(0, 0, 0, 0); return v.cells[1][2]; }\nfn main() {}";
+    let mut graph = psy_common::Graph::new();
+    graph.add_node(std::path::PathBuf::from("/virtual/src/main.psy"));
+    let result = super::interpret_virtual_files(
+        Some("GridRef".to_string()),
+        vec!["read_all".to_string()],
+        graph,
+        vec![(std::path::PathBuf::from("/virtual/src/main.psy"), std::sync::Arc::from(source))],
+    );
+    assert!(result.is_ok(), "nested array storage read failed: {:?}", result.err());
+}
+
+#[test]
+fn nested_empty_array_storage_read_compiles() {
+    let source = "use std::prelude::*;\n#[contract]\n#[derive(Storage)]\npub struct Grid { pub cells: [[Felt; 0]; 2], pub other: Felt }\n#[contract_method]\npub fn read_all() -> Felt { let v = Grid::read(0, 0, 0, 0); let row = v.cells[1]; return v.other; }\nfn main() {}";
+    let mut graph = psy_common::Graph::new();
+    graph.add_node(std::path::PathBuf::from("/virtual/src/main.psy"));
+    let result = super::interpret_virtual_files(
+        Some("GridRef".to_string()),
+        vec!["read_all".to_string()],
+        graph,
+        vec![(std::path::PathBuf::from("/virtual/src/main.psy"), std::sync::Arc::from(source))],
+    );
+    assert!(result.is_ok(), "nested empty array storage read failed: {:?}", result.err());
+}
+
+#[test]
+fn transmute_mismatched_felt_lengths_returns_error() {
+    for source in [
+        "use std::prelude::*; fn main() { let x: [Felt; 2] = transmute::<[Felt; 2], Felt>(1); }",
+        "use std::prelude::*; fn main() { let x: [Felt; 2] = transmute::<[Felt; 2], [Felt; 3]>([1, 2, 3]); }",
+    ] {
+        match run_main(source, "transmute_mismatched_felt_lengths") {
+            Ok(Some(error)) => assert!(error.contains("TransmuteSizeMismatch"), "unexpected error: {error}"),
+            Ok(None) => panic!("transmute with mismatched sizes succeeded"),
+            Err(error) => panic!("transmute panicked: {error}"),
+        }
+    }
+}
+
+#[test]
+fn transmute_zero_sized_arrays_respects_materialization_budget() {
+    let source = "use std::prelude::*; fn main() { let x: [[Felt; 0]; 5000000] = transmute::<[[Felt; 0]; 5000000], [Felt; 0]>([1; 0]); }";
+    match run_main(source, "transmute_zero_sized_array_budget") {
+        Ok(Some(error)) => assert!(error.contains("ArrayTooLarge"), "unexpected error: {error}"),
+        Ok(None) => panic!("oversized transmute succeeded"),
+        Err(error) => panic!("oversized transmute panicked: {error}"),
+    }
+}
+
+/// Oversized storage reads must return a compiler error before the VM's
+/// range-length assertion, even when they fit the global materialization budget.
 #[test]
 fn b30_storage_read_range_is_charged_globally() {
     let source = "use std::prelude::*;\n#[contract]\n#[derive(Storage)]\npub struct Big { pub a: [Felt; 1000000], pub b: [Felt; 1000000], pub c: [Felt; 1000000], pub d: [Felt; 1000000], pub e: [Felt; 1000000] }\n#[contract_method]\npub fn read_all() -> Felt { let v = Big::read(0, 0, 0, 0); return v.a[0]; }\nfn main() {}";
@@ -392,7 +444,7 @@ fn b30_storage_read_range_is_charged_globally() {
     match result {
         Err(err) => {
             let msg = format!("{err:#}");
-            assert!(msg.contains("ArrayTooLarge"), "[b30_storage_read_range] unexpected error: {msg}");
+            assert!(msg.contains("ArrayTooLarge") && msg.contains("65536"), "[b30_storage_read_range] unexpected error: {msg}");
         }
         Ok(_) => panic!("[b30_storage_read_range] expected ArrayTooLarge, got success"),
     }
@@ -749,6 +801,21 @@ fn b07_runtime_u32_rem_by_zero_no_panic() {
 // ═══════════════════════════════════════════════════════════════════════════
 // Bug 8: runtime array index out of bounds
 // ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn empty_array_symbolic_index_returns_error() {
+    let sources = [
+        "use std::prelude::*; fn main() { let a: [Felt; 0] = [1; 0]; let i = get_user_id(); let x = a[i]; }",
+        "use std::prelude::*; fn main() { let mut a: [Felt; 0] = [1; 0]; let i = get_user_id(); a[i] = 7; }",
+    ];
+    for source in sources {
+        match run_main(source, "empty_array_symbolic_index") {
+            Ok(Some(error)) => assert!(error.contains("IndexOutOfBounds"), "unexpected error: {error}"),
+            Ok(None) => panic!("indexing an empty array succeeded"),
+            Err(error) => panic!("indexing an empty array panicked: {error}"),
+        }
+    }
+}
 
 #[test]
 fn b08_runtime_array_oob_no_panic() {

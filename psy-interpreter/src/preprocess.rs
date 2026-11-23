@@ -27,7 +27,11 @@ impl<'a> StorageProcessor<'a> {
         ty: &UncheckedType,
         ctx: &mut V,
     ) -> bool {
-        matches!(ty, UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("MapRef") && params.len() == 3)
+        matches!(
+            ty,
+            UncheckedType::Generic(ident, params, _)
+                if params.len() == 3 && (ident.id == ctx.intern("MapRef") || ident.id == ctx.intern("NamespacedMapRef"))
+        )
     }
 
     fn struct_has_map_ref_fields<
@@ -302,7 +306,11 @@ impl<'a> StorageProcessor<'a> {
                     return None;
                 };
                 match ctx.expression(value) {
-                    ExprNode::Value(ValueNode::U32(felt, _)) | ExprNode::Value(ValueNode::Felt(felt, _)) => {
+                    ExprNode::Value(ValueNode::Uint(limbs, _, _)) => {
+                        let capacity = limbs[0] as u64 | (limbs[1] as u64) << 32;
+                        (capacity > 0).then_some(capacity)
+                    }
+                    ExprNode::Value(ValueNode::Felt(felt, _)) => {
                         let capacity = felt.get_u64();
                         (capacity > 0).then_some(capacity)
                     }
@@ -606,6 +614,12 @@ impl<'a> StorageProcessor<'a> {
                             panic!("Map must have exactly three generic parameters");
                         }
                         UncheckedType::Generic(Identifier::new(ctx.intern("MapRef"), attr.location), params.clone(), attr.location)
+                    }
+                    UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("NamespacedMap") => {
+                        if params.len() != 3 {
+                            panic!("NamespacedMap must have exactly three generic parameters");
+                        }
+                        UncheckedType::Generic(Identifier::new(ctx.intern("NamespacedMapRef"), attr.location), params.clone(), attr.location)
                     }
                     UncheckedType::Array(elem_ty, size, _) => UncheckedType::Generic(
                         Identifier::new(ctx.intern("ArrayRef"), attr.location),
@@ -1171,14 +1185,14 @@ impl<'a> StorageProcessor<'a> {
                 matches!(
                     &params[0],
                     UncheckedType::Basic(inner)
-                        if inner.id == IdentId::TYPE_FELT || inner.id == IdentId::TYPE_U32 || inner.id == IdentId::TYPE_BOOL
+                        if inner.id == IdentId::TYPE_FELT || inner.id == IdentId::TYPE_U32 || inner.id == IdentId::TYPE_U64 || inner.id == IdentId::TYPE_U128 || inner.id == IdentId::TYPE_U256 || inner.id == IdentId::TYPE_BOOL
                 )
             }
             UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("ArrayRef") && params.len() == 2 => {
                 matches!(
                     &params[0],
                     UncheckedType::Basic(inner)
-                        if inner.id == IdentId::TYPE_FELT || inner.id == IdentId::TYPE_U32
+                        if inner.id == IdentId::TYPE_FELT || inner.id == IdentId::TYPE_U32 || inner.id == IdentId::TYPE_U64 || inner.id == IdentId::TYPE_U128 || inner.id == IdentId::TYPE_U256
                 )
             }
             _ => false,

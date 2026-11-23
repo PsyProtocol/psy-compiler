@@ -19,3 +19,21 @@ impl Default for u32 {
         return 0u32;
     }
 }
+
+impl Default for u64 {
+    pub fn default() -> Self {
+        return 0u64;
+    }
+}
+
+impl Default for u128 {
+    pub fn default() -> Self {
+        return 0u128;
+    }
+}
+
+impl Default for u256 {
+    pub fn default() -> Self {
+        return 0u256;
+    }
+}

@@ -1,0 +1,33 @@
+// Regression for issue #102: an assignment to a local variable inside an
+// `if` branch must stay conditional after the control-flow join. If the
+// branch write leaks unconditionally, the authorization-style guard pattern
+// below sets `y` even when the predicate is false.
+#[contract]
+#[derive(Storage)]
+pub struct C {
+    pub x: Felt,
+}
+
+#[test]
+fn test_branch_local_assignment_stays_conditional() {
+    let c = CRef::new(ContractMetadata::current());
+    c.x = 1;
+    let mut y: u32 = 0u32;
+    if c.x.get() > 2 {
+        y = 42u32;
+    }
+;
+    assert_eq(y, 0u32, "branch-local assignment must stay conditional");
+}
+
+#[test]
+fn test_branch_local_assignment_taken_branch() {
+    let c = CRef::new(ContractMetadata::current());
+    c.x = 1;
+    let mut y: u32 = 0u32;
+    if c.x.get() < 2 {
+        y = 42u32;
+    }
+;
+    assert_eq(y, 42u32, "taken branch must assign");
+}

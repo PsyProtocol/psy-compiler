@@ -193,6 +193,9 @@ pub enum PrimitiveTypeName {
     Felt,
     Bool,
     U32,
+    U64,
+    U128,
+    U256,
     Hash,
 }
 

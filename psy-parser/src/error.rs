@@ -78,8 +78,8 @@ impl ExpectedToken {
                 Self::Keyword("keyword")
             }
             Ident(_) => Self::Ident,
-            U64(_) | U32(_) | Bool(_) | String(_) => Self::Literal,
-            TypeBool | TypeFelt | TypeU32 | TypeArray | TypeSelf => Self::Type,
+            U64(_) | U32(_) | U128(_) | U256(_) | FeltLiteral(_) | Bool(_) | String(_) => Self::Literal,
+            TypeBool | TypeFelt | TypeU64 | TypeU128 | TypeU256 | TypeU32 | TypeArray | TypeSelf => Self::Type,
             _ => Self::Symbol(format!("{t:?}")),
         }
     }

@@ -11,6 +11,18 @@ use crate::{
     recursive::cursor::TokenCursor,
 };
 
+/// Reserved ident for a builtin uint type keyword. Adding a width to the
+/// language is one arm here (plus the lexer token and the reserved ident).
+pub(crate) fn uint_type_ident(token: &Token<'_>) -> Option<psy_ast::IdentId> {
+    match token {
+        Token::TypeU32 => Some(psy_ast::IdentId::TYPE_U32),
+        Token::TypeU64 => Some(psy_ast::IdentId::TYPE_U64),
+        Token::TypeU128 => Some(psy_ast::IdentId::TYPE_U128),
+        Token::TypeU256 => Some(psy_ast::IdentId::TYPE_U256),
+        _ => None,
+    }
+}
+
 impl<'src, 'p, F, C> super::ModuleParser<'src, 'p, F, C>
 where
     F: Clone + From<u32>,
@@ -108,9 +120,10 @@ where
                 self.cursor.advance();
                 Ok(UncheckedType::Basic(Identifier::new(psy_ast::IdentId::TYPE_BOOL, loc)))
             }
-            Some(Token::TypeU32) => {
+            Some(token) if uint_type_ident(token).is_some() => {
+                let id = uint_type_ident(token).unwrap();
                 self.cursor.advance();
-                Ok(UncheckedType::Basic(Identifier::new(psy_ast::IdentId::TYPE_U32, loc)))
+                Ok(UncheckedType::Basic(Identifier::new(id, loc)))
             }
             Some(Token::TypeSelf) => {
                 self.cursor.advance();
@@ -162,8 +175,8 @@ where
 
         let end_start = self.cursor.peek_start();
         match self.cursor.peek() {
-            Some(Token::U64(n)) => {
-                let n = *n;
+            Some(Token::FeltLiteral(value)) => {
+                let n = *value;
                 self.cursor.advance();
                 self.cursor.expect(&Token::RBracket)?;
                 let end = self.cursor.peek_start();
@@ -263,8 +276,8 @@ where
     fn parse_monomorphization_ty(&mut self) -> Result<UncheckedType> {
         let start = self.cursor.peek_start();
         match self.cursor.peek() {
-            Some(Token::U64(n)) => {
-                let n = *n;
+            Some(Token::FeltLiteral(value)) => {
+                let n = *value;
                 self.cursor.advance();
                 let end = self.cursor.peek_start();
                 Ok(UncheckedType::Const(ConstValue::Felt(n), self.location(start, end)))
@@ -377,9 +390,10 @@ where
                 self.cursor.advance();
                 Ok(UncheckedType::Basic(Identifier::new(psy_ast::IdentId::TYPE_BOOL, loc)))
             }
-            Some(Token::TypeU32) => {
+            Some(token) if uint_type_ident(token).is_some() => {
+                let id = uint_type_ident(token).unwrap();
                 self.cursor.advance();
-                Ok(UncheckedType::Basic(Identifier::new(psy_ast::IdentId::TYPE_U32, loc)))
+                Ok(UncheckedType::Basic(Identifier::new(id, loc)))
             }
             Some(Token::TypeSelf) => {
                 self.cursor.advance();

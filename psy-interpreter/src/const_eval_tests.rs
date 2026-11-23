@@ -95,7 +95,7 @@ fn const_value(c: &mut Compiled, name: &str) -> Option<(&'static str, u64)> {
     let b = vref.borrow();
     match &*b {
         CheckedValue::Felt(f) => Some(("Felt", f.get_constant_value())),
-        CheckedValue::U32(f) => Some(("U32", f.get_constant_value())),
+        CheckedValue::Uint(f, UintWidth::U32) => Some(("U32", f[0].get_constant_value())),
         CheckedValue::Bool(f) => Some(("Bool", f.get_constant_value())),
         _ => None,
     }

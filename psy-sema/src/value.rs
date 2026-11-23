@@ -2,13 +2,13 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use enum_as_inner::EnumAsInner;
 use indexmap::IndexMap;
-use psy_ast::{ConstValue, ExprId, IdentId, Identifier, Location, NodeInfo, NodeType};
+use psy_ast::{ConstValue, ExprId, IdentId, Identifier, Location, NodeInfo, NodeType, UintWidth};
 use psy_vm::dpn::ops::{
     context_trait::{ContextFelt, DPNContext, ToFelts},
     op_types::DPNOpType,
 };
 
-use crate::{Result, Type, TypeCheckerVisitorContext, TypeId, BOOL_TYPE, FELT_TYPE, U32_TYPE, VOID_TYPE};
+use crate::{Result, Type, TypeCheckerVisitorContext, TypeId, uint_type_id, BOOL_TYPE, FELT_TYPE, U32_TYPE, VOID_TYPE};
 
 pub fn is_constant_op(op: DPNOpType) -> bool {
     matches!(
@@ -21,7 +21,8 @@ pub fn is_constant_op(op: DPNOpType) -> bool {
 pub enum CheckedValueNode<F> {
     Felt(F, Location),
     Bool(F, Location),
-    U32(F, Location),
+    /// Typed uint literal: fixed 8-limb payload, narrow widths zero-pad.
+    Uint([u32; 8], UintWidth, Location),
     Array(TypeId, Vec<ExprId>, Location),
     ArrayRepeat(TypeId, ExprId, ConstValue, Location),
     Tuple(TypeId, Vec<(TypeId, ExprId)>, Location),
@@ -39,7 +40,10 @@ impl<F> NodeInfo for CheckedValueNode<F> {
 pub enum CheckedValue<F: Clone + From<u32> + ContextFelt> {
     Felt(F),
     Bool(F),
-    U32(F),
+    /// Typed uint value: fixed 8-limb payload, narrow widths zero-pad the high
+    /// limbs. The width says how many limbs are semantically live — every
+    /// encoding path slices by `width.limb_count()`.
+    Uint([F; 8], UintWidth),
     Array(TypeId, Vec<CheckedValueRef<F>>),
     Struct(TypeId, IndexMap<Identifier, CheckedValueRef<F>>),
     Tuple {
@@ -59,13 +63,19 @@ impl<F: Clone + From<u32> + ContextFelt> Clone for CheckedValueRef<F> {
         match &*self.borrow() {
             CheckedValue::Felt(f) => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::Felt(f.clone())))),
             CheckedValue::Bool(b) => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::Bool(b.clone())))),
-            CheckedValue::U32(u) => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::U32(u.clone())))),
-            CheckedValue::Array(_type_id, _values) => CheckedValueRef(self.0.clone()),
+            CheckedValue::Uint(u, w) => Self::from_uint(*w, u.clone()),
+            CheckedValue::Array(type_id, values) => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::Array(
+                type_id.clone(),
+                values.iter().map(|v| v.clone()).collect(),
+            )))),
             CheckedValue::Tuple { type_id, elements } => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::Tuple {
                 type_id: type_id.clone(),
                 elements: elements.iter().map(|(t, v)| (t.clone(), v.clone())).collect(),
             }))),
-            CheckedValue::Struct(_type_id, _fields) => CheckedValueRef(self.0.clone()),
+            CheckedValue::Struct(type_id, fields) => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::Struct(
+                type_id.clone(),
+                fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            )))),
             CheckedValue::Type(type_id) => CheckedValueRef(Arc::new(RwLock::new(CheckedValue::Type(type_id.clone())))),
         }
     }
@@ -75,7 +85,7 @@ impl<F: Clone + From<u32> + ContextFelt> PartialEq for CheckedValueRef<F> {
         match (&*self.borrow(), &*other.borrow()) {
             (CheckedValue::Felt(f1), CheckedValue::Felt(f2)) => f1 == f2,
             (CheckedValue::Bool(b1), CheckedValue::Bool(b2)) => b1 == b2,
-            (CheckedValue::U32(u1), CheckedValue::U32(u2)) => u1 == u2,
+            (CheckedValue::Uint(a, w1), CheckedValue::Uint(b, w2)) => w1 == w2 && a[..w1.limb_count()] == b[..w2.limb_count()],
             (CheckedValue::Array(_, _a1), CheckedValue::Array(_, _a2)) => std::ptr::eq(Arc::as_ptr(&self.as_rc()), Arc::as_ptr(&other.as_rc())),
             (CheckedValue::Struct(_, _s1), CheckedValue::Struct(_, _s2)) => std::ptr::eq(Arc::as_ptr(&self.as_rc()), Arc::as_ptr(&other.as_rc())),
             (CheckedValue::Type(t1), CheckedValue::Type(t2)) => t1 == t2,
@@ -89,7 +99,8 @@ impl<F: Clone + From<u32> + ContextFelt> ToFelts<F> for CheckedValueRef<F> {
         match &*self.borrow() {
             CheckedValue::Felt(f) => vec![f.clone()],
             CheckedValue::Bool(b) => vec![b.clone()],
-            CheckedValue::U32(u) => vec![u.clone()],
+            // Wire format is width-sized: u32 stays exactly one felt.
+            CheckedValue::Uint(u, width) => u[..width.limb_count()].to_vec(),
             CheckedValue::Array(_type_id, values) => {
                 let mut result = Vec::new();
                 for value in values {
@@ -138,16 +149,26 @@ impl<F: Clone + From<u32> + ContextFelt, C: DPNContext<F>> FeltRepr<F, C> for Ch
                 assert_eq!(felts.len(), 1);
                 CheckedValueRef::from_bool(felts[0].clone())
             }
-            Type::U32 => {
-                assert_eq!(felts.len(), 1);
-                CheckedValueRef::from_u32(felts[0].clone())
+            Type::Uint(width) => {
+                let limbs = width.limb_count();
+                assert_eq!(felts.len(), limbs);
+                CheckedValueRef::from_uint(*width, std::array::from_fn(|i| if i < limbs { felts[i].clone() } else { F::from(0u32) }))
             }
             Type::Array(checked_array_node) => {
                 let size = ctx.size_of(checked_array_node.inner_ty);
-                let values = felts
-                    .chunks(size)
-                    .map(|chunk| FeltRepr::decode_felts(chunk, ctx, checked_array_node.inner_ty))
-                    .collect();
+                let values = if size == 0 {
+                    let count = match &ctx.symbols[checked_array_node.size_ty] {
+                        Type::Const(value) => match &*ctx.symbols[value.value].borrow() {
+                            CheckedValue::Felt(value) => value.get_u64() as usize,
+                            CheckedValue::Uint(value, UintWidth::U32) => value[0].get_u64() as usize,
+                            _ => panic!("Array size must be a numeric constant"),
+                        },
+                        _ => panic!("Array size must be a const type"),
+                    };
+                    (0..count).map(|_| FeltRepr::decode_felts(&[], ctx, checked_array_node.inner_ty)).collect()
+                } else {
+                    felts.chunks(size).map(|chunk| FeltRepr::decode_felts(chunk, ctx, checked_array_node.inner_ty)).collect()
+                };
 
                 Self::new_rc(CheckedValue::Array(target_type, values))
             }
@@ -215,15 +236,22 @@ impl<F: Clone + From<u32> + ContextFelt> CheckedValueRef<F> {
         Self::new_rc(CheckedValue::Bool(value))
     }
 
+    pub fn from_uint(width: UintWidth, value: [F; 8]) -> Self {
+        Self::new_rc(CheckedValue::Uint(value, width))
+    }
+
     pub fn from_u32(value: F) -> Self {
-        Self::new_rc(CheckedValue::U32(value))
+        Self::from_uint(UintWidth::U32, std::array::from_fn(|i| if i == 0 { value.clone() } else { F::from(0u32) }))
     }
 
     pub fn from_value(value: F, ty: TypeId) -> Self {
         match ty {
             FELT_TYPE => Self::from_felt(value),
             BOOL_TYPE => Self::from_bool(value),
-            U32_TYPE => Self::from_u32(value),
+            // No ctx is available to decompose the scalar, so wide widths take
+            // the low-limb view; the only production caller (populate_constant)
+            // passes scalar ConstValues, which are exact for u32.
+            ty if ty.uint_width().is_some() => Self::from_uint(ty.uint_width().unwrap(), std::array::from_fn(|i| if i == 0 { value.clone() } else { F::from(0u32) })),
             _ => panic!("Expected felt/u32/bool"),
         }
     }
@@ -248,7 +276,8 @@ impl<F: Clone + From<u32> + ContextFelt> CheckedValueRef<F> {
 
     pub fn to_u32(&self) -> F {
         match &*self.borrow() {
-            CheckedValue::U32(f) => f.clone(),
+            // The u32 lane lives in the low limb of the unified representation.
+            CheckedValue::Uint(f, UintWidth::U32) => f[0].clone(),
             _ => panic!("Expected u32 value"),
         }
     }
@@ -256,7 +285,7 @@ impl<F: Clone + From<u32> + ContextFelt> CheckedValueRef<F> {
     pub fn to_value(&self) -> F {
         match &*self.borrow() {
             CheckedValue::Felt(f) => f.clone(),
-            CheckedValue::U32(u) => u.clone(),
+            CheckedValue::Uint(u, UintWidth::U32) => u[0].clone(),
             CheckedValue::Bool(b) => b.clone(),
             _ => panic!("Expected felt/u32/bool value"),
         }
@@ -294,7 +323,7 @@ impl<F: Clone + From<u32> + ContextFelt> CheckedValueRef<F> {
         match &*self.borrow() {
             CheckedValue::Felt(_) => FELT_TYPE,
             CheckedValue::Bool(_) => BOOL_TYPE,
-            CheckedValue::U32(_) => U32_TYPE,
+            CheckedValue::Uint(_, width) => uint_type_id(*width),
             CheckedValue::Array(type_id, _) => type_id.clone(),
             CheckedValue::Struct(type_id, _) => type_id.clone(),
             CheckedValue::Type(type_id) => type_id.clone(),
@@ -405,7 +434,7 @@ impl<F: Clone + From<u32> + ContextFelt> CheckedValueRef<F> {
                     let out_of_bounds = ctx.op_lt(index, arr_size);
                     ctx.assert_true(out_of_bounds, "felt index out of bounds");
 
-                    let mut result = arr[0].clone();
+                    let mut result = arr.first()?.clone();
                     for i in 1..arr.len() {
                         let arr_index = ctx.op_const(i as u64);
                         let condition = ctx.op_eq(arr_index, index);
@@ -446,7 +475,11 @@ impl<F: Clone + From<u32> + ContextFelt> CheckedValueRef<F> {
         match (&*old_value.borrow(), &*new_value.borrow()) {
             (CheckedValue::Felt(o), CheckedValue::Felt(n)) => CheckedValueRef::new_rc(CheckedValue::Felt(select_fn(ctx, n, o))),
             (CheckedValue::Bool(o), CheckedValue::Bool(n)) => CheckedValueRef::new_rc(CheckedValue::Bool(select_fn(ctx, n, o))),
-            (CheckedValue::U32(o), CheckedValue::U32(n)) => CheckedValueRef::new_rc(CheckedValue::U32(select_fn(ctx, n, o))),
+            (CheckedValue::Uint(o, width), CheckedValue::Uint(n, _)) => {
+                // Select every limb: padded zeros select to zeros, and only the
+                // active limbs are ever emitted downstream.
+                Self::from_uint(*width, std::array::from_fn(|i| select_fn(ctx, &n[i], &o[i])))
+            }
             (CheckedValue::Array(lhs_type_id, o), CheckedValue::Array(_, n)) => {
                 let mut arr_data = vec![];
                 for (old_value, new_value) in o.iter().zip(n.iter()) {
@@ -513,6 +546,21 @@ mod tests {
     }
 
     #[test]
+    fn uint_values_preserve_active_limbs_in_clone_encoding_and_selection() {
+        let mut ctx = QExecContext::new();
+        for width in UintWidth::ALL {
+            let limbs = std::array::from_fn(|i| ctx.op_const_u32(if i < width.limb_count() { (i + 1) as u32 } else { 0 }));
+            let active = limbs[..width.limb_count()].to_vec();
+            let value = CheckedValueRef::from_uint(width, limbs);
+            assert_eq!(value.clone().to_felts(), active);
+            assert_eq!(value.to_felts(), active);
+            let old = CheckedValueRef::from_uint(width, std::array::from_fn(|_| ctx.op_const_u32(0)));
+            let selected = CheckedValueRef::select(&mut ctx, &value, &old, &|_, n, _| *n);
+            assert_eq!(selected.to_felts(), active);
+        }
+    }
+
+    #[test]
     #[should_panic(expected = "not yet implemented")]
     fn checked_value_ref_from_felts_is_unimplemented() {
         // A function pointer keeps the stub from being inlined into the caller.
@@ -531,7 +579,7 @@ mod tests {
         // EnumAsInner accessors live on CheckedValue, reached through the guard.
         assert!(felt.borrow().is_felt());
         assert!(boolean.borrow().is_bool());
-        assert!(u32_value.borrow().is_u32());
+        assert!(u32_value.borrow().is_uint());
 
         // Typed accessors clone the backing felt of every scalar kind, and
         // to_value accepts them all.
@@ -582,10 +630,11 @@ mod tests {
             TypeId::from(0usize),
             vec![felt_value(1)],
         ));
-        // Arrays compare by Arc identity: a clone shares storage, a fresh
-        // allocation with equal contents does not.
-        assert_eq!(array_a, clone);
+        // Containers remain identity-compared; deep clones have equal contents
+        // while remaining independent allocations.
+        assert_ne!(array_a, clone);
         assert_ne!(array_a, array_b);
+        assert_eq!(array_a.to_felts(), clone.to_felts());
     }
 
     #[test]
@@ -600,7 +649,7 @@ mod tests {
         let index = ctx.op_const(1);
         let second = array.get_path(&mut ctx, &[IndexPath::Felt(index)]).unwrap();
         assert_eq!(second, felt_value(20));
-        assert_eq!(array.get_path(&mut ctx, &[]).unwrap(), array);
+        assert_eq!(array.get_path(&mut ctx, &[]).unwrap().to_felts().len(), 2);
 
         let tuple = CheckedValueRef::<SymFeltRef>::new_rc(CheckedValue::Tuple {
             type_id: TypeId::from(0usize),
@@ -625,7 +674,7 @@ mod tests {
     }
 
     #[test]
-    fn clone_of_scalars_is_independent_while_arrays_share_storage() {
+    fn clone_of_scalars_and_arrays_is_independent() {
         let scalar = felt_value(3);
         let mut cloned = scalar.clone();
         cloned = felt_value(4);
@@ -635,11 +684,16 @@ mod tests {
             TypeId::from(0usize),
             vec![felt_value(1)],
         ));
-        let alias = array.clone();
-        assert!(std::ptr::eq(
-            Arc::as_ptr(&array.as_rc()),
-            Arc::as_ptr(&alias.as_rc())
-        ));
+        let mut clone = array.clone();
+        clone
+            .set_path(
+                &mut QExecContext::new(),
+                &[],
+                &mut vec![],
+                CheckedValueRef::from_vec(TypeId::from(0usize), [SymFeltRef::new_constant(2)]),
+            )
+            .unwrap();
+        assert_eq!(array.to_felts()[0].get_constant_value(), 1);
     }
 
     #[test]
@@ -677,13 +731,9 @@ mod tests {
         assert!(felt_value(0).as_type().is_none());
     }
 
-    /// A symbolic (non-constant) index expression: built from an op so the
-    /// op type is `Add`, exercising the conditional select paths rather than
-    /// the constant-index fast path.
+    /// A genuine symbolic input cannot be reduced by constant folding.
     fn symbolic_index(ctx: &mut QExecContext) -> SymFeltRef {
-        let one = ctx.op_const(1);
-        let two = ctx.op_const(1);
-        ctx.op_add(one, two)
+        ctx.add_input()
     }
 
     #[test]
@@ -719,7 +769,7 @@ mod tests {
         let bool_merged = CheckedValueRef::select(&mut ctx, &bool_value(true), &bool_value(false), &select_fn);
         assert!(bool_merged.borrow().is_bool());
         let u32_merged = CheckedValueRef::select(&mut ctx, &from_u32(5), &from_u32(6), &select_fn);
-        assert!(u32_merged.borrow().is_u32());
+        assert!(u32_merged.borrow().is_uint());
 
         // Arrays merge element-wise.
         let old_array = CheckedValueRef::<SymFeltRef>::new_rc(CheckedValue::Array(
@@ -968,10 +1018,18 @@ mod tests {
 
         let felt_ty = context.symbols.create_type(Type::Felt).unwrap();
         let bool_ty = context.symbols.create_type(Type::Bool).unwrap();
-        let u32_ty = context.symbols.create_type(Type::U32).unwrap();
         assert_eq!(CheckedValueRef::decode_felts(&[a], &context, felt_ty).to_felt(), a);
         assert_eq!(CheckedValueRef::decode_felts(&[a], &context, bool_ty).to_bool(), a);
-        assert_eq!(CheckedValueRef::decode_felts(&[a], &context, u32_ty).to_u32(), a);
+        for width in UintWidth::ALL {
+            let ty = context.symbols.create_type(Type::Uint(width)).unwrap();
+            let limbs: Vec<_> = (0..width.limb_count()).map(|i| SymFeltRef::from((i + 11) as u32)).collect();
+            let decoded = CheckedValueRef::decode_felts(&limbs, &context, ty);
+            assert_eq!(decoded.type_id().uint_width(), Some(width));
+            assert_eq!(decoded.to_felts(), limbs);
+            if width == UintWidth::U32 {
+                assert_eq!(decoded.to_u32(), a);
+            }
+        }
 
         let mut fields = IndexMap::new();
         fields.insert(
@@ -1041,6 +1099,12 @@ mod tests {
     #[should_panic(expected = "Expected u32 value")]
     fn to_u32_panics_on_a_felt_value() {
         felt_value(1).to_u32();
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected u32 value")]
+    fn to_u32_panics_on_a_wide_uint_value() {
+        CheckedValueRef::from_uint(UintWidth::U64, std::array::from_fn(|i| SymFeltRef::from(i as u32))).to_u32();
     }
 
     #[test]
