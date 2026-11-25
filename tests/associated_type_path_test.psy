@@ -11,7 +11,39 @@ impl HasValueType for FeltNumber {
     pub type ValueType = Felt;
 }
 
+pub trait TypedValue<T> {
+    pub type Typed;
+}
+
+impl TypedValue<u32> for FeltNumber {
+    pub type Typed = u32;
+}
+
+impl TypedValue<Felt> for FeltNumber {
+    pub type Typed = Felt;
+}
+
+pub struct ValueBox<T> {
+    pub value: T,
+}
+
+impl<T> TypedValue<u32> for ValueBox<T> {
+    pub type Typed = u32;
+}
+
+impl<T> TypedValue<Felt> for ValueBox<T> {
+    pub type Typed = T;
+}
+
 fn main() {
     let v: FeltNumber::ValueType = 123;
     assert_eq(v, 123, "associated type path should resolve");
+    let narrow: <FeltNumber as TypedValue<u32>>::Typed = 7u32;
+    let wide: <FeltNumber as TypedValue<Felt>>::Typed = 9;
+    let generic_narrow: <ValueBox<Felt> as TypedValue<u32>>::Typed = 11u32;
+    let generic_wide: <ValueBox<Felt> as TypedValue<Felt>>::Typed = 13;
+    assert_eq(narrow, 7u32, "qualified exact lookup keeps u32");
+    assert_eq(wide, 9, "qualified exact lookup keeps Felt");
+    assert_eq(generic_narrow, 11u32, "qualified generic lookup keeps u32");
+    assert_eq(generic_wide, 13, "qualified generic lookup substitutes receiver type");
 }
