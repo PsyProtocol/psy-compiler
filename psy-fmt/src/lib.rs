@@ -1428,7 +1428,8 @@ impl<'a, F: ContextFelt + From<u32> + Debug + 'static, C: DPNContext<F>> AstVisi
             .collect::<Result<Vec<_>, Self::Error>>()?
             .join(", ");
 
-        Ok(format!("({})", formatted_elements))
+        let trailing_comma = if elements.len() == 1 { "," } else { "" };
+        Ok(format!("({formatted_elements}{trailing_comma})"))
     }
 
     fn visit_tuple_access(&mut self, node: ExprId, ctx: &mut Self::Context) -> Result<Self::ExprResult, Self::Error> {

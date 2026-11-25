@@ -1719,6 +1719,26 @@ fn format_source(source: &str) -> String {
 }
 
 #[test]
+fn formatter_preserves_singleton_tuple_in_contract_method() {
+    let output = format_source(
+        r#"
+        struct Example {}
+        impl Example {
+            #[contract_method]
+            pub fn value() {
+                let singleton = (7,);
+                let pair = (7, 8);
+            }
+        }
+        "#,
+    );
+    for formatted in [&output, &format_source(&output)] {
+        assert!(formatted.contains("(7,)"), "{formatted}");
+        assert!(formatted.contains("(7, 8)"), "{formatted}");
+    }
+}
+
+#[test]
 fn formatter_renders_enums_traits_impls_and_aliases() {
     let output = format_source(
         r#"
