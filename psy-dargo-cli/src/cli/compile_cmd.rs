@@ -5,9 +5,11 @@ use std::{
 
 use clap::Args;
 use psy_abi::{Abi, AbiExtractor};
+use psy_ast::{Identifier, Location, Program, Visibility};
+use psy_parser::recursive::{parse_module_into, ParseModuleInput};
 use psy_package::{ResolvedSourceWorkspace, VfsPath, Workspace};
 use psy_vm::dpn::{
-    ops::{op_types::DPNOpType, state_cmd::data::DPNStateCmd},
+    ops::{exec_context::QExecContext, op_types::DPNOpType, state_cmd::data::DPNStateCmd},
     vm::def::DPNFunctionCircuitDefinition,
 };
 use serde::Serialize;
@@ -271,23 +273,24 @@ pub(crate) fn resolve_workspace_method_names(workspace: &Workspace, compile_opti
     if let Some(entry_path) = &compile_options.entry_path {
         root_package.entry_path = entry_path.clone();
     }
-    let root_source = std::fs::read_to_string(root_package.entry_canonical_path())?;
-    if source_has_function_name(&root_source, "main") {
+    let root_path = root_package.entry_canonical_path();
+    let root_source = std::fs::read_to_string(&root_path)?;
+    let mut method_names = Vec::new();
+    if collect_contract_method_names(root_path.clone(), &root_source, &mut method_names)? {
         return Ok(vec!["main".to_string()]);
     }
 
-    let mut queue = VecDeque::new();
+    let mut queue = VecDeque::from([&root_package]);
     let mut visited = HashSet::new();
-    queue.push_back(&workspace.package);
-
-    let mut method_names = Vec::new();
     while let Some(package) = queue.pop_front() {
-        let key = package.entry_canonical_path().display().to_string();
-        if !visited.insert(key) {
+        let path = package.entry_canonical_path();
+        if !visited.insert(path.clone()) {
             continue;
         }
-        let source = std::fs::read_to_string(package.entry_canonical_path())?;
-        extract_contract_method_names(&source, &mut method_names);
+        if path != root_path {
+            let source = std::fs::read_to_string(&path)?;
+            collect_contract_method_names(path, &source, &mut method_names)?;
+        }
         for dep in package.dependencies.values() {
             match dep {
                 psy_package::Dependency::Remote { package } | psy_package::Dependency::Local { package } => {
@@ -318,9 +321,13 @@ pub(crate) fn resolve_source_workspace_method_names(workspace: &ResolvedSourceWo
         return Ok(method_names.clone());
     }
 
+    let entry_files: HashSet<_> = workspace.packages.values().map(|package| package.entry_file_id).collect();
     let mut method_names = Vec::new();
-    for (_, _, text) in workspace.source_map.snapshot() {
-        extract_contract_method_names(&text, &mut method_names);
+    for (file_id, path, text) in workspace.source_map.snapshot() {
+        let path = source_vfs_to_pathbuf(&path);
+        if entry_files.contains(&file_id) || path.extension().is_some_and(|extension| extension == "psy") {
+            collect_contract_method_names(path, &text, &mut method_names)?;
+        }
     }
     method_names.sort();
     method_names.dedup();
@@ -333,43 +340,34 @@ pub(crate) fn resolve_source_workspace_method_names(workspace: &ResolvedSourceWo
     Ok(method_names)
 }
 
-fn extract_contract_method_names(source: &str, method_names: &mut Vec<String>) {
-    for marker in ["#[contract::write_method]", "#[contract::view_method]", "#[contract_method]"] {
-        let mut search_start = 0usize;
-        while let Some(relative) = source[search_start..].find(marker) {
-            let attr_start = search_start + relative + marker.len();
-            let rest = &source[attr_start..];
-            if let Some(method_name) = extract_first_function_name(rest) {
-                method_names.push(method_name);
-            }
-            search_start = attr_start;
-        }
-    }
-}
+fn collect_contract_method_names(path: PathBuf, source: &str, method_names: &mut Vec<String>) -> Result<bool> {
+    let mut program = Program::new();
+    let mut context = QExecContext::new();
+    let file_id = program.file_resolver.add_file(path.clone(), source);
+    let module_name = Identifier::new(program.interner.intern_ident("entry"), Location::new(file_id, 0, 0));
+    let module = parse_module_into(
+        ParseModuleInput {
+            source,
+            file_id,
+            module_name,
+            visibility: Visibility::Public,
+        },
+        &mut program,
+        &mut context,
+    )
+    .map_err(|error| anyhow::Error::new(error).context(format!("Failed to parse {}", path.display())))?;
 
-fn extract_first_function_name(source: &str) -> Option<String> {
-    extract_function_name(source, |_| true)
-}
-
-fn source_has_function_name(source: &str, expected_name: &str) -> bool {
-    extract_function_name(source, |name| name == expected_name).is_some()
-}
-
-fn extract_function_name(source: &str, predicate: impl Fn(&str) -> bool) -> Option<String> {
-    let marker = "fn ";
-    let mut search_start = 0usize;
-    while let Some(relative) = source[search_start..].find(marker) {
-        let start = search_start + relative + marker.len();
-        let rest = &source[start..];
-        let end = rest
-            .find(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
-            .unwrap_or(rest.len());
-        if end > 0 && predicate(&rest[..end]) {
-            return Some(rest[..end].to_string());
-        }
-        search_start = start;
-    }
-    None
+    method_names.extend(
+        program.defs.iter()
+            .filter_map(|definition| definition.as_function())
+            .filter(|function| function.attrs.iter().any(|attr| attr.is_contract_api_method()))
+            .map(|function| program.interner[function.name.id].to_string()),
+    );
+    Ok(module.definitions.iter().any(|&definition| {
+        program.defs[definition]
+            .as_function()
+            .is_some_and(|function| program.interner[function.name.id].0 == "main")
+    }))
 }
 
 #[cfg(test)]
@@ -392,8 +390,7 @@ mod tests {
     };
 
     use super::{
-        extract_contract_method_names, extract_function_name, resolve_source_workspace_method_names, resolve_workspace_method_names,
-        source_has_function_name, source_vfs_to_pathbuf, validate_static_state_accesses, CompileCommand, CompileOptions,
+        resolve_source_workspace_method_names, resolve_workspace_method_names, source_vfs_to_pathbuf, validate_static_state_accesses, CompileCommand, CompileOptions,
     };
 
     fn constant_def(index: usize, op_type: DPNOpType, value: u64) -> DPNIndexedVarDef {
@@ -639,41 +636,6 @@ mod tests {
     }
 
     #[test]
-    fn function_name_extraction_handles_missing_and_invalid_markers() {
-        assert_eq!(extract_function_name("no function", |_| true), None);
-        assert_eq!(extract_function_name("fn () {}", |_| true), None);
-        assert_eq!(extract_function_name("fn _foo42() {}", |_| true), Some("_foo42".to_string()));
-        assert_eq!(extract_function_name("fn first() {} fn second() {}", |name| name == "second"), Some("second".to_string()));
-        assert_eq!(extract_function_name("fn first() {}", |name| name == "missing"), None);
-    }
-
-    #[test]
-    fn source_main_detection_does_not_match_prefixes() {
-        assert!(source_has_function_name("fn main() {}", "main"));
-        assert!(!source_has_function_name("fn main_extra() {}", "main"));
-    }
-
-    #[test]
-    fn contract_method_extraction_collects_all_supported_attributes() {
-        let source = "
-            #[contract::write_method] fn write_one() {}
-            #[contract::view_method] fn view_one() {}
-            #[contract_method] fn plain() {}
-            #[contract::write_method] fn write_one() {}
-        ";
-        let mut methods = Vec::new();
-        extract_contract_method_names(source, &mut methods);
-        assert_eq!(methods, vec!["write_one", "write_one", "view_one", "plain"]);
-    }
-
-    #[test]
-    fn contract_method_extraction_ignores_attributes_without_function_names() {
-        let mut methods = Vec::new();
-        extract_contract_method_names("#[contract_method]\nlet value = 1;", &mut methods);
-        assert!(methods.is_empty());
-    }
-
-    #[test]
     fn explicit_method_names_are_required_to_be_non_empty() {
         let workspace = Workspace {
             package: Package::default(),
@@ -734,7 +696,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
 
         let (workspace, root) = workspace_with_source(
-            "#[contract::view_method] fn zeta() {}\n#[contract::write_method] fn alpha() {}\n#[contract_method] fn zeta() {}",
+            "// fn main() {}\n// #[contract_method]\nfn helper() {}\n#[contract::view_method] fn zeta() {}\n#[contract::write_method] fn alpha() {}\n#[contract_method] fn zeta() {}",
         );
         assert_eq!(
             resolve_workspace_method_names(&workspace, &CompileOptions::default()).unwrap(),
@@ -818,13 +780,14 @@ mod tests {
         let files = |source: &'static str| {
             let mut map = std::collections::BTreeMap::new();
             map.insert(RelativeFilePath::new("src/main.psy".to_string()), Arc::<str>::from(source));
+            map.insert(RelativeFilePath::new("README.md".to_string()), Arc::<str>::from("# Package documentation"));
             map
         };
         resolver.insert_package(
             PackageId::Virtual("root".to_string()),
             PackageSources {
                 manifest: Arc::<str>::from("[package]\nname = \"root\"\ntype = \"bin\"\nentry = \"src/main.psy\"\nauthors = [\"\"]\n\n[dependencies]\nutil = \"util\"\n"),
-                files: files("fn main() -> Felt { return 1; }"),
+                files: files("// #[contract_method]\nfn helper() {}\n#[contract_method] pub fn selected() -> Felt { return 1; }"),
             },
         );
         resolver.insert_package(
@@ -840,13 +803,11 @@ mod tests {
 
         let result = super::compile_source_workspace_full(
             &source_workspace,
-            &CompileOptions {
-                method_names: Some(vec!["main".to_string()]),
-                ..CompileOptions::default()
-            },
+            &CompileOptions::default(),
         )
         .expect("in-memory workspace must compile");
         assert_eq!(result.circuit_definitions.len(), 1);
+        assert_eq!(result.circuit_definitions[0].name, "selected");
         reset_std_scope();
     }
 }

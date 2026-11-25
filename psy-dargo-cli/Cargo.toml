@@ -15,6 +15,7 @@ serde_json.workspace = true
 
 psy-package.workspace = true
 psy-interpreter.workspace = true
+psy-parser.workspace = true
 psy_vm.workspace = true
 plonky2 = { workspace = true }
 psy_crypto = { workspace = true }

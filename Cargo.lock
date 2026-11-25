@@ -2034,6 +2034,7 @@ dependencies = [
  "psy-ast",
  "psy-interpreter",
  "psy-package",
+ "psy-parser",
  "psy-sema",
  "psy_client_data",
  "psy_common_circuit",
