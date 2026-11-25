@@ -840,7 +840,7 @@ impl<'a> StorageProcessor<'a> {
         ctx.alloc_definition(DefinitionNode::Function(function))
     }
 
-    fn generate_accessor_impl<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>>(
+    fn generate_accessor_impl<F: Clone + From<u32> + ContextFelt, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode, Program = Program<F>>>(
         &self,
         struct_node: &StructNode,
         attr: &AttrNode,
@@ -905,9 +905,11 @@ impl<'a> StorageProcessor<'a> {
             }
 
             // A one-element array still has a valid index (zero).
-            if !is_ref_struct && matches!(&field.ty, UncheckedType::Array(_, array_size, _) if array_size.as_u64().unwrap_or(0) > 0) {
-                methods.push(self.generate_getter_at(attr, &field_name.id, &field.ty, offset, ctx));
-                methods.push(self.generate_setter_at(attr, &field_name.id, &field.ty, offset, ctx));
+            if let UncheckedType::Array(elem_ty, size, _) = &field.ty {
+                if !is_ref_struct && size.as_u64().unwrap_or(0) > 0 {
+                    methods.push(self.generate_getter_at(attr, &field_name.id, elem_ty, *size, offset, ctx));
+                    methods.push(self.generate_setter_at(attr, &field_name.id, elem_ty, *size, offset, ctx));
+                }
             }
 
             // Advance by the complete field footprint. For ArrayRef<T, N>,
@@ -2087,11 +2089,12 @@ impl<'a> StorageProcessor<'a> {
         ctx.alloc_definition(DefinitionNode::Function(function))
     }
 
-    fn generate_getter_at<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
+    fn generate_getter_at<F: Clone + From<u32> + ContextFelt, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
         &self,
         attr: &AttrNode,
         field_name: &IdentId,
-        field_type: &UncheckedType,
+        elem_ty: &UncheckedType,
+        size: ConstValue,
         offset: ExprId,
         ctx: &mut V,
     ) -> DefId {
@@ -2131,21 +2134,8 @@ impl<'a> StorageProcessor<'a> {
             location: attr.location,
         }));
 
-        let elem_ty = if let UncheckedType::Generic(ident, params, _) = field_type {
-            if ident.id == ctx.intern("StorageRef") && params.len() == 1 {
-                params[0].clone()
-            } else if ident.id == ctx.intern("ArrayRef") && params.len() == 2 {
-                params[0].clone()
-            } else {
-                panic!("Expected StorageRef<T> or ArrayRef<T, N>");
-            }
-        } else if let UncheckedType::Array(elem_ty, _, _) = field_type {
-            elem_ty.as_ref().clone()
-        } else {
-            panic!("generate_getter_at called on non-StorageRef or non-array type");
-        };
-
-        let elem_size = self.generate_field_size(attr, &elem_ty, ctx);
+        let bounds_check = self.generate_index_bounds_check(attr, index_ident, size, ctx);
+        let elem_size = self.generate_field_size(attr, elem_ty, ctx);
         let scaled_index = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
             lhs: offset_expr,
             operator: BinaryOperator::Mul,
@@ -2176,7 +2166,7 @@ impl<'a> StorageProcessor<'a> {
         }));
 
         let block = ctx.alloc_expression(ExprNode::BlockExpr(BlockExprNode {
-            stmts: Vec::new(),
+            stmts: vec![bounds_check],
             expr: Some(read_call),
             expr_comments: vec![],
             location: attr.location,
@@ -2212,7 +2202,7 @@ impl<'a> StorageProcessor<'a> {
             ],
             generic_parameters: vec![],
             body: Some(block),
-            return_type: Some(elem_ty),
+            return_type: Some(elem_ty.clone()),
             qualifier: Qualifier {
                 is_extern: false,
                 is_const: false,
@@ -2227,11 +2217,12 @@ impl<'a> StorageProcessor<'a> {
         ctx.alloc_definition(DefinitionNode::Function(function))
     }
 
-    fn generate_setter_at<F: Clone + From<u32>, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
+    fn generate_setter_at<F: Clone + From<u32> + ContextFelt, C, V: VisitorContext<F, C, Expr = ExprNode<F>, Stmt = StmtNode, Definition = DefinitionNode>>(
         &self,
         attr: &AttrNode,
         field_name: &IdentId,
-        field_type: &UncheckedType,
+        elem_ty: &UncheckedType,
+        size: ConstValue,
         offset: ExprId,
         ctx: &mut V,
     ) -> DefId {
@@ -2248,21 +2239,8 @@ impl<'a> StorageProcessor<'a> {
             location: attr.location,
         }));
 
-        let elem_ty = if let UncheckedType::Generic(ident, params, _) = field_type {
-            if ident.id == ctx.intern("StorageRef") && params.len() == 1 {
-                params[0].clone()
-            } else if ident.id == ctx.intern("ArrayRef") && params.len() == 2 {
-                params[0].clone()
-            } else {
-                panic!("Expected StorageRef<T> or ArrayRef<T, N>");
-            }
-        } else if let UncheckedType::Array(elem_ty, _, _) = field_type {
-            elem_ty.as_ref().clone()
-        } else {
-            panic!("generate_setter_at called on non-StorageRef or non-array type");
-        };
-
-        let elem_size = self.generate_field_size(attr, &elem_ty, ctx);
+        let bounds_check = self.generate_index_bounds_check(attr, index_ident, size, ctx);
+        let elem_size = self.generate_field_size(attr, elem_ty, ctx);
         let scaled_index = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
             lhs: offset_expr,
             operator: BinaryOperator::Mul,
@@ -2302,7 +2280,7 @@ impl<'a> StorageProcessor<'a> {
         let write_stmt = ctx.alloc_statement(StmtNode::Expression(write_call));
 
         let block = ctx.alloc_expression(ExprNode::BlockExpr(BlockExprNode {
-            stmts: vec![write_stmt],
+            stmts: vec![bounds_check, write_stmt],
             expr: None,
             expr_comments: vec![],
             location: attr.location,
@@ -3721,44 +3699,33 @@ mod tests {
     }
 
     #[test]
-    fn getter_at_and_setter_at_accept_refs_and_plain_arrays() {
+    fn indexed_field_accessors_check_the_declared_bound_before_storage_access() {
         let mut program = Program::<SymFeltRef>::new();
         let mut ctx = TestCtx::new(&mut program);
         let processor = StorageProcessor::new();
         let derive = derive_attr(&mut ctx, "Storage");
-        let field_ident = idn(&mut ctx, "grid");
-        let offset = felt_zero(&mut ctx);
-
-        let shapes = vec![
-            ty_storage_ref(&mut ctx, "Felt"),
-            ty_array_ref(&mut ctx, "Felt", 2),
-            ty_array(&mut ctx, "Felt", 2),
-        ];
-        for shape in shapes {
-            let getter = processor.generate_getter_at(&derive, &field_ident.id, &shape, offset, &mut ctx);
-            let setter = processor.generate_setter_at(&derive, &field_ident.id, &shape, offset, &mut ctx);
-            assert!(matches!(ctx.definition(getter), DefinitionNode::Function(_)));
-            assert!(matches!(ctx.definition(setter), DefinitionNode::Function(_)));
+        let grid = ty_array(&mut ctx, "Felt", 3);
+        let ledger = strukt(&mut ctx, "Ledger", vec![("grid", grid)], vec![derive.clone()]);
+        let accessors = processor.generate_accessor_impl(&ledger, &derive, &mut ctx, false);
+        let mut checked = 0;
+        for method in accessors.body {
+            let DefinitionNode::Function(function) = ctx.definition(method) else { continue };
+            let name = ctx.ident(function.name.id).0.as_str();
+            if name != "get_grid_at" && name != "set_grid_at" {
+                continue;
+            }
+            let block = ctx.expression(function.body.unwrap()).as_block_expr().unwrap();
+            let StmtNode::Intrinsic(IntrinsicStmtNode::Assert { left, .. }) = ctx.statement(block.stmts[0]) else {
+                panic!("expected index assertion before storage access");
+            };
+            let ExprNode::Binary(comparison) = ctx.expression(*left) else { panic!("expected comparison") };
+            assert!(matches!(comparison.operator, BinaryOperator::Lt));
+            let ExprNode::Path(path) = ctx.expression(comparison.lhs) else { panic!("expected index") };
+            assert!(matches!(&path.target, UncheckedType::Basic(id) if ctx.ident(id.id).0.as_str() == "index"));
+            assert!(matches!(ctx.expression(comparison.rhs), ExprNode::Value(ValueNode::Felt(n, _)) if *n == SymFeltRef::cns(3)));
+            checked += 1;
         }
-    }
-
-    #[test]
-    fn getter_at_and_setter_at_reject_non_indexable_types() {
-        let processor = StorageProcessor::new();
-        panics_with("Expected StorageRef<T> or ArrayRef<T, N>", |ctx| {
-            let map = ty_map(ctx);
-            let field_ident = idn(ctx, "m");
-            let derive = derive_attr(ctx, "Storage");
-            let offset = felt_zero(ctx);
-            processor.generate_getter_at(&derive, &field_ident.id, &map, offset, ctx);
-        });
-        panics_with("generate_setter_at called on non-StorageRef", |ctx| {
-            let felt = ty_basic(ctx, "Felt");
-            let field_ident = idn(ctx, "x");
-            let derive = derive_attr(ctx, "Storage");
-            let offset = felt_zero(ctx);
-            processor.generate_setter_at(&derive, &field_ident.id, &felt, offset, ctx);
-        });
+        assert_eq!(checked, 2);
     }
 
     #[test]
