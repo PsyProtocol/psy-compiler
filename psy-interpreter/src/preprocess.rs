@@ -1581,12 +1581,7 @@ impl<'a> StorageProcessor<'a> {
         }));
 
         let mut field_reads = IndexMap::new();
-        let mut offset = ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(0), attr.location)));
-        let mut visiting = HashSet::new();
         for (field_name, field) in &struct_node.fields {
-            if self.is_map_bearing_type(&field.ty, ctx, &mut visiting) {
-                offset = self.generate_aligned_offset(offset, attr, ctx);
-            }
             let (inner_ty, size) = if self.has_ref_type_attr(&field.attrs, ctx) {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
@@ -1623,6 +1618,12 @@ impl<'a> StorageProcessor<'a> {
                 }
             };
 
+            let field_access = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
+                target: self_expr.clone(),
+                field: Identifier::new(field_name.id, attr.location),
+                generic_parameters: Vec::new(),
+                location: attr.location,
+            }));
             let read_expr = if size.as_u64().unwrap_or(0) > 1 {
                 let field_type = UncheckedType::Array(Box::new(inner_ty.clone()), size, attr.location);
                 let read_ident = Identifier::new(ctx.intern("read"), attr.location);
@@ -1639,14 +1640,15 @@ impl<'a> StorageProcessor<'a> {
                 let contract_state_tree_height_ident = Identifier::new(ctx.intern("contract_state_tree_height"), attr.location);
                 let user_id_ident = Identifier::new(ctx.intern("user_id"), attr.location);
                 let contract_id_ident = Identifier::new(ctx.intern("contract_id"), attr.location);
-                let metadata_target_expr = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
-                    target: self_expr.clone(),
-                    field: field_name.clone(),
+                let offset_ident = Identifier::new(ctx.intern("offset"), attr.location);
+                let offset = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
+                    target: field_access,
+                    field: offset_ident,
                     generic_parameters: Vec::new(),
                     location: attr.location,
                 }));
                 let metadata_expr = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
-                    target: metadata_target_expr.clone(),
+                    target: field_access,
                     field: metadata_ident,
                     generic_parameters: Vec::new(),
                     location: attr.location,
@@ -1676,12 +1678,6 @@ impl<'a> StorageProcessor<'a> {
                     location: attr.location,
                 }))
             } else {
-                let field_access = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
-                    target: self_expr.clone(),
-                    field: Identifier::new(field_name.id, attr.location),
-                    generic_parameters: Vec::new(),
-                    location: attr.location,
-                }));
                 let get_ident = Identifier::new(ctx.intern("get"), attr.location);
                 let get_callee = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                     target: field_access.clone(),
@@ -1698,14 +1694,6 @@ impl<'a> StorageProcessor<'a> {
                 }))
             };
             field_reads.insert(field_name.clone(), read_expr);
-
-            let field_size = self.generate_struct_field_size(attr, field, ctx);
-            offset = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
-                lhs: offset,
-                operator: BinaryOperator::Add,
-                rhs: field_size,
-                location: attr.location,
-            }));
         }
 
         let base_struct_name = if ctx.ident(struct_node.name.id).to_string().ends_with("Ref") {
@@ -1777,12 +1765,7 @@ impl<'a> StorageProcessor<'a> {
         }));
 
         let mut stmts = Vec::new();
-        let mut offset = ctx.alloc_expression(ExprNode::Value(ValueNode::Felt(F::from(0), attr.location)));
-        let mut visiting = HashSet::new();
         for (field_name, field) in &struct_node.fields {
-            if self.is_map_bearing_type(&field.ty, ctx, &mut visiting) {
-                offset = self.generate_aligned_offset(offset, attr, ctx);
-            }
             let (inner_ty, size) = if self.has_ref_type_attr(&field.attrs, ctx) {
                 match &field.ty {
                     UncheckedType::Basic(ident) => {
@@ -1826,6 +1809,12 @@ impl<'a> StorageProcessor<'a> {
                 location: attr.location,
             }));
 
+            let field_access = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
+                target: self_expr.clone(),
+                field: Identifier::new(field_name.id, attr.location),
+                generic_parameters: Vec::new(),
+                location: attr.location,
+            }));
             let write_stmt = if size.as_u64().unwrap_or(0) > 1 {
                 let field_type = UncheckedType::Array(Box::new(inner_ty.clone()), size, attr.location);
                 let write_ident = Identifier::new(ctx.intern("write"), attr.location);
@@ -1837,6 +1826,13 @@ impl<'a> StorageProcessor<'a> {
                     location: attr.location,
                 };
                 let write_expr = ctx.alloc_expression(ExprNode::Path(write_path));
+                let offset_ident = Identifier::new(ctx.intern("offset"), attr.location);
+                let offset = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
+                    target: field_access,
+                    field: offset_ident,
+                    generic_parameters: Vec::new(),
+                    location: attr.location,
+                }));
                 let write_call = ctx.alloc_expression(ExprNode::Call(CallNode {
                     callee: write_expr,
                     generic_parameters: vec![],
@@ -1845,12 +1841,6 @@ impl<'a> StorageProcessor<'a> {
                 }));
                 ctx.alloc_statement(StmtNode::Expression(write_call))
             } else {
-                let field_access = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
-                    target: self_expr.clone(),
-                    field: Identifier::new(field_name.id, attr.location),
-                    generic_parameters: Vec::new(),
-                    location: attr.location,
-                }));
                 let set_ident = Identifier::new(ctx.intern("set"), attr.location);
                 let set_callee = ctx.alloc_expression(ExprNode::MemberAccess(MemberAccessNode {
                     target: field_access.clone(),
@@ -1868,14 +1858,6 @@ impl<'a> StorageProcessor<'a> {
                 ctx.alloc_statement(StmtNode::Expression(set_call))
             };
             stmts.push(write_stmt);
-
-            let field_size = self.generate_struct_field_size(attr, field, ctx);
-            offset = ctx.alloc_expression(ExprNode::Binary(BinaryNode {
-                lhs: offset,
-                operator: BinaryOperator::Add,
-                rhs: field_size,
-                location: attr.location,
-            }));
         }
 
         let block = ctx.alloc_expression(ExprNode::BlockExpr(BlockExprNode {
@@ -3656,6 +3638,38 @@ mod tests {
         let named_setter = processor.generate_struct_setter(&named, &derive, &mut ctx);
         assert!(matches!(ctx.definition(named_getter), DefinitionNode::Function(_)));
         assert!(matches!(ctx.definition(named_setter), DefinitionNode::Function(_)));
+    }
+
+    #[test]
+    fn bulk_array_accessors_use_a_reference_offset() {
+        let mut program = Program::<SymFeltRef>::new();
+        let mut ctx = TestCtx::new(&mut program);
+        let processor = StorageProcessor::new();
+        let derive = derive_attr(&mut ctx, "Storage");
+        let array = ty_array_ref(&mut ctx, "Felt", 2);
+        let node = strukt(&mut ctx, "ExampleRef", vec![("values", array)], vec![]);
+        let getter = processor.generate_struct_getter(&node, &derive, &mut ctx);
+        let setter = processor.generate_struct_setter(&node, &derive, &mut ctx);
+
+        let body = |method| {
+            let DefinitionNode::Function(function) = ctx.definition(method) else { panic!("expected function") };
+            ctx.expression(function.body.unwrap()).as_block_expr().unwrap()
+        };
+        let ExprNode::Value(ValueNode::Struct(_, _, fields, _)) = ctx.expression(body(getter).expr.unwrap()) else {
+            panic!("expected struct value");
+        };
+        let ExprNode::Call(read) = ctx.expression(*fields.values().next().unwrap()) else { panic!("expected array read") };
+        let StmtNode::Expression(write_expr) = ctx.statement(body(setter).stmts[0]) else { panic!("expected write statement") };
+        let ExprNode::Call(write) = ctx.expression(*write_expr) else { panic!("expected array write") };
+
+        for offset in [read.args[3], write.args[0]] {
+            let ExprNode::MemberAccess(offset) = ctx.expression(offset) else { panic!("expected field offset") };
+            assert_eq!(ctx.ident(offset.field.id).0.as_str(), "offset");
+            let ExprNode::MemberAccess(array) = ctx.expression(offset.target) else { panic!("expected array field") };
+            assert_eq!(ctx.ident(array.field.id).0.as_str(), "values");
+            let ExprNode::Path(receiver) = ctx.expression(array.target) else { panic!("expected receiver") };
+            assert!(matches!(&receiver.target, UncheckedType::Basic(id) if ctx.ident(id.id).0.as_str() == "self"));
+        }
     }
 
     #[test]
