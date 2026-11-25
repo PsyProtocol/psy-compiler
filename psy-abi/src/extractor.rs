@@ -101,7 +101,7 @@ impl AbiExtractor {
         let state_layout = AbiStateLayout::from_state_fields(&manifest, &types).map_err(|error| psy_common::Error::Message(error.to_string()))?;
 
         // --- Build methods ---
-        let methods = self.extract_canonical_methods(&ctx, &contract_name, &struct_layouts, method_metadata);
+        let methods = self.extract_canonical_methods(&ctx, &struct_layouts, method_metadata)?;
 
         Ok(Abi {
             schema_version: "2.0.0".to_string(),
@@ -273,46 +273,27 @@ impl AbiExtractor {
         (public_fields, manifest_fields, offset)
     }
 
-    /// Extract methods from impl blocks, using method_metadata.
     fn extract_canonical_methods<F: Clone + From<u32> + Debug>(
         &self,
         ctx: &DefaultVisitorContext<F, ()>,
-        contract_name: &str,
         struct_layouts: &HashMap<String, StructLayout>,
         method_metadata: &HashMap<String, (u32, bool)>,
-    ) -> Vec<AbiMethod> {
-        let mut methods = Vec::new();
+    ) -> Result<Vec<AbiMethod>, psy_common::Error> {
         let struct_nodes = self.collect_struct_nodes(ctx);
-
-        for i in 0..ctx.program().defs.len() {
-            let def_id = DefId::from(i);
-            if let Some(function) = ctx.definition(def_id).as_function() {
-                let method_name = ctx.ident(function.name).0.to_string();
-                let Some(&(method_id, is_view)) = method_metadata.get(&method_name) else {
-                    continue;
-                };
+        let mut methods = Vec::with_capacity(method_metadata.len());
+        for &definition in &ctx.program().compiled_method_definitions {
+            let function = ctx.definition(definition).as_function()
+                .ok_or_else(|| psy_common::Error::Message("compiled method declaration is not a function".into()))?;
+            let name = ctx.ident(function.name);
+            if let Some(&(method_id, is_view)) = method_metadata.get(name.0.as_str()) {
                 methods.push(self.function_to_canonical_method(ctx, function, method_id, is_view, &struct_nodes, struct_layouts));
-            } else if let Some(impl_node) = ctx.definition(def_id).as_impl() {
-                let impl_type_name = self.extract_type_name(&impl_node.ty, ctx);
-                if impl_type_name != contract_name && impl_type_name != format!("{}Ref", contract_name) {
-                    continue;
-                }
-                for &function_def_id in &impl_node.body {
-                    let Some(function) = ctx.definition(function_def_id).as_function() else {
-                        continue;
-                    };
-                    let method_name = ctx.ident(function.name).0.to_string();
-                    let Some(&(method_id, is_view)) = method_metadata.get(&method_name) else {
-                        continue;
-                    };
-                    methods.push(self.function_to_canonical_method(ctx, function, method_id, is_view, &struct_nodes, struct_layouts));
-                }
             }
         }
-
+        if methods.len() != method_metadata.len() {
+            return Err(psy_common::Error::Message("ABI method metadata does not match compiled declarations".into()));
+        }
         methods.sort_by(|a, b| a.name.cmp(&b.name));
-        methods.dedup_by(|a, b| a.name == b.name);
-        methods
+        Ok(methods)
     }
 
     /// Convert a `FunctionNode` into a `AbiMethod`.
@@ -393,17 +374,6 @@ impl AbiExtractor {
             let attr_name = ctx.ident(attr.name).0.as_str();
             attr_name == "contract" || attr_name == "storage"
         })
-    }
-
-    fn extract_type_name<F: Clone + From<u32> + Debug>(&self, unchecked_type: &psy_ast::UncheckedType, ctx: &DefaultVisitorContext<F, ()>) -> String {
-        match unchecked_type {
-            psy_ast::UncheckedType::Basic(identifier) => ctx.ident(*identifier).0.to_string(),
-            psy_ast::UncheckedType::Path(path) => match self.resolved_path_type(ctx, path) {
-                Some(resolved) => self.extract_type_name(resolved, ctx),
-                None => "unresolved".to_string(),
-            },
-            _ => "unknown".to_string(),
-        }
     }
 
     fn find_contract_struct<'a, F: Clone + From<u32> + Debug>(&self, ctx: &'a DefaultVisitorContext<F, ()>) -> Option<&'a StructNode> {

@@ -674,6 +674,12 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             }
         }
 
+        let function_definitions: HashMap<_, _> = typechecker.unchecked_checked.iter().filter_map(|(source, checked)| {
+            let (NodeId::Def(source), NodeId::Def(checked)) = (source, checked) else { return None };
+            let function = typechecker.program[*checked].as_function()?;
+            Some((function.type_id, *source))
+        }).collect();
+        let mut compiled_definitions = Vec::with_capacity(type_ids.len());
         let mut outputs = Vec::new();
         // backup context
         let context = self.context.clone();
@@ -703,11 +709,16 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     method_name
                 );
             }
+            let definition = function_definitions.get(&type_id)
+                .or_else(|| typechecker.poly_of(type_id, ctx).and_then(|source| function_definitions.get(&source)))
+                .ok_or_else(|| anyhow::anyhow!("missing declaration for compiled method {method_name}"))?;
+            compiled_definitions.push(*definition);
             outputs.push(compiled);
             // restore context
             self.context = context.clone();
         }
 
+        ctx.program.compiled_method_definitions = compiled_definitions;
         Ok(outputs)
     }
 

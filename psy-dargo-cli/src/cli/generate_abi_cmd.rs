@@ -121,6 +121,30 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
+    fn generate_abi_uses_the_compiled_method_declaration() {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("psy_dargo_abi_order_{nanos}"));
+        fs::create_dir_all(dir.join("src")).unwrap();
+        let manifest = dir.join("Dargo.toml");
+        fs::write(&manifest, "[package]\nname = \"demo\"\ntype = \"bin\"\nentry = \"src/app.psy\"\nauthors = []\n[dependencies]\n").unwrap();
+        let helper = "fn choose(right: Felt, left: Felt) -> Felt { return right; }";
+        let implementation = "impl Demo { pub fn choose(left: Felt, right: Felt) -> Felt { return left; } }";
+        for (first, second) in [(helper, implementation), (implementation, helper)] {
+            fs::write(dir.join("src/app.psy"), format!("#[contract] pub struct Demo {{}}\n{first}\n{second}")).unwrap();
+            run(GenerateAbiCommand {
+                contract_name: "Demo".into(), entry_path: None, output_dir: Some(dir.clone()),
+                abi_name: None, pretty: true, method_names: Some(vec!["choose".into()]),
+            }, resolve_workspace_from_toml(&manifest).unwrap()).unwrap();
+            let abi: psy_abi::Abi = serde_json::from_slice(&fs::read(dir.join("Demo.abi.json")).unwrap()).unwrap();
+            let methods = abi.contract.methods;
+            assert_eq!(methods.len(), 1);
+            assert_eq!(methods[0].inputs.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["left", "right"]);
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    #[serial_test::serial]
     fn generate_abi_compiles_a_contract_and_writes_the_abi_file() {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_nanos();
         let dir = std::env::temp_dir().join(format!("psy_dargo_genabi_{nanos}"));
