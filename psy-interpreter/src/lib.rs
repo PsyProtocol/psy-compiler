@@ -332,13 +332,18 @@ fn compile_interpret_result(
     contract_name: Option<String>,
     method_names: Vec<String>,
 ) -> anyhow::Result<Vec<DPNFunctionCircuitDefinition>> {
-    interpreter.interpret(
+    let functions = interpreter.interpret(
         typechecker,
         ctx,
         contract_name,
         method_names,
         |context, (method_name, method_id, outputs)| PsyCompileResult::compile_exec(method_name, method_id, &context.store, context, &outputs),
-    )
+    )?;
+    let mut ids = std::collections::HashSet::new();
+    for function in &functions {
+        anyhow::ensure!(ids.insert(function.method_id), "duplicate contract method id {} for {}", function.method_id, function.name);
+    }
+    Ok(functions)
 }
 
 #[derive(Clone, Debug)]
