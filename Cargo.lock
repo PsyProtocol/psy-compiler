@@ -206,7 +206,7 @@ dependencies = [
  "either",
  "serde",
  "serde_with 3.24.0",
- "sha2",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1212,7 +1212,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf88ba1141d185c399bee5288d850d63b8369520c1eafc32a0430b5b6c287bf4"
 dependencies = [
- "sha2",
+ "sha2 0.10.9",
  "tinyvec",
 ]
 
@@ -1393,7 +1393,7 @@ dependencies = [
 [[package]]
 name = "cf_utils"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1539,6 +1539,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
+name = "cmov"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
+
+[[package]]
 name = "cobs"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1556,10 +1562,10 @@ dependencies = [
  "bs58",
  "coins-core 0.8.7",
  "digest 0.10.7",
- "hmac",
+ "hmac 0.12.1",
  "k256",
  "serde",
- "sha2",
+ "sha2 0.10.9",
  "thiserror 1.0.69",
 ]
 
@@ -1572,10 +1578,10 @@ dependencies = [
  "bs58",
  "coins-core 0.12.0",
  "digest 0.10.7",
- "hmac",
+ "hmac 0.12.1",
  "k256",
  "serde",
- "sha2",
+ "sha2 0.10.9",
  "thiserror 1.0.69",
 ]
 
@@ -1587,11 +1593,11 @@ checksum = "3db8fba409ce3dc04f7d804074039eb68b960b0829161f8e06c95fea3f122528"
 dependencies = [
  "bitvec",
  "coins-bip32 0.8.7",
- "hmac",
+ "hmac 0.12.1",
  "once_cell",
  "pbkdf2 0.12.2",
  "rand 0.8.8",
- "sha2",
+ "sha2 0.10.9",
  "thiserror 1.0.69",
 ]
 
@@ -1603,11 +1609,11 @@ checksum = "74b169b26623ff17e9db37a539fe4f15342080df39f129ef7631df7683d6d9d4"
 dependencies = [
  "bitvec",
  "coins-bip32 0.12.0",
- "hmac",
+ "hmac 0.12.1",
  "once_cell",
  "pbkdf2 0.12.2",
  "rand 0.8.8",
- "sha2",
+ "sha2 0.10.9",
  "thiserror 1.0.69",
 ]
 
@@ -1626,7 +1632,7 @@ dependencies = [
  "ripemd",
  "serde",
  "serde_derive",
- "sha2",
+ "sha2 0.10.9",
  "sha3 0.10.9",
  "thiserror 1.0.69",
 ]
@@ -1645,7 +1651,7 @@ dependencies = [
  "generic-array",
  "ripemd",
  "serde",
- "sha2",
+ "sha2 0.10.9",
  "sha3 0.10.9",
  "thiserror 1.0.69",
 ]
@@ -1771,6 +1777,12 @@ name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+
+[[package]]
+name = "const-oid"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be95d4a884358a21a199689323c29e9256b4a1b315e22f183d155422041d3a9a"
 
 [[package]]
 name = "const-random"
@@ -1980,6 +1992,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctutils"
+version = "0.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "261af4dc7a06ea8a527a8717d8cbba3417530d6ea14e1edb3de6b67806be474f"
+dependencies = [
+ "cmov",
+]
+
+[[package]]
 name = "cuckoofilter"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2000,7 +2021,23 @@ dependencies = [
  "cpufeatures 0.2.17",
  "curve25519-dalek-derive",
  "digest 0.10.7",
- "fiat-crypto",
+ "fiat-crypto 0.2.9",
+ "rustc_version 0.4.1",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "curve25519-dalek"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5eed333089e2e1c1ac8c6c0398e5e2497b4c9926ca6d0365ed1e099afa5bc23"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.1",
+ "curve25519-dalek-derive",
+ "digest 0.11.3",
+ "fiat-crypto 0.3.0",
  "rustc_version 0.4.1",
  "subtle",
  "zeroize",
@@ -2195,7 +2232,7 @@ version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
- "const-oid",
+ "const-oid 0.9.6",
  "zeroize",
 ]
 
@@ -2284,7 +2321,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer 0.10.4",
- "const-oid",
+ "const-oid 0.9.6",
  "crypto-common 0.1.7",
  "subtle",
 ]
@@ -2296,7 +2333,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "block-buffer 0.12.1",
+ "const-oid 0.10.3",
  "crypto-common 0.2.2",
+ "ctutils",
 ]
 
 [[package]]
@@ -2402,7 +2441,7 @@ dependencies = [
  "elliptic-curve",
  "rfc6979",
  "serdect",
- "signature",
+ "signature 2.2.0",
  "spki",
 ]
 
@@ -2413,7 +2452,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
 dependencies = [
  "pkcs8",
- "signature",
+ "signature 2.2.0",
+]
+
+[[package]]
+name = "ed25519"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29fcf32e6c73d1079f83ab4d782de2d81620346a5f38c6237a86a22f8368980a"
+dependencies = [
+ "signature 3.0.0",
 ]
 
 [[package]]
@@ -2422,11 +2470,24 @@ version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
 dependencies = [
- "curve25519-dalek",
- "ed25519",
+ "curve25519-dalek 4.1.3",
+ "ed25519 2.2.3",
  "rand_core 0.6.4",
  "serde",
- "sha2",
+ "sha2 0.10.9",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "ed25519-dalek"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ebaa1a2bf1290ab3bfe5a7b771d050ebffab2711c19a81691c683a5144a25de"
+dependencies = [
+ "curve25519-dalek 5.0.0",
+ "ed25519 3.0.0",
+ "sha2 0.11.1",
  "subtle",
  "zeroize",
 ]
@@ -2630,13 +2691,13 @@ dependencies = [
  "ctr",
  "digest 0.10.7",
  "hex",
- "hmac",
+ "hmac 0.12.1",
  "pbkdf2 0.11.0",
  "rand 0.8.8",
  "scrypt",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.10.9",
  "sha3 0.10.9",
  "thiserror 1.0.69",
  "uuid 0.8.2",
@@ -2901,7 +2962,7 @@ dependencies = [
  "eth-keystore",
  "ethers-core",
  "rand 0.8.8",
- "sha2",
+ "sha2 0.10.9",
  "thiserror 1.0.69",
  "tracing",
 ]
@@ -3029,6 +3090,12 @@ name = "fiat-crypto"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
+
+[[package]]
+name = "fiat-crypto"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
 name = "find-msvc-tools"
@@ -3415,7 +3482,7 @@ dependencies = [
 [[package]]
 name = "gnark-plonky2-verifier-ffi"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/gnark-plonky2-verifier.git?rev=5918dc274897e43dc2fa3c06437202831714be0f#5918dc274897e43dc2fa3c06437202831714be0f"
+source = "git+https://github.com/PsyProtocol/gnark-plonky2-verifier.git?rev=09cabb32658b240d13e307ef219d887e202e62ea#09cabb32658b240d13e307ef219d887e202e62ea"
 dependencies = [
  "anyhow",
  "bindgen",
@@ -3426,7 +3493,7 @@ dependencies = [
 [[package]]
 name = "gnark-plonky2-wrapper"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/gnark-plonky2-verifier.git?rev=5918dc274897e43dc2fa3c06437202831714be0f#5918dc274897e43dc2fa3c06437202831714be0f"
+source = "git+https://github.com/PsyProtocol/gnark-plonky2-verifier.git?rev=09cabb32658b240d13e307ef219d887e202e62ea#09cabb32658b240d13e307ef219d887e202e62ea"
 dependencies = [
  "anyhow",
  "ff",
@@ -3665,11 +3732,11 @@ checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
 
 [[package]]
 name = "hkdf"
-version = "0.12.4"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
+checksum = "4aaa26c720c68b866f2c96ef5c1264b3e6f473fe5d4ce61cd44bbe913e553018"
 dependencies = [
- "hmac",
+ "hmac 0.13.0",
 ]
 
 [[package]]
@@ -3679,6 +3746,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
  "digest 0.10.7",
+]
+
+[[package]]
+name = "hmac"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
+dependencies = [
+ "digest 0.11.3",
 ]
 
 [[package]]
@@ -4542,8 +4618,8 @@ dependencies = [
  "elliptic-curve",
  "once_cell",
  "serdect",
- "sha2",
- "signature",
+ "sha2 0.10.9",
+ "signature 2.2.0",
 ]
 
 [[package]]
@@ -4604,7 +4680,7 @@ checksum = "a4933f3f57a8e9d9da04db23fb153356ecaf00cbd14aee46279c33dc80925c37"
 [[package]]
 name = "kvq"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "ambassador",
  "anyhow",
@@ -4684,16 +4760,16 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "libp2p-identity"
-version = "0.2.14"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9525f3831544f7ae497bde79adf114ef127b0fbbb97edbbf692a80408636421c"
+checksum = "4af6ad75465f6bf26a1001ddbf6f2b6b84a4673bf6de289f68cdbb1430098627"
 dependencies = [
  "bs58",
- "ed25519-dalek",
+ "ed25519-dalek 3.0.0",
  "hkdf",
  "multihash",
  "prost",
- "sha2",
+ "sha2 0.11.1",
  "thiserror 2.0.21",
  "tracing",
  "zeroize",
@@ -5321,7 +5397,7 @@ dependencies = [
 [[package]]
 name = "parth_common"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5346,7 +5422,7 @@ dependencies = [
 [[package]]
 name = "parth_core"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5381,14 +5457,14 @@ dependencies = [
 [[package]]
 name = "parth_crypto"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "parth_core",
  "pser",
  "rand 0.8.8",
  "rand_chacha 0.3.1",
- "sha2",
+ "sha2 0.10.9",
  "tiny-keccak",
 ]
 
@@ -5422,9 +5498,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83a0692ec44e4cf1ef28ca317f14f8f07da2d95ec3fa01f86e4467b725e60917"
 dependencies = [
  "digest 0.10.7",
- "hmac",
+ "hmac 0.12.1",
  "password-hash",
- "sha2",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -5434,13 +5510,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
 dependencies = [
  "digest 0.10.7",
- "hmac",
+ "hmac 0.12.1",
 ]
 
 [[package]]
 name = "pderive"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5679,10 +5755,10 @@ dependencies = [
  "base64 0.13.1",
  "bincode",
  "clap",
- "curve25519-dalek",
+ "curve25519-dalek 4.1.3",
  "digest 0.10.7",
  "dotenv",
- "ed25519-dalek",
+ "ed25519-dalek 2.2.0",
  "env_logger 0.10.2",
  "ethers",
  "ff",
@@ -5701,7 +5777,7 @@ dependencies = [
  "serde_json",
  "serde_plain",
  "serde_with 3.24.0",
- "sha2",
+ "sha2 0.10.9",
  "sha256",
  "starkyx",
  "tokio",
@@ -5903,7 +5979,7 @@ dependencies = [
 [[package]]
 name = "pser"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "bincode",
@@ -6148,7 +6224,7 @@ dependencies = [
 [[package]]
 name = "psy_api_core"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6183,7 +6259,7 @@ dependencies = [
 [[package]]
 name = "psy_client_common"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6203,7 +6279,7 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "serde_with 3.24.0",
- "sha2",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
  "tower 0.5.3",
  "tracing",
@@ -6215,7 +6291,7 @@ dependencies = [
 [[package]]
 name = "psy_client_data"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6243,7 +6319,7 @@ dependencies = [
 [[package]]
 name = "psy_common_circuit"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6284,7 +6360,7 @@ dependencies = [
 [[package]]
 name = "psy_config"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "indexmap 2.14.2",
@@ -6299,7 +6375,7 @@ dependencies = [
 [[package]]
 name = "psy_core"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6329,7 +6405,7 @@ dependencies = [
 [[package]]
 name = "psy_crypto"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6351,7 +6427,7 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "serde_with 3.24.0",
- "sha2",
+ "sha2 0.10.9",
  "tiny-keccak",
  "tracing",
  "ts-rs",
@@ -6360,7 +6436,7 @@ dependencies = [
 [[package]]
 name = "psy_data"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6389,7 +6465,7 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "serde_with 3.24.0",
- "sha2",
+ "sha2 0.10.9",
  "speedy",
  "strum 0.27.2",
  "strum_macros 0.27.2",
@@ -6402,7 +6478,7 @@ dependencies = [
 [[package]]
 name = "psy_dpn_circuit"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "alloy-primitives",
  "alloy-signer",
@@ -6458,7 +6534,7 @@ dependencies = [
 [[package]]
 name = "psy_dummy_prover"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6497,7 +6573,7 @@ dependencies = [
 [[package]]
 name = "psy_io"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6511,7 +6587,7 @@ dependencies = [
 [[package]]
 name = "psy_network_circuit"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6529,7 +6605,7 @@ dependencies = [
 [[package]]
 name = "psy_plonky2_basic_helpers"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6560,7 +6636,7 @@ dependencies = [
 [[package]]
 name = "psy_plonky2_circuits"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6578,7 +6654,6 @@ dependencies = [
  "parth_common",
  "parth_core",
  "plonky2",
- "plonky2x",
  "pser",
  "psy_api_core",
  "psy_client_data",
@@ -6612,7 +6687,7 @@ dependencies = [
 [[package]]
 name = "psy_plonky2_common_circuits"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6643,7 +6718,7 @@ dependencies = [
 [[package]]
 name = "psy_prover"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "alloy-primitives",
  "alloy-signer",
@@ -6699,7 +6774,7 @@ dependencies = [
  "serde",
  "serde_cbor",
  "serde_json",
- "sha2",
+ "sha2 0.10.9",
  "sodalite",
  "tempfile",
  "thiserror 2.0.21",
@@ -6720,7 +6795,7 @@ dependencies = [
 [[package]]
 name = "psy_provider"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "alloy-primitives",
  "alloy-signer",
@@ -6777,7 +6852,7 @@ dependencies = [
 [[package]]
 name = "psy_serialize"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -6788,7 +6863,7 @@ dependencies = [
 [[package]]
 name = "psy_ups_circuit"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "alloy-primitives",
  "alloy-signer",
@@ -6842,7 +6917,7 @@ dependencies = [
 [[package]]
 name = "psy_vm"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6869,7 +6944,7 @@ dependencies = [
 [[package]]
 name = "psy_worker_core"
 version = "0.1.0"
-source = "git+https://github.com/PsyProtocol/psy-node.git?rev=f5e3d5e7212cc860ab74047ceaa20844d0247bcc#f5e3d5e7212cc860ab74047ceaa20844d0247bcc"
+source = "git+https://github.com/PsyProtocol/psy-node.git?rev=1ca809f897038d930ffdd16c3e58217eedb80885#1ca809f897038d930ffdd16c3e58217eedb80885"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7314,7 +7389,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dd2a808d456c4a54e300a23e9f5a67e122c3024119acbfd73e3bf664491cb2"
 dependencies = [
- "hmac",
+ "hmac 0.12.1",
  "subtle",
 ]
 
@@ -7746,10 +7821,10 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f9e24d2b632954ded8ab2ef9fea0a0c769ea56ea98bddbafbad22caeeadf45d"
 dependencies = [
- "hmac",
+ "hmac 0.12.1",
  "pbkdf2 0.11.0",
  "salsa20",
- "sha2",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -8101,6 +8176,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha2"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.1",
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "sha256"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8109,7 +8195,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "hex",
- "sha2",
+ "sha2 0.10.9",
  "tokio",
 ]
 
@@ -8183,6 +8269,12 @@ dependencies = [
  "digest 0.10.7",
  "rand_core 0.6.4",
 ]
+
+[[package]]
+name = "signature"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28d567dcbaf0049cb8ac2608a76cd95ff9e4412e1899d389ee400918ca7537f5"
 
 [[package]]
 name = "simd-adler32"
@@ -8376,7 +8468,7 @@ source = "git+https://github.com/logere/starkyx?rev=a99c9b1c52464c991107a911b1e8
 dependencies = [
  "anyhow",
  "bincode",
- "curve25519-dalek",
+ "curve25519-dalek 4.1.3",
  "env_logger 0.9.3",
  "hex",
  "itertools 0.10.5",
@@ -8485,7 +8577,7 @@ dependencies = [
  "semver 1.0.28",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.10.9",
  "thiserror 1.0.69",
  "url",
  "zip",
@@ -10067,7 +10159,7 @@ dependencies = [
  "crc32fast",
  "crossbeam-utils",
  "flate2",
- "hmac",
+ "hmac 0.12.1",
  "pbkdf2 0.11.0",
  "sha1",
  "time",
