@@ -2814,7 +2814,8 @@ impl<'a, F: Clone + From<u32> + ContextFelt + 'static, C> AstVisitor<F, C> for S
                     generic_parameters: ref_struct.generic_parameters.clone(),
                     trait_ty: UncheckedType::Basic(Identifier::new(ctx.intern("StorageNew"), attr.location)),
                     ty: UncheckedType::Basic(ref_struct.name),
-                    body: vec![self.generate_new_method(&ref_struct, attr, ctx, include_offset)],
+                    // StorageNew always accepts a base offset. The inherent contract constructor starts at zero.
+                    body: vec![self.generate_new_method(&ref_struct, attr, ctx, true)],
                     attrs: vec![],
                     comments: vec![],
                     location: attr.location,

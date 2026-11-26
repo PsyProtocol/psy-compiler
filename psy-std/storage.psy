@@ -26,7 +26,7 @@ pub trait StorageAt<T: Storage, N: Felt> {
         contract_id: Felt,
         offset: Felt,
         index: Felt
-    ) -> Self;
+    ) -> T;
     pub fn write_at(offset: Felt, index: Felt, value: T);
 }
 

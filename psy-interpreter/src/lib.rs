@@ -485,30 +485,38 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     }
 
     pub fn calculate_type_size(&mut self, type_id: TypeId, ctx: &TypeCheckerVisitorContext<F, C>) -> usize {
-        match &ctx.symbols[type_id] {
-            Type::Felt | Type::Bool => 1,
-            Type::Uint(width) => width.limb_count(),
-            Type::Struct(s) => s.fields.iter().map(|(_, field)| self.calculate_type_size(field.ty, ctx)).sum(),
-            Type::Array(arr) => {
-                let element_size = self.calculate_type_size(arr.inner_ty, ctx);
+        self.checked_type_size(type_id, ctx, &mut HashSet::new())
+            .unwrap_or_else(|| panic!("Unsupported type for size calculation: {:?}", ctx.symbols[type_id]))
+    }
 
-                let array_size = match &ctx.symbols[arr.size_ty] {
-                    Type::Const(const_node) => {
-                        let const_value_ref = &ctx.symbols[const_node.value];
-                        match &*const_value_ref.borrow() {
-                            CheckedValue::Felt(f) => self.context.get_constant_value(f.clone()) as usize,
-                            CheckedValue::Uint(f, UintWidth::U32) => self.context.get_constant_value(f[0].clone()) as usize,
-                            _ => panic!("Array size must be a numeric constant"),
-                        }
-                    }
-                    _ => panic!("Array size must be a const type"),
-                };
-
-                element_size * array_size
-            }
-            Type::Tuple(elements) => elements.iter().map(|&ty| self.calculate_type_size(ty, ctx)).sum(),
-            _ => panic!("Unsupported type for size calculation: {:?}", ctx.symbols[type_id]),
+    fn checked_type_size(&self, ty: TypeId, ctx: &TypeCheckerVisitorContext<F, C>, active: &mut HashSet<TypeId>) -> Option<usize> {
+        if !active.insert(ty) {
+            return None;
         }
+        let size = match &ctx.symbols[ty] {
+            Type::VOID => Some(0),
+            Type::Felt | Type::Bool => Some(1),
+            Type::Uint(width) => Some(width.limb_count()),
+            Type::Struct(s) => s.fields.values().try_fold(0usize, |sum, field| {
+                sum.checked_add(self.checked_type_size(field.ty, ctx, active)?)
+            }),
+            Type::Tuple(items) => items.iter().try_fold(0usize, |sum, item| {
+                sum.checked_add(self.checked_type_size(*item, ctx, active)?)
+            }),
+            Type::Array(array) => {
+                let Type::Const(length) = &ctx.symbols[array.size_ty] else { return None };
+                let value = ctx.symbols[length.value].borrow();
+                let count = match &*value {
+                    CheckedValue::Felt(f) => self.context.get_constant_value(f.clone()),
+                    CheckedValue::Uint(f, UintWidth::U32) => self.context.get_constant_value(f[0].clone()),
+                    _ => return None,
+                };
+                self.checked_type_size(array.inner_ty, ctx, active)?.checked_mul(usize::try_from(count).ok()?)
+            }
+            _ => None,
+        };
+        active.remove(&ty);
+        size
     }
 
     pub fn to_input(&mut self, ty: TypeId, symbols: &SymbolTable<F>, location: Location) -> Result<CheckedValue<F>> {
@@ -2090,10 +2098,15 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                                 .get_other_user_contract_state_range_at(contract_state_tree_height, user_id, contract_id, offset, length);
                         return Ok(CheckedValueRef::from_vec(UNKOWN_TYPE, values));
                     }
-                    CheckedIntrinsicExprNode::StorageWriteRange { offset, values, .. } => {
+                    CheckedIntrinsicExprNode::StorageWriteRange { offset, values, location, .. } => {
+                        let expected = self.checked_type_size(program[*values].ty(), ctx, &mut HashSet::new())
+                            .ok_or(Error::InvalidStorageWriteType { location: *location })?;
                         let offset = self.interpret_expr(program, offset.clone(), ctx)?;
                         let values = self.interpret_expr(program, values.clone(), ctx)?;
                         let values = values.to_felts();
+                        if values.len() != expected {
+                            return Err(Error::StorageWriteWidthMismatch { expected, actual: values.len(), location: Some(*location) });
+                        }
                         if !values.is_empty() {
                             self.context.cset_state_range_at(offset.to_felt(), &values);
                         }

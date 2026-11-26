@@ -500,13 +500,17 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                         })?;
                         root_type_id = self.find_member(root_type_id, None, Some(segment.location), segment, None, ctx)?;
                     }
-                    let expected_parameters = ctx.expected_signature().map(|sig| sig.parameters);
-                    checked_path_node.type_id = self.find_member(
+                    let expected = ctx.expected_signature();
+                    checked_path_node.type_id = self.find_member_by_signature(
                         root_type_id,
                         checked_path_node.trait_ty,
                         Some(path.location),
                         path_target.id,
-                        expected_parameters.as_deref(),
+                        expected.as_ref().map(|sig| sig.parameters.as_slice()),
+                        expected.as_ref().and_then(|sig| match sig.return_type {
+                            ExpectedReturnType::Known(ty) => Some(ty),
+                            _ => None,
+                        }),
                         ctx,
                     )?;
                 } else {
@@ -568,7 +572,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                 }
                 let expected_signature = ExpectedFunctionSignature {
                     parameters: args,
-                    return_type: ExpectedReturnType::Unknown,
+                    return_type: ExpectedReturnType::Known(checked_call_node.type_id),
                     receiver: None,
                 };
                 ctx.push_expected_signature(expected_signature);
@@ -616,13 +620,17 @@ impl<F: Clone + From<u32> + ContextFelt, C> Rewriter<F, C> for TypeChecker<F, C>
                 let type_id = self.program[checked_member_access_node.target].ty();
 
                 if ctx.symbols[checked_member_access_node.type_id].is_function() {
-                    let expected_parameters = ctx.expected_signature().map(|sig| sig.parameters);
-                    checked_member_access_node.type_id = self.find_member(
+                    let expected = ctx.expected_signature();
+                    checked_member_access_node.type_id = self.find_member_by_signature(
                         type_id,
                         None,
                         Some(checked_member_access_node.location),
                         checked_member_access_node.field,
-                        expected_parameters.as_deref(),
+                        expected.as_ref().map(|sig| sig.parameters.as_slice()),
+                        expected.as_ref().and_then(|sig| match sig.return_type {
+                            ExpectedReturnType::Known(ty) => Some(ty),
+                            _ => None,
+                        }),
                         ctx,
                     )?;
                 } else {

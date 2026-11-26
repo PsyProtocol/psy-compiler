@@ -919,3 +919,54 @@ fn descending_u32_for_range_is_empty() {
         Err(msg) => panic!("[descending_u32_for_range] expected success, got PANIC:\n{msg}"),
     }
 }
+
+#[test]
+fn trait_impl_signature_conformance() {
+    for (name, expected, found, value) in [
+        ("scalar", "Felt", "bool", "true"),
+        ("tuple", "(Felt, Felt)", "(Felt, Felt, Felt)", "(0, 1, 2)"),
+        ("array", "[Felt; 1]", "[Felt; 2]", "[0, 1]"),
+    ] {
+        let source = format!("trait Read {{ fn read(self: Self) -> {expected}; }}
+            struct Item {{ pub n: Felt }}
+            impl Read for Item {{ fn read(self: Self) -> {found} {{ return {value}; }} }}
+            fn generic<X: Read>(x: X) -> {expected} {{ return x.read(); }}
+            fn main() {{}}");
+        expect_reject(name, &source, "TypeMismatch");
+    }
+    expect_reject("trait_parameter", "trait Read { fn read(self: Self, n: Felt) -> Felt; }
+        struct Item { pub n: Felt }
+        impl Read for Item { fn read(self: Self, n: bool) -> Felt { return 0; } }
+        fn main() {}", "TypeMismatch");
+    expect_accept("trait_match", "trait Read { fn read(self: Self) -> [Felt; 1]; }
+        struct Item { pub n: Felt }
+        impl Read for Item { fn read(self: Self) -> [Felt; 1] { return [self.n]; } }
+        fn generic<X: Read>(x: X) -> [Felt; 1] { return x.read(); }
+        fn main() { let v = generic::<Item>(Item { n: 1 }); }");
+}
+
+#[test]
+fn storage_write_range_checks_declared_width() {
+    let source = "use std::prelude::*; fn main(value: u64) { u64::write(0, value); }";
+    let error = run_main_with_args(source, "short_storage_value", vec![CheckedValueRef::from_u32(0u32.into())])
+        .expect("storage width validation must not panic").expect("a missing limb must be rejected");
+    assert!(error.contains("StorageWriteWidthMismatch"), "{error}");
+}
+
+#[test]
+fn generic_member_uses_the_declared_return_type() {
+    let source = "trait Read { fn read(self: Self) -> Felt; }
+        struct Item { pub n: Felt }
+        impl Item { fn read(self: Self) -> bool { return false; } }
+        impl Read for Item { fn read(self: Self) -> Felt { return self.n; } }
+        fn generic<X: Read>(x: X) -> Felt { return x.read(); }
+        fn main() { assert_eq(generic::<Item>(Item { n: 7 }), 7); }";
+    assert_eq!(run_main(source, "trait_member_return"), Ok(None));
+}
+
+#[test]
+fn storage_width_distinguishes_void_from_an_unresolved_type() {
+    let Outcome::Accept(c) = compile("fn main() {}", "storage_width") else { panic!("valid source rejected") };
+    assert_eq!(c.interpreter.checked_type_size(VOID_TYPE, &c.ctx, &mut HashSet::new()), Some(0));
+    assert_eq!(c.interpreter.checked_type_size(UNKOWN_TYPE, &c.ctx, &mut HashSet::new()), None);
+}

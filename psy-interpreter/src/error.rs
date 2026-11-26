@@ -36,6 +36,10 @@ pub enum Error {
     EmptyArrayIndex { location: Option<Location> },
     #[error("ArrayTooLarge: cannot materialize an array with {length} elements (limit: {limit})")]
     ArrayTooLarge { length: u64, limit: u64, location: Option<Location> },
+    #[error("storage write type has no representable felt width")]
+    InvalidStorageWriteType { location: Location },
+    #[error("StorageWriteWidthMismatch: expected {expected} felts, got {actual}")]
+    StorageWriteWidthMismatch { expected: usize, actual: usize, location: Option<Location> },
     #[error("TransmuteSizeMismatch: expected {expected} felts, got {actual}")]
     TransmuteSizeMismatch { expected: usize, actual: usize, location: Option<Location> },
     #[error("ArrayAllocationFailed: cannot reserve storage for {length} array elements")]
@@ -577,6 +581,17 @@ pub fn lowering_interpreter_error<F: Clone + From<u32> + ContextFelt, C>(error: 
             );
             if let Some(location) = location {
                 report_or_fallback(build_report(*location, "ArrayTooLarge", msg, &ctx.program))
+            } else {
+                msg
+            }
+        }
+        Error::InvalidStorageWriteType { location } => report_or_fallback(build_report(
+            *location, "InvalidStorageWriteType", error.to_string(), &ctx.program,
+        )),
+        Error::StorageWriteWidthMismatch { expected, actual, location } => {
+            let msg = format!("StorageWriteWidthMismatch: expected {} felts, got {}.", expected, actual);
+            if let Some(location) = location {
+                report_or_fallback(build_report(*location, "StorageWriteWidthMismatch", msg, &ctx.program))
             } else {
                 msg
             }

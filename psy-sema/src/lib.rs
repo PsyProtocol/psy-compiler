@@ -2760,7 +2760,11 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             NodeType::StructDef => self.visit_struct(def_id, ctx)?,
             NodeType::EnumDef => self.visit_enum(def_id, ctx)?,
             NodeType::ImplDef => self.visit_impl(def_id, ctx)?,
-            NodeType::TraitImplDef => self.visit_trait_impl(def_id, ctx)?,
+            NodeType::TraitImplDef => {
+                let id = self.visit_trait_impl(def_id, ctx)?;
+                self.check_trait_impl_signature(id, ctx)?;
+                id
+            }
             NodeType::TraitDef => self.visit_trait(def_id, ctx)?,
             NodeType::TypeAliasDef => self.visit_type_alias(def_id, ctx)?,
             NodeType::ConstDef => self.visit_const(def_id, ctx)?,
@@ -2822,6 +2826,17 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
         self.traverse_module_tree(ctx, &mut |type_checker, _, module, ctx| {
             for &def_id in &module.definitions {
                 type_checker.typecheck_definition_header(def_id, ctx)?;
+            }
+            Ok(())
+        })?;
+
+        // A child module may implement a trait whose declaring module is visited later.
+        self.traverse_module_tree(ctx, &mut |checker, _, module, ctx| {
+            for &id in &module.definitions {
+                if ctx.definition(id).node_type() == NodeType::TraitImplDef {
+                    let checked = checker.unchecked_checked[&id.into()].into_def().unwrap();
+                    checker.check_trait_impl_signature(checked, ctx)?;
+                }
             }
             Ok(())
         })?;
@@ -3314,8 +3329,6 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
                 .iter()
                 .position(|&trait_def_id| {
                     let trait_function = self.program.defs[trait_def_id].as_function().unwrap();
-                    // trait_function.trait_impl_signature(implementor_type_id) ==
-                    // method.signature()
                     trait_function.name == method.name
                 })
                 .ok_or(Error::UnresolvedTraitMethod {
@@ -3376,6 +3389,50 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
 }
 
 impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
+    fn check_trait_impl_signature(&mut self, trait_impl_id: DefId, ctx: &mut TypeCheckerVisitorContext<F, C>) -> Result<()> {
+        // The declaration and implementation signatures are now populated. Map declaration
+        // variables to their implementation counterparts before comparing types rigidly.
+        let implementation = self.program[trait_impl_id].as_trait_impl().unwrap().clone();
+        let trait_type_id = implementation.trait_ty;
+        let trait_node = ctx.symbols[self.poly_of(trait_type_id, ctx).unwrap()].as_trait().unwrap().clone();
+        self.infcx.enter_context();
+        let self_ty = ctx.symbols.get_type_id(Some(trait_node.scope_id), IdentId::TYPE_SELF).unwrap();
+        self.infcx.equate(self_ty, implementation.ty);
+        for (parameter, argument) in trait_node.generic_parameters.iter().zip(ctx.symbols[trait_type_id].generic_parameters()) {
+            self.infcx.equate(*parameter, argument);
+        }
+        for (name, associated) in &trait_node.associated_types {
+            let value = implementation.associated_types.get(name).ok_or(Error::MissingAssociatedType {
+                location: implementation.location, trait_name: trait_node.name.id, type_name: name.id,
+            })?;
+            self.infcx.equate(associated.type_id, value.type_id);
+        }
+        for method_id in implementation.body {
+            let method = self.program[method_id].as_function().unwrap().clone();
+            let declaration = trait_node.body.iter().map(|id| self.program[*id].as_function().unwrap())
+                .find(|decl| decl.name == method.name).unwrap().clone();
+            if declaration.parameters.len() != method.parameters.len() || declaration.generic_parameters.len() != method.generic_parameters.len() {
+                return Err(Error::UnresolvedTraitMethod { method_location: method.location, method_name: method.name.id, trait_name: trait_node.name.id });
+            }
+            self.infcx.enter_scope();
+            for (parameter, argument) in declaration.generic_parameters.iter().zip(&method.generic_parameters) {
+                self.infcx.equate(*parameter, *argument);
+            }
+            for (expected, found) in declaration.parameters.iter().map(|p| p.ty).chain([declaration.return_type])
+                .zip(method.parameters.iter().map(|p| p.ty).chain([method.return_type])) {
+                let expected = self.substitute_all(expected, ctx)?;
+                let found = self.substitute_all(found, ctx)?;
+                if expected != found {
+                    return Err(Error::TypeMismatch { location: method.location, expected: vec![expected], found });
+                }
+            }
+            self.infcx.exit_scope();
+        }
+        self.infcx.exit_context();
+
+        Ok(())
+    }
+
     pub fn new(program: CheckedProgram<F>, evaluator: Box<dyn Evaluator<F, C>>) -> Self {
         Self {
             program,

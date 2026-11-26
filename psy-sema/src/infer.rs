@@ -103,6 +103,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> TypeChecker<F, C> {
                 }),
             ) => self.unify(lhs_inner_ty, rhs_inner_ty, ctx) && self.unify(lhs_size_ty, rhs_size_ty, ctx),
             (Type::Tuple(t1), Type::Tuple(t2)) => {
+                if t1.len() != t2.len() { return false; }
                 for (lhs_ty, rhs_ty) in t1.clone().into_iter().zip_eq(t2.clone().into_iter()) {
                     if !self.unify(lhs_ty, rhs_ty, ctx) {
                         return false;

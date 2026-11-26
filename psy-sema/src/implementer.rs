@@ -51,6 +51,18 @@ pub trait Implementer<F: Clone + From<u32> + ContextFelt, C> {
         method: impl Into<IdentId>,
         expected_parameters: Option<&[TypeId]>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
+    ) -> Result<TypeId> {
+        self.find_member_by_signature(ty, trait_ty, location, method, expected_parameters, None, ctx)
+    }
+    fn find_member_by_signature(
+        &mut self,
+        ty: TypeId,
+        trait_ty: Option<TypeId>,
+        location: Option<Location>,
+        method: impl Into<IdentId>,
+        expected_parameters: Option<&[TypeId]>,
+        expected_return: Option<TypeId>,
+        ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<TypeId>;
     fn find_member_with_flags(
         &mut self,
@@ -235,13 +247,14 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
             .cloned()
     }
 
-    fn find_member(
+    fn find_member_by_signature(
         &mut self,
         ty: TypeId, // mono OR poly
         trait_ty: Option<TypeId>,
         location: Option<Location>,
         member: impl Into<IdentId>,
         expected_parameters: Option<&[TypeId]>,
+        expected_return: Option<TypeId>,
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<TypeId> {
         let ty = self.substitute_all(ty, ctx)?;
@@ -261,6 +274,7 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
                                 .iter()
                                 .zip(expected.iter())
                                 .all(|(parameter_ty, expected_ty)| self.unify(*parameter_ty, *expected_ty, ctx));
+                            let ok = ok && expected_return.is_none_or(|ty| self.unify(signature.return_type, ty, ctx));
                             self.infcx.exit_scope();
                             ok
                         }
@@ -794,7 +808,10 @@ impl<F: Clone + From<u32> + ContextFelt, C> Implementer<F, C> for TypeChecker<F,
             .parameters
             .iter()
             .zip(expected.parameters.iter())
-            .all(|(parameter, expected_ty)| self.unify(parameter.ty, *expected_ty, ctx));
+            .all(|(parameter, expected_ty)| self.unify(parameter.ty, *expected_ty, ctx)) && match expected.return_type {
+                crate::ExpectedReturnType::Known(ty) => self.unify(function.return_type, ty, ctx),
+                _ => true,
+            };
         self.infcx.exit_scope();
         matched
     }
