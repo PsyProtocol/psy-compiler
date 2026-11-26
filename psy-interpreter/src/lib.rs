@@ -363,6 +363,7 @@ pub struct Interpreter<F: Clone + From<u32>, C> {
     /// evaluates every branch, so recursive calls cannot use a runtime base
     /// case and must be rejected before the Rust stack overflows (M3).
     active_functions: HashSet<TypeId>,
+    in_logical_rhs: bool,
     _marker: std::marker::PhantomData<F>,
 }
 
@@ -401,6 +402,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             context,
             materialized_elements: 0,
             active_functions: HashSet::new(),
+            in_logical_rhs: false,
             _marker: std::marker::PhantomData,
         }
     }
@@ -1676,6 +1678,20 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         })
     }
 
+    // Arithmetic gates exist even when a symbolic short-circuit skips the RHS.
+    // Give checked operations harmless operands on that path only.
+    fn logical_rhs_operand(&mut self, value: &CheckedValueRef<F>, fallback: u32) -> CheckedValueRef<F> {
+        let gate = self.context.get_current_condition();
+        match &*value.borrow() {
+            CheckedValue::Felt(n) => CheckedValueRef::from_felt(self.context.op_select(gate, *n, F::from(fallback))),
+            CheckedValue::Uint(limbs, width) => CheckedValueRef::new_rc(CheckedValue::Uint(
+                std::array::from_fn(|i| self.context.op_select(gate, limbs[i], F::from(if i == 0 { fallback } else { 0 }))),
+                *width,
+            )),
+            _ => value.clone(),
+        }
+    }
+
     #[instrument(level = "debug", skip_all)]
     pub fn interpret_binary(
         &mut self,
@@ -1685,8 +1701,49 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     ) -> Result<CheckedValue<F>> {
         use BinaryOperator::*;
         let lhs_value = self.interpret_expr(program, binary_node.lhs, ctx)?;
-        let rhs_value = self.interpret_expr(program, binary_node.rhs, ctx)?;
+        if matches!(binary_node.operator, And | Or) {
+            let lhs = lhs_value.to_bool();
+            let is_and = binary_node.operator == And;
+            if self.is_constant(lhs) {
+                if (self.context.get_constant_value(lhs) != 0) != is_and {
+                    return Ok(CheckedValue::Bool(lhs));
+                }
+                return Ok(CheckedValue::Bool(self.interpret_expr(program, binary_node.rhs, ctx)?.to_bool()));
+            }
 
+            let gate = if is_and { lhs } else { self.context.op_bool_not(lhs) };
+            self.context.start_if_block(gate);
+            let outer_rhs = std::mem::replace(&mut self.in_logical_rhs, true);
+            let rhs = self.interpret_expr(program, binary_node.rhs, ctx);
+            self.in_logical_rhs = outer_rhs;
+            self.context.end_if_block();
+            let rhs = rhs?.to_bool();
+            return Ok(CheckedValue::Bool(if is_and { self.context.op_bool_and(lhs, rhs) } else { self.context.op_bool_or(lhs, rhs) }));
+        }
+        let rhs_value = self.interpret_expr(program, binary_node.rhs, ctx)?;
+        if self.in_logical_rhs && matches!(binary_node.operator, Div | Mod | Add | Sub | Mul | Pow | BitAnd | BitOr | BitXor | BitShl | BitShr) {
+            let constants = lhs_value.to_felts().into_iter().chain(rhs_value.to_felts()).all(|f| self.is_constant(f));
+            if constants {
+                // Preserve constant folding for loop bounds and other static expressions.
+                match self.lower_binary_values(binary_node, &lhs_value, &rhs_value) {
+                    Err(Error::DivisionByZero { .. } | Error::ArithmeticOverflow { .. }) => {}
+                    result => return result,
+                }
+            }
+            let lhs = self.logical_rhs_operand(&lhs_value, 0);
+            let rhs = self.logical_rhs_operand(&rhs_value, u32::from(matches!(binary_node.operator, Div | Mod)));
+            return self.lower_binary_values(binary_node, &lhs, &rhs);
+        }
+        self.lower_binary_values(binary_node, &lhs_value, &rhs_value)
+    }
+
+    fn lower_binary_values(
+        &mut self,
+        binary_node: &CheckedBinaryNode,
+        lhs_value: &CheckedValueRef<F>,
+        rhs_value: &CheckedValueRef<F>,
+    ) -> Result<CheckedValue<F>> {
+        use BinaryOperator::*;
         // Wide-uint lane (every width except u32): one width-generic path —
         // host folding on constant limbs, the limb-generic expansion otherwise.
         // The native u32 lane stays in the scalar match below so its op graph
@@ -1695,7 +1752,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             if *width != UintWidth::U32 {
                 let operator = binary_node.operator;
                 let location = binary_node.location;
-                let rhs = &rhs_value;
+                let rhs = rhs_value;
                 return dispatch_uint_width!(self, *width, interpret_wide_uint_binary(limbs, rhs, operator, location));
             }
         }
@@ -1738,8 +1795,6 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
             (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), op) => self.u32_binop(&l[0], &r[0], op, Some(binary_node.location))?,
 
-            (CheckedValue::Bool(l), CheckedValue::Bool(r), And) => self.context.op_bool_and(*l, *r),
-            (CheckedValue::Bool(l), CheckedValue::Bool(r), Or) => self.context.op_bool_or(*l, *r),
             (CheckedValue::Bool(l), CheckedValue::Bool(r), Eq) => self.context.op_eq(*l, *r),
             (CheckedValue::Bool(l), CheckedValue::Bool(r), Neq) => self.context.op_neq(*l, *r),
             (CheckedValue::Bool(l), CheckedValue::Bool(r), Lt) => self.context.op_lt(*l, *r),
@@ -1772,6 +1827,14 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     ) -> Result<CheckedValueRef<F>> {
         use AssignmentOperator::*;
 
+        let original = old_value;
+        let guarded;
+        let (old_value, value) = if self.in_logical_rhs && operator != Eq {
+            guarded = self.logical_rhs_operand(old_value, 0);
+            (&guarded, self.logical_rhs_operand(&value, u32::from(matches!(operator, DivAssign | ModAssign))))
+        } else {
+            (old_value, value)
+        };
         // Guard div/mod-by-zero on constant operands (the VM constant-fold panics).
         match (&*old_value.borrow(), &*value.borrow(), operator) {
             (CheckedValue::Felt(l), CheckedValue::Felt(r), DivAssign | ModAssign) => {
@@ -1795,7 +1858,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 return Ok(CheckedValueRef::<F>::select(
                     &mut self.context,
                     &new_value,
-                    &old_value,
+                    original,
                     &|ctx: &mut C, n: &F, o: &F| ctx.cset(o.clone(), n.clone()),
                 ));
             }
@@ -1823,7 +1886,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         Ok(CheckedValueRef::<F>::select(
             &mut self.context,
             &new_value,
-            &old_value,
+            original,
             &|ctx: &mut C, n: &F, o: &F| ctx.cset(o.clone(), n.clone()),
         ))
     }
@@ -2444,6 +2507,13 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         let a = self.interpret_expr(program, index_access_node.target, ctx)?;
         let index = self.interpret_expr(program, index_access_node.index, ctx)?;
         let index_felt = index.to_felt();
+        let constant_in_bounds = self.is_constant(index_felt) && matches!(&*a.borrow(), CheckedValue::Array(_, items) if self.context.get_constant_value(index_felt) < items.len() as u64);
+        let index_felt = if self.in_logical_rhs && !constant_in_bounds {
+            let gate = self.context.get_current_condition();
+            self.context.op_select(gate, index_felt, F::from(0))
+        } else {
+            index_felt
+        };
 
         // Bounds-check constant indices: the VM's `get_path` panics via
         // `assert!(index < arr.len())` on out-of-bounds constant access.
@@ -2491,6 +2561,29 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         ctx: &mut TypeCheckerVisitorContext<F, C>,
     ) -> Result<CheckedValue<F>> {
         let source = self.interpret_expr(program, cast_node.value, ctx)?;
+        let constant_in_range = self.in_logical_rhs && match &*source.borrow() {
+            CheckedValue::Felt(n) if self.is_constant(*n) => {
+                let value = self.context.get_constant_value(*n);
+                match cast_node.target_type {
+                    BOOL_TYPE => value <= 1,
+                    U32_TYPE => value <= u32::MAX as u64,
+                    _ => true,
+                }
+            }
+            CheckedValue::Uint(limbs, _) if limbs.iter().all(|n| self.is_constant(*n)) => {
+                let limb = |i: usize| self.context.get_constant_value(limbs[i]);
+                if cast_node.target_type == FELT_TYPE {
+                    limbs[2..].iter().all(|n| self.context.get_constant_value(*n) == 0)
+                        && (limb(1) < u32::MAX as u64 || limb(0) == 0)
+                } else {
+                    let width = cast_node.target_type.uint_width().map(|w| w.limb_count()).unwrap_or(1);
+                    limbs[width..].iter().all(|n| self.context.get_constant_value(*n) == 0)
+                        && (cast_node.target_type != BOOL_TYPE || limb(0) <= 1)
+                }
+            }
+            _ => false,
+        };
+        let source = if self.in_logical_rhs && !constant_in_range { self.logical_rhs_operand(&source, 0) } else { source };
         let target_width = cast_node.target_type.uint_width();
         // Wide sources (u64+) have no single-felt scalar view, so every target
         // goes through the limb-aware path. The u32 lane keeps the scalar path
@@ -2650,6 +2743,13 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         let (inner_value, inner_var_id) = self.interpret_assignment_target(program, node, &program[index_access_node.target], path, ctx)?;
 
         let index_felt = self.interpret_expr(program, index_access_node.index, ctx)?.to_felt();
+        let constant_in_bounds = self.is_constant(index_felt) && matches!(&*inner_value.borrow(), CheckedValue::Array(_, items) if self.context.get_constant_value(index_felt) < items.len() as u64);
+        let index_felt = if self.in_logical_rhs && !constant_in_bounds {
+            let gate = self.context.get_current_condition();
+            self.context.op_select(gate, index_felt, F::from(0))
+        } else {
+            index_felt
+        };
 
         // Keep assignment-target lookup consistent with ordinary index reads:
         // `get_path` asserts on a constant out-of-bounds index, so turn that

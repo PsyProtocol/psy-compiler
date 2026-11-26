@@ -1,0 +1,33 @@
+#[contract]
+#[derive(Storage)]
+pub struct Counter {
+    pub count: Felt,
+}
+
+fn check(d: Felt) -> bool {
+    for i in 0..(1 + 2) {
+        assert(i < 3, "constant loop bound");
+    }
+    assert(d != 0, "right operand must run only for a nonzero input");
+    let counter = CounterRef::new(ContractMetadata::current());
+    counter.count += 1;
+    return 6 / d != 0;
+}
+
+fn main(d: Felt) {
+    let counter = CounterRef::new(ContractMetadata::current());
+    counter.count = 0;
+    assert(true || check(0), "constant or");
+    assert(!(false && check(0)), "constant and");
+    let u = d as u32;
+    assert(u == 0u32 || (6u32 / u == 3u32 && u == 2u32), "nested u32 guard");
+    let either = d == 0 || check(d);
+    let both = d != 0 && check(d);
+    assert(either, "or result");
+    assert_eq(both, d != 0, "and result");
+    if d == 0 {
+        assert_eq(counter.count, 0, "skipped writes");
+    } else {
+        assert_eq(counter.count, 2, "active writes");
+    }
+}

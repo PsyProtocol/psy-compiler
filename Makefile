@@ -110,6 +110,8 @@ ci:
 	@$(DARGO_CLI_EXECUTE) assert_test.psy --parameters 2,3
 	@$(DARGO_CLI_EXECUTE) keccak256_test.psy
 	@$(DARGO_CLI_EXECUTE) ctx_test.psy --parameters 2,3
+	@$(DARGO_CLI_EXECUTE) logical_short_circuit.psy --parameters 0
+	@$(DARGO_CLI_EXECUTE) logical_short_circuit.psy --parameters 2
 	@$(DARGO_CLI_EXECUTE) inline_module_test.psy --parameters 2,3
 	@$(DARGO_CLI_EXECUTE) opcode_test.psy --parameters 2,3
 	@$(DARGO_CLI_EXECUTE) parameter_passing_test.psy --parameters 2,3
