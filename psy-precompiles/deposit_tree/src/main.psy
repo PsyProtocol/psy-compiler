@@ -30,33 +30,11 @@ impl PsyDepositTreeContractRef {
     // slots, so transmute reinterprets between u256 and [u32; 8] losslessly:
     // hash preimages, events, and storage felts are unchanged from the
     // previous [u32; 8] representation.
-    fn felt_u64_to_u32x2(x: Felt) -> [u32; 2] {
-        let bits = split_bits(x, 64);
-
-        let mut lo: Felt = 0;
-        let mut lo_pow: Felt = 1;
-        for i in 0u32..32u32 {
-            let idx = i as Felt;
-            lo += (bits[idx] as Felt) * lo_pow;
-            lo_pow *= 2;
-        }
-
-        let mut hi: Felt = 0;
-        let mut hi_pow: Felt = 1;
-        for i in 32u32..64u32 {
-            let idx = i as Felt;
-            hi += (bits[idx] as Felt) * hi_pow;
-            hi_pow *= 2;
-        }
-
-        [lo as u32, hi as u32]
-    }
-
     fn hash_to_u32x8(x: Hash) -> [u32; 8] {
-        let x0 = Self::felt_u64_to_u32x2(x[0]);
-        let x1 = Self::felt_u64_to_u32x2(x[1]);
-        let x2 = Self::felt_u64_to_u32x2(x[2]);
-        let x3 = Self::felt_u64_to_u32x2(x[3]);
+        let x0 = felt_u64_to_u32x2(x[0]);
+        let x1 = felt_u64_to_u32x2(x[1]);
+        let x2 = felt_u64_to_u32x2(x[2]);
+        let x3 = felt_u64_to_u32x2(x[3]);
         [
             x0[0], x0[1],
             x1[0], x1[1],
@@ -347,20 +325,8 @@ impl PsyDepositTreeContractRef {
 
     #[contract_method]
     pub fn is_known_root_hash(chain_index: Felt, root_lo: Hash, root_hi: Hash) -> Felt {
-        let c = PsyDepositTreeContractRef::new(ContractMetadata::current());
-        let root = [
-            (root_lo[0] & 4294967295) as u32,
-            (root_lo[0] >> 32) as u32,
-            (root_lo[1] & 4294967295) as u32,
-            (root_lo[1] >> 32) as u32,
-            (root_hi[0] & 4294967295) as u32,
-            (root_hi[0] >> 32) as u32,
-            (root_hi[1] & 4294967295) as u32,
-            (root_hi[1] >> 32) as u32,
-        ];
-        let known_key = Self::known_root_key(transmute::<u256>(root));
-        let known: bool = c.known_roots.contains_ns(chain_index, known_key);
-        if known { 1 } else { 0 }
+        let root = Self::hash_to_u256([root_lo[0], root_lo[1], root_hi[0], root_hi[1]]);
+        Self::is_known_root(chain_index, root)
     }
 
 }

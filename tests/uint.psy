@@ -28,6 +28,12 @@ fn check_u256(a: u256, b: u256) -> u256 {
 // input: 2,3
 // output: 5
 fn main(a: Felt, b: Felt) -> Felt {
+    let words = felt_u64_to_u32x2(a + 4294967295);
+    assert_eq(words[0], 1u32, "low word across 32-bit boundary");
+    assert_eq(words[1], 1u32, "high word across 32-bit boundary");
+    let largest = felt_u64_to_u32x2(18446744069414584320);
+    assert_eq(largest[0], 0u32, "largest Felt low word");
+    assert_eq(largest[1], 4294967295u32, "largest Felt high word");
     let left32 = a as u32;
     let right32 = b as u32;
     assert_eq(left32 + right32, 5u32, "u32 input add");

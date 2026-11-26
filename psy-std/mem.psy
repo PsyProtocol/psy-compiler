@@ -5,3 +5,8 @@ pub fn transmute<U, T>(x: T) -> U {
 pub fn size_of<T>() -> Felt {
     __mem_size_of::<T>()
 }
+
+// Split the canonical Felt value into [low, high] 32-bit words.
+pub fn felt_u64_to_u32x2(x: Felt) -> [u32; 2] {
+    transmute::<[u32; 2]>(x as u64)
+}
