@@ -377,12 +377,15 @@ impl AbiExtractor {
     }
 
     fn find_contract_struct<'a, F: Clone + From<u32> + Debug>(&self, ctx: &'a DefaultVisitorContext<F, ()>) -> Option<&'a StructNode> {
+        if let Some(id) = ctx.program().compiled_contract_definition {
+            return ctx.definition(id).as_struct();
+        }
         for i in 0..ctx.program().defs.len() {
             let def_id = DefId::from(i);
             let Some(struct_node) = ctx.definition(def_id).as_struct() else {
                 continue;
             };
-            if self.has_contract_attr(struct_node, ctx) {
+            if ctx.ident(struct_node.name).0 == self.contract_name && self.has_contract_attr(struct_node, ctx) {
                 return Some(struct_node);
             }
         }

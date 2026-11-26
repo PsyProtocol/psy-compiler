@@ -15,6 +15,7 @@ pub struct Program<F: Clone + From<u32>> {
     pub exprs: Arena<ExprId, ExprNode<F>>,
     pub stmts: Arena<StmtId, StmtNode>,
     pub defs: Arena<DefId, DefinitionNode>,
+    pub compiled_contract_definition: Option<DefId>,
     pub compiled_method_definitions: Vec<DefId>,
     pub interner: Interner,
 }
@@ -52,6 +53,7 @@ impl<F: Clone + From<u32>> Program<F> {
             exprs: Arena::new(),
             stmts: Arena::new(),
             defs: Arena::new(),
+            compiled_contract_definition: None,
             compiled_method_definitions: Vec::new(),
             interner: Interner::new(),
         }

@@ -610,12 +610,11 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     {
         let scope_id = ctx.symbols[ModuleId::root()].scope_id;
         let explicit_contract_name = contract_name.map(|name| ctx.intern(name.into()));
-        let resolved_contract_name = explicit_contract_name.or_else(|| {
-            if method_names.is_empty() {
-                self.find_contract_name_from_ast(ctx)
-            } else {
-                None
-            }
+        let contract_definition = self.find_contract_definition(ctx, explicit_contract_name)?;
+        let resolved_contract_name = contract_definition.and_then(|id| {
+            let node = ctx.definition(id).as_struct()?;
+            (explicit_contract_name.is_some() || (method_names.is_empty() && node.attrs.iter().any(|attr| ctx.ident(attr.name).0 == "contract")))
+                .then_some(node.name.id)
         });
 
         let type_ids = if let Some(contract_name) = resolved_contract_name {
@@ -625,9 +624,12 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 .ok_or(Error::UndefinedFunction)?
                 .clone();
             let contract_ref_name = ctx.intern(format!("{}Ref", ctx.ident(contract_name)));
-            let contract_ref_type_id = ctx.symbols[scope_id].types.get::<TypeKey>(&contract_ref_name.into()).cloned();
+            let contract_ref_type_id = ctx.program[ModuleId::root()].data().definitions.iter()
+                .filter_map(|&id| ctx.definition(id).as_struct())
+                .find(|node| node.is_generated && node.name.id == contract_ref_name)
+                .and_then(|_| ctx.symbols[scope_id].types.get::<TypeKey>(&contract_ref_name.into()).copied());
             let method_names = if method_names.is_empty() {
-                self.collect_contract_method_names(ctx, contract_name, Some(contract_ref_name))?
+                self.collect_contract_method_names(ctx, typechecker, contract_type_id, contract_ref_type_id)?
             } else {
                 method_names.into_iter().map(|method_name| ctx.intern(method_name.into())).collect()
             };
@@ -726,66 +728,62 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             self.context = context.clone();
         }
 
+        ctx.program.compiled_contract_definition = contract_definition;
         ctx.program.compiled_method_definitions = compiled_definitions;
         Ok(outputs)
     }
 
-    fn find_contract_name_from_ast(&self, ctx: &mut TypeCheckerVisitorContext<F, C>) -> Option<IdentId> {
-        for i in 0..ctx.program.defs.len() {
-            let def_id = DefId::from(i);
-            let Some(struct_node) = ctx.definition(def_id).as_struct() else {
-                continue;
-            };
-            let is_contract = struct_node.attrs.iter().any(|attr| ctx.ident(attr.name).0.as_str() == "contract");
-            if is_contract {
-                return Some(struct_node.name.id);
+    fn find_contract_definition(&self, ctx: &TypeCheckerVisitorContext<F, C>, name: Option<IdentId>) -> anyhow::Result<Option<DefId>> {
+        let definitions = &ctx.program[ModuleId::root()].data().definitions;
+        let name = name.map(|id| {
+            let requested = ctx.ident(id).0.as_str();
+            let generated = definitions.iter().filter_map(|&def| ctx.definition(def).as_struct())
+                .any(|node| node.name.id == id && node.is_generated);
+            if generated { requested.strip_suffix("Ref").unwrap_or(requested) } else { requested }
+        });
+        // Prefer the entry module's contract over auxiliary storage for implicit selection.
+        for marker in ["contract", "storage"] {
+            let mut candidates = definitions.iter().copied().filter(|&id| {
+                let Some(node) = ctx.definition(id).as_struct() else { return false };
+                !node.is_generated && name.is_none_or(|name| name == ctx.ident(node.name).0.as_str())
+                    && node.attrs.iter().any(|attr| ctx.ident(attr.name).0 == marker)
+            });
+            if let Some(id) = candidates.next() {
+                anyhow::ensure!(candidates.next().is_none(), "ambiguous contract storage declaration; select a unique contract name");
+                return Ok(Some(id));
             }
         }
-        None
+        if let Some(name) = name {
+            anyhow::bail!("undefined function or missing contract storage declaration for {name}");
+        }
+        Ok(None)
     }
 
     fn collect_contract_method_names(
         &self,
-        ctx: &mut TypeCheckerVisitorContext<F, C>,
-        contract_name: IdentId,
-        contract_ref_name: Option<IdentId>,
+        ctx: &TypeCheckerVisitorContext<F, C>,
+        typechecker: &TypeChecker<F, C>,
+        contract: TypeId,
+        contract_ref: Option<TypeId>,
     ) -> anyhow::Result<Vec<IdentId>> {
-        let mut names: Vec<IdentId> = Vec::new();
-
-        for i in 0..ctx.program.defs.len() {
-            let def_id = DefId::from(i);
-            if let Some(function) = ctx.definition(def_id).as_function() {
-                if function.visibility != Visibility::Public {
-                    continue;
-                }
-                let is_contract_method = function.attrs.iter().any(|attr| attr.is_contract_api_method());
-                if is_contract_method {
+        let mut names = Vec::new();
+        for &id in &ctx.program[ModuleId::root()].data().definitions {
+            if let Some(function) = ctx.definition(id).as_function() {
+                if function.visibility == Visibility::Public && function.attrs.iter().any(|attr| attr.is_contract_api_method()) {
                     names.push(function.name.id);
                 }
+            }
+        }
+        // The checked owner distinguishes same-named types in different modules.
+        for implementation in typechecker.program.defs.iter().filter_map(|definition| definition.as_impl()) {
+            if implementation.ty != contract && Some(implementation.ty) != contract_ref {
                 continue;
             }
-
-            let Some(impl_node) = ctx.definition(def_id).as_impl() else {
-                continue;
-            };
-
-            let impl_target_name = Self::extract_impl_target_ident(&impl_node.ty);
-            let is_target_impl =
-                impl_target_name.is_some_and(|name| name == contract_name || contract_ref_name.is_some_and(|ref_name| name == ref_name));
-            if !is_target_impl {
-                continue;
-            }
-
-            for &function_def_id in &impl_node.body {
-                let Some(function) = ctx.definition(function_def_id).as_function() else {
-                    continue;
-                };
-                if function.visibility != Visibility::Public {
-                    continue;
-                }
-                let is_contract_method = function.attrs.iter().any(|attr| attr.is_contract_api_method());
-                if is_contract_method {
-                    names.push(function.name.id);
+            for &id in &implementation.body {
+                if let Some(function) = typechecker.program[id].as_function() {
+                    if function.visibility == Visibility::Public && function.attrs.iter().any(|attr| attr.is_contract_api_method()) {
+                        names.push(function.name.id);
+                    }
                 }
             }
         }
@@ -798,14 +796,6 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             );
         }
         Ok(names)
-    }
-
-    fn extract_impl_target_ident(ty: &UncheckedType) -> Option<IdentId> {
-        match ty {
-            UncheckedType::Basic(identifier) => Some(identifier.id),
-            UncheckedType::Path(path) => Self::extract_impl_target_ident(&path.target),
-            _ => None,
-        }
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -2944,6 +2934,64 @@ mod tests {
     use serial_test::serial;
 
     use super::*;
+
+    #[test]
+    fn selected_contract_owns_compiled_artifact_layout() -> anyhow::Result<()> {
+        let source = r#"
+            #[contract]
+            pub struct First { pub small: Felt, }
+            #[contract]
+            pub struct FirstRef { pub independent: Felt, }
+            impl FirstRef {
+                #[contract::view_method]
+                pub fn independent_method() -> Felt { 3 }
+            }
+            impl First {
+                #[contract::view_method]
+                pub fn read_first() -> Felt { 1 }
+            }
+            #[contract]
+            #[derive(Storage)]
+            pub struct Second { pub large: [Felt; 128], }
+            impl Second {
+                #[contract::view_method]
+                pub fn read_second() -> Felt { 2 }
+            }
+        "#;
+        let entry = PathBuf::from("selected.psy");
+        let files = [(entry.clone(), source.to_string())];
+        let first = compile_loaded(&files, &entry, Some("First".into()))?;
+        assert_eq!(first.abi.contract.methods.len(), 1);
+        assert_eq!(first.abi.contract.methods[0].name, "read_first");
+        for (name, methods) in [("Second", vec![]), ("SecondRef", vec!["read_second".into()])] {
+            let mut graph = Graph::new();
+            let dependency = PathBuf::from("dependency/src/lib.psy");
+            graph.add_node(entry.clone());
+            graph.add_edge(entry.clone(), dependency.clone());
+            let mut result = interpret_virtual_files(
+                Some(name.into()), methods, graph, vec![
+                    (entry.clone(), Arc::from(format!("{source} impl dependency::Second {{ #[contract::view_method] pub fn foreign() -> Felt {{ 3 }} }}"))),
+                    (dependency, Arc::from("#[contract] pub struct Second { pub other: Felt, }")),
+                ],
+            )?;
+            let artifact = contract_output_from_interpret(&mut result)?.to_compilation_artifact();
+            let abi = artifact.abi.contract;
+            assert_eq!(abi.name, "Second");
+            assert_eq!(abi.state.len(), 1);
+            assert_eq!(abi.state[0].name, "large");
+            assert_eq!(abi.state[0].felt_size, 128);
+            assert_eq!(abi.state_tree_height, 5);
+            assert_eq!(artifact.state_tree_height, abi.state_tree_height);
+            assert_eq!(artifact.circuit_definitions.len(), 1);
+            assert_eq!(abi.methods.len(), 1);
+            assert_eq!(abi.methods[0].name, "read_second");
+            assert_eq!(abi.methods[0].name, artifact.circuit_definitions[0].name);
+            assert_eq!(abi.methods[0].method_id, artifact.circuit_definitions[0].method_id);
+        }
+        assert!(compile_loaded(&files, &entry, None).unwrap_err().to_string().contains("ambiguous"));
+        assert!(compile_loaded(&files, &entry, Some("Missing".into())).is_err());
+        Ok(())
+    }
 
     #[test]
     #[serial]
