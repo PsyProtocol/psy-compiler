@@ -406,6 +406,11 @@ pub fn typecheck_error_to_diagnostic<F: Clone + From<u32> + ContextFelt, C>(
     use psy_sema::Error as SemaError;
 
     let (range, file, message) = match error {
+        SemaError::InvalidGenericArguments { location, expected, found } => (
+            Some(span_to_range(location, ctx.program.file_resolver.resolve_content(&location.file_id).unwrap_or_default())),
+            ctx.program.file_resolver.resolve_path(&location.file_id),
+            format!("Expected {}, but found {}.", expected, found),
+        ),
         SemaError::TypeMismatch { location, expected, found } => {
             let msg = format!(
                 "Type mismatch. Expected {}, found {}.",

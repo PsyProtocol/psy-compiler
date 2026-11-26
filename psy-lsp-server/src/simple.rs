@@ -934,6 +934,28 @@ mod tests {
 
     #[test]
     #[serial]
+    fn storage_map_arity_reports_field_and_recovers() {
+        let (service, _) = quiet_backend();
+        let server = service.inner();
+        let (_dir, root, file) = write_psy_workspace("fn main() {}");
+        server.set_crate_path_graph_cache(root.clone(), entry_graph(&file));
+        for name in ["Map", "NamespacedMap"] {
+            for (args, count) in [("", 0), ("<Felt>", 1), ("<Felt, Felt, Felt, Felt>", 4)] {
+                std::fs::write(&file, format!("#[derive(Storage)]\nstruct Bad {{\n    x: {name}{args},\n}}\nfn main() {{}}")).unwrap();
+                let bundle = server.collect_diagnostics_sync(&root).unwrap();
+                assert_eq!(bundle.uri, Some(Url::from_file_path(&file).unwrap()));
+                assert_eq!(bundle.diagnostics.len(), 1);
+                let diagnostic = &bundle.diagnostics[0];
+                assert_eq!(diagnostic.range.start, tower_lsp::lsp_types::Position::new(2, 7));
+                assert_eq!(diagnostic.message, format!("Expected 3 generic parameters for {name}, but found {count}."));
+            }
+        }
+        std::fs::write(&file, "fn main() {}").unwrap();
+        assert!(server.collect_diagnostics_sync(&root).unwrap().diagnostics.is_empty());
+    }
+
+    #[test]
+    #[serial]
     fn collect_diagnostics_sync_bundles_parse_and_type_errors() {
         let (service, _) = quiet_backend();
         let server = service.inner();

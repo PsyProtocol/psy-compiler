@@ -956,7 +956,13 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         let mut typechecker = TypeChecker::new(CheckedProgram::new(), Box::new(self.clone()));
         let mut storage_preprocessor: StorageProcessor = StorageProcessor::new();
         let mut default_visitor_context: DefaultVisitorContext<'_, F, C> = DefaultVisitorContext::new(&mut program);
-        storage_preprocessor.visit_program(&mut default_visitor_context)?;
+        if let Err(err) = storage_preprocessor.visit_program(&mut default_visitor_context) {
+            if let SemaError::CommonError(err) = err {
+                return Err(err.into());
+            }
+            let context = lowering_sema_error(&err, &mut TypeCheckerVisitorContext::<F, C>::new(program));
+            return Err(anyhow::Error::from(err).context(context));
+        }
 
         let mut formatter = Formatter::new();
         formatter.visit_program(&mut default_visitor_context)?;
@@ -990,6 +996,13 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         let mut default_visitor_context: DefaultVisitorContext<'_, F, C> = DefaultVisitorContext::new(&mut program);
         match storage_preprocessor.visit_program(&mut default_visitor_context) {
             Ok(_) => {}
+            Err(err @ SemaError::InvalidGenericArguments { .. }) => {
+                let ctx = TypeCheckerVisitorContext::<F, C>::new(program);
+                return Err(TypeCheckError::TypeCheck(typecheck_error_to_diagnostic(&err, &ctx)));
+            }
+            Err(SemaError::CommonError(e)) => {
+                return Err(TypeCheckError::StoragePreprocess(format!("Storage analysis error: {}", e)));
+            }
             Err(e) => {
                 let message = format!("Storage analysis error: {}", e);
                 return Err(TypeCheckError::StoragePreprocess(message));

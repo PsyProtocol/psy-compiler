@@ -610,15 +610,9 @@ impl<'a> StorageProcessor<'a> {
             } else {
                 match &field.ty {
                     UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("Map") => {
-                        if params.len() != 3 {
-                            panic!("Map must have exactly three generic parameters");
-                        }
                         UncheckedType::Generic(Identifier::new(ctx.intern("MapRef"), attr.location), params.clone(), attr.location)
                     }
                     UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("NamespacedMap") => {
-                        if params.len() != 3 {
-                            panic!("NamespacedMap must have exactly three generic parameters");
-                        }
                         UncheckedType::Generic(Identifier::new(ctx.intern("NamespacedMapRef"), attr.location), params.clone(), attr.location)
                     }
                     UncheckedType::Array(elem_ty, size, _) => UncheckedType::Generic(
@@ -1210,9 +1204,6 @@ impl<'a> StorageProcessor<'a> {
         let size_ident = Identifier::new(ctx.intern("size"), attr.location);
         let base_type = match field_type {
             UncheckedType::Generic(ident, params, _) if ident.id == ctx.intern("MapRef") || ident.id == ctx.intern("NamespacedMapRef") => {
-                if params.len() != 3 {
-                    panic!("Map reference must have exactly three generic parameters");
-                }
                 let storage_name = if ident.id == ctx.intern("MapRef") { "Map" } else { "NamespacedMap" };
                 UncheckedType::Generic(Identifier::new(ctx.intern(storage_name), attr.location), params.clone(), attr.location)
             }
@@ -2682,7 +2673,7 @@ impl<'a, F: Clone + From<u32> + ContextFelt + 'static, C> AstVisitor<F, C> for S
     type Context = DefaultVisitorContext<'a, F, C>;
     type ExprResult = ();
     type StmtResult = ();
-    type Error = psy_common::Error;
+    type Error = psy_sema::Error;
     type Expr = ExprNode<F>;
     type Stmt = StmtNode;
     type Definition = DefinitionNode;
@@ -2718,6 +2709,24 @@ impl<'a, F: Clone + From<u32> + ContextFelt + 'static, C> AstVisitor<F, C> for S
         // a source field, not a second map.
         let has_storage_attr = s.attrs.iter().any(|a| a.name == storage_attribute_id);
         let is_layout_root = (has_contract_attr || has_storage_attr || has_storage_derive) && !s.is_generated;
+        let derives_storage_ref = s.attrs.iter().any(|a| a.is_derive() && a.properties.iter().any(|p| p.id == storage_ref_attribute_id));
+        if is_layout_root || derives_storage_ref {
+            for field in s.fields.values() {
+                let (ident, count) = match &field.ty {
+                    UncheckedType::Basic(ident) => (ident, 0),
+                    UncheckedType::Generic(ident, params, _) => (ident, params.len()),
+                    _ => continue,
+                };
+                let name = ctx.ident(ident.id);
+                if matches!(name.0.as_str(), "Map" | "NamespacedMap") && count != 3 {
+                    return Err(psy_sema::Error::InvalidGenericArguments {
+                        location: ident.location,
+                        expected: format!("3 generic parameters for {}", name),
+                        found: count.to_string(),
+                    });
+                }
+            }
+        }
         if is_layout_root {
             for (field_name, field) in &s.fields {
                 if !self.associated_path_is_resolved(&field.ty, ctx, &mut HashSet::new()) {
@@ -2725,7 +2734,7 @@ impl<'a, F: Clone + From<u32> + ContextFelt + 'static, C> AstVisitor<F, C> for S
                         "unresolved associated type (field '{}' of '{}')",
                         ctx.ident(field_name.id),
                         ctx.ident(s.name.id)
-                    )));
+                    )).into());
                 }
                 let direct_contract_map =
                     has_contract_attr && self.is_direct_map_type(&field.ty, ctx) && !self.map_argument_is_map_bearing(&field.ty, ctx);
@@ -2734,7 +2743,7 @@ impl<'a, F: Clone + From<u32> + ContextFelt + 'static, C> AstVisitor<F, C> for S
                         "Map must be a direct top-level contract field (field '{}' of '{}')",
                         ctx.ident(field_name.id),
                         ctx.ident(s.name.id)
-                    )));
+                    )).into());
                 }
                 if direct_contract_map {
                     let UncheckedType::Generic(_, params, _) = &field.ty else {
@@ -2745,7 +2754,7 @@ impl<'a, F: Clone + From<u32> + ContextFelt + 'static, C> AstVisitor<F, C> for S
                             "Map capacity must be a concrete non-zero constant (field '{}' of '{}')",
                             ctx.ident(field_name.id),
                             ctx.ident(s.name.id)
-                        )));
+                        )).into());
                     }
                 }
             }
@@ -2758,7 +2767,7 @@ impl<'a, F: Clone + From<u32> + ContextFelt + 'static, C> AstVisitor<F, C> for S
                     "Only one Map is currently supported per contract. Found {} map fields in contract '{}'",
                     total_maps,
                     ctx.ident(s.name.id)
-                )));
+                )).into());
             }
         }
 
@@ -3338,13 +3347,6 @@ mod tests {
         panics_with("only supported on basic struct types", |ctx| {
             let grid = ty_array(ctx, "Felt", 1);
             let node = strukt_with_ref_field(ctx, "Bad", ("x", grid), vec![], vec![]);
-            let derive = derive_attr(ctx, "Storage");
-            processor.transform_struct_to_storage_ref(&node, &derive, ctx, Some("Ref"));
-        });
-        panics_with("exactly three generic parameters", |ctx| {
-            let felt = ty_basic(ctx, "Felt");
-            let bad_map = ty_generic(ctx, "Map", vec![felt]);
-            let node = strukt(ctx, "Bad", vec![("x", bad_map)], vec![]);
             let derive = derive_attr(ctx, "Storage");
             processor.transform_struct_to_storage_ref(&node, &derive, ctx, Some("Ref"));
         });
