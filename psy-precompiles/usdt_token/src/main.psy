@@ -82,6 +82,7 @@ struct ProofPublicInputsPreimage {
     pub note_root_slot: Felt,
     pub token_contract_id: Felt,
     pub nullifier_hash: Hash,
+    pub note_commitment: Hash,
 }
 
 struct ShieldClaimPublicInputsPreimage {
@@ -525,6 +526,7 @@ impl USDTTokenContractRef {
     #[contract_method]
     pub fn private_claim(
         nullifier_hash: Hash,
+        note_commitment: Hash,
         receiver: Hash,
         amount: Felt,
         user_tree_root: Hash,
@@ -543,6 +545,7 @@ impl USDTTokenContractRef {
             checkpoint_id,
             note_root_slot,
             token_contract_id: get_contract_id(),
+            note_commitment,
             nullifier_hash
         };
 
@@ -553,13 +556,14 @@ impl USDTTokenContractRef {
             preimage.checkpoint_id,
             preimage.note_root_slot,
             preimage.token_contract_id,
-            preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3]
+            preimage.nullifier_hash[0], preimage.nullifier_hash[1], preimage.nullifier_hash[2], preimage.nullifier_hash[3],
+            preimage.note_commitment[0], preimage.note_commitment[1], preimage.note_commitment[2], preimage.note_commitment[3]
         ]);
         let private_note_inclusion_fingerprint: Hash = [                          
-            542382464712329450,
-            8799841555550963495,
-            16012838336032249335,
-            2715439516825707589
+            3032512549015982862,
+            4228500520840686604,
+            8222899438030426927,
+            2287195703220174472
         ];    
         let leaf: Hash = hash_two_to_one(private_note_inclusion_fingerprint, public_inputs_hash);
 
