@@ -350,3 +350,18 @@ fn u64_and_u128_division_matches_ruint_oracle_inner() {
         assert_eq!(got, expected, "u128 division seed {seed}");
     }
 }
+
+#[test]
+fn u32_division_respects_the_active_branch() {
+    let function = compile("fn main(enabled: bool, denom: u32) -> u32 { if enabled { if denom != 0u32 { 10u32 / denom } else { 0u32 } } else { 7u32 } }");
+    prove(&function, &[1, 0], Some(&[0]));
+    prove(&function, &[1, 2], Some(&[5]));
+    prove(&function, &[0, 0], Some(&[7]));
+
+    let compound = compile("fn main(outer: bool, inner: bool) -> u32 { let mut n = 10u32; if outer { if inner { n /= 0u32; }; }; return n; }");
+    prove(&compound, &[0, 1], Some(&[10]));
+    let mut native = SimpleDPNExecutor::<F>::new();
+    native.inputs = vec![F::ONE, F::ONE];
+    let error = compound.definitions.iter().try_for_each(|op| native.process_var_def(op)).unwrap_err();
+    assert!(error.contains("zero"), "unexpected division error: {error}");
+}

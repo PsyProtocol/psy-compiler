@@ -1304,7 +1304,20 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             Add => self.context.op_u32_add(l.clone(), r.clone()),
             Sub => self.context.op_u32_sub(l.clone(), r.clone()),
             Mul => self.context.op_u32_mul(l.clone(), r.clone()),
-            Div => self.context.op_u32_div(l.clone(), r.clone()),
+            Div => {
+                // Both branches are evaluated before their results are selected.
+                let divisor = if self.is_constant(*r) && self.context.get_constant_value(*r) != 0 {
+                    *r
+                } else {
+                    let condition = self.context.get_current_condition();
+                    let one = self.context.op_const_u32(1);
+                    self.context.op_select(condition, *r, one)
+                };
+                if self.is_constant(*l) && self.is_constant(divisor) && self.context.get_constant_value(divisor) == 0 {
+                    return Err(Error::DivisionByZero { location });
+                }
+                self.context.op_u32_div(*l, divisor)
+            },
             Mod => self.context.op_u32_mod(l.clone(), r.clone()),
             Pow => self.context.op_u32_exp(l.clone(), r.clone()),
             BitAnd => self.context.op_u32_and(l.clone(), r.clone()),
@@ -1703,7 +1716,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     });
                 }
             }
-            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), Div | Mod) => {
+            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), Mod) => {
                 if self.is_constant(l[0].clone()) && self.is_constant(r[0].clone()) && self.context.get_constant_value(r[0].clone()) == 0 {
                     return Err(Error::DivisionByZero {
                         location: Some(binary_node.location),
@@ -1771,7 +1784,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     return Err(Error::DivisionByZero { location: None });
                 }
             }
-            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), DivAssign | ModAssign) => {
+            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), ModAssign) => {
                 if self.is_constant(l[0].clone()) && self.is_constant(r[0].clone()) && self.context.get_constant_value(r[0].clone()) == 0 {
                     return Err(Error::DivisionByZero { location: None });
                 }
