@@ -1283,9 +1283,24 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
     /// The u32 lane lowers to the native single-limb opcodes directly: the VM
     /// folds its own constants, and inserting the wide-uint expansion here
     /// would change the op graph the u32 paths have always produced.
-    fn u32_binop(&mut self, l: &F, r: &F, operator: BinaryOperator) -> F {
+    fn u32_binop(&mut self, l: &F, r: &F, operator: BinaryOperator, location: Option<Location>) -> Result<F> {
         use BinaryOperator::*;
-        match operator {
+        if matches!(operator, Add | Sub | Mul | Pow) && self.is_constant(*l) && self.is_constant(*r) {
+            let a = self.context.get_constant_value(*l);
+            let b = self.context.get_constant_value(*r);
+            let overflow = match operator {
+                Add => a + b > u32::MAX as u64,
+                Sub => a < b,
+                Mul => a * b > u32::MAX as u64,
+                // The VM checks the field residue of exponentiation.
+                Pow => u32_exp("u32 exp", a, b).is_err(),
+                _ => false,
+            };
+            if overflow {
+                return Err(Error::ArithmeticOverflow { location });
+            }
+        }
+        Ok(match operator {
             Add => self.context.op_u32_add(l.clone(), r.clone()),
             Sub => self.context.op_u32_sub(l.clone(), r.clone()),
             Mul => self.context.op_u32_mul(l.clone(), r.clone()),
@@ -1304,7 +1319,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             Gt => self.context.op_gt(l.clone(), r.clone()),
             Gte => self.context.op_gte(l.clone(), r.clone()),
             _ => unreachable!("type checker admitted a non-u32 operator on u32 operands"),
-        }
+        })
     }
 
     // Felt bitwise operations use the canonical unsigned representative.
@@ -1677,7 +1692,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             }
         }
 
-        // Pre-check div/mod by zero and u32 arithmetic overflow on constant
+        // Pre-check div/mod by zero on constant
         // operands. The VM's constant-folding path panics (assert!/integer div)
         // on these; surface them as clean compile/runtime errors instead.
         match (&*lhs_value.borrow(), &*rhs_value.borrow(), binary_node.operator) {
@@ -1693,28 +1708,6 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                     return Err(Error::DivisionByZero {
                         location: Some(binary_node.location),
                     });
-                }
-            }
-            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), Add | Sub | Mul | Pow) => {
-                if self.is_constant(l[0].clone()) && self.is_constant(r[0].clone()) {
-                    let a = self.context.get_constant_value(l[0].clone());
-                    let b = self.context.get_constant_value(r[0].clone());
-                    let overflow = match binary_node.operator {
-                        Add => a + b > 0xffffffff,
-                        Sub => a < b,
-                        Mul => a * b > 0xffffffff,
-                        // Same rule as the VM: `base^exp mod p`, then the
-                        // canonical residue must fit u32. Integer `checked_pow`
-                        // rejects values such as `2u32 ** 192u32`, whose field
-                        // residue is 1.
-                        Pow => u32_exp("u32 exp", a, b).is_err(),
-                        _ => false,
-                    };
-                    if overflow {
-                        return Err(Error::ArithmeticOverflow {
-                            location: Some(binary_node.location),
-                        });
-                    }
                 }
             }
             _ => {}
@@ -1735,7 +1728,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Gt) => self.context.op_gt(*l, *r),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Gte) => self.context.op_gte(*l, *r),
 
-            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), op) => self.u32_binop(&l[0], &r[0], op),
+            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), op) => self.u32_binop(&l[0], &r[0], op, Some(binary_node.location))?,
 
             (CheckedValue::Bool(l), CheckedValue::Bool(r), And) => self.context.op_bool_and(*l, *r),
             (CheckedValue::Bool(l), CheckedValue::Bool(r), Or) => self.context.op_bool_or(*l, *r),
@@ -1812,7 +1805,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
                 CheckedValueRef::from_felt(self.felt_bitwise(*l, *r, Self::compound_to_binary(op), None)?)
             }
 
-            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), op) => CheckedValueRef::from_u32(self.u32_binop(&l[0], &r[0], Self::compound_to_binary(op))),
+            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), op) => CheckedValueRef::from_u32(self.u32_binop(&l[0], &r[0], Self::compound_to_binary(op), None)?),
 
             (CheckedValue::Bool(l), CheckedValue::Bool(r), BitXorAssign) => CheckedValueRef::from_bool(self.context.op_bool_xor(*l, *r)),
 
@@ -2608,7 +2601,10 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
 
         let (old_value, var_id) = self.interpret_assignment_target(program, node, &program[node.target], &mut path, ctx)?;
 
-        let new_value = self.interpret_assignment_value(program, &old_value, node.operator, value, ctx)?;
+        let new_value = self.interpret_assignment_value(program, &old_value, node.operator, value, ctx).map_err(|error| match error {
+            Error::ArithmeticOverflow { location: None } => Error::ArithmeticOverflow { location: Some(node.location) },
+            other => other,
+        })?;
 
         let mut variable_value = ctx.symbols.get_value(var_id).unwrap();
         variable_value.set_path(&mut self.context, &path, &mut index_condition, new_value)?;

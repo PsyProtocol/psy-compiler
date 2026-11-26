@@ -274,6 +274,27 @@ fn felt_bitwise_rejects_noncanonical_constant_results() {
 }
 
 #[test]
+fn u32_compound_arithmetic_checks_constant_bounds() {
+    for (name, initial, op, rhs) in [
+        ("add", u32::MAX, "+=", 1), ("sub", 0, "-=", 1), ("mul", 1 << 31, "*=", 2),
+    ] {
+        let source = format!("fn main() -> u32 {{ let mut x: u32 = {initial}u32; x {op} {rhs}u32; return x; }}");
+        expect_failure(name, &source, "ArithmeticOverflow");
+    }
+    expect_exec("u32_compound_bounds", r#"
+        fn main() -> u32 {
+            let mut x: u32 = 4294967294u32;
+            x += 1u32;
+            x *= 1u32;
+            assert_eq(x, 4294967295u32, "maximum");
+            x -= 4294967295u32;
+            assert_eq(x, 0u32, "zero");
+            return x;
+        }
+    "#);
+}
+
+#[test]
 fn constant_division_and_overflow_are_clean_errors() {
     expect_failure(
         "div_by_zero",
