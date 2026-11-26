@@ -132,13 +132,13 @@ impl PsyDepositTreeContractRef {
 
         let mut current = leaf_hash;
         let mut zero: Hash = [0, 0, 0, 0];
-        let mut path_index = idx;
+        let mut path_index = idx as u32;
 
         for level in 0u32..32u32 {
             let level_index = level as Felt;
             let slot = Self::chain_frontier_offset(chain_index, level_index);
-            let is_right: Felt = path_index & 1;
-            if is_right == 0 {
+            let is_right = path_index & 1u32;
+            if is_right == 0u32 {
                 c.frontiers[slot] = Self::hash_to_u256(current);
                 current = hash_two_to_one(current, zero);
             } else {
@@ -146,7 +146,7 @@ impl PsyDepositTreeContractRef {
                 current = hash_two_to_one(left, current);
             };
             zero = hash_two_to_one(zero, zero);
-            path_index = path_index >> 1;
+            path_index = path_index >> 1u32;
         }
 
         c.chain_counts[chain_index] = idx + 1;
@@ -164,10 +164,11 @@ impl PsyDepositTreeContractRef {
 
         for i in 0u32..8u32 {
             let _level = i as Felt;
-            let is_right: Felt = node & 1;
-            let left = if is_right == 0 { node } else { node - 1 };
+            let node_index = node as u32;
+            let is_right = node_index & 1u32;
+            let left = if is_right == 0u32 { node } else { node - 1 };
             let right = left + 1;
-            let parent = node >> 1;
+            let parent = (node_index >> 1u32) as Felt;
             let mut left_hash = c.agg_tree[left].get();
             let mut right_hash = c.agg_tree[right].get();
             // Unwritten aggregate-tree slots are storage zeroes. Interpret them

@@ -82,33 +82,11 @@ impl PsyWithdrawalTreeContractRef {
             && limbs[6] == 0u32
             && limbs[7] == 0u32
     }
-    fn felt_u64_to_u32x2(x: Felt) -> [u32; 2] {
-        let bits = split_bits(x, 64);
-
-        let mut lo: Felt = 0;
-        let mut lo_pow: Felt = 1;
-        for i in 0u32..32u32 {
-            let idx = i as Felt;
-            lo += (bits[idx] as Felt) * lo_pow;
-            lo_pow *= 2;
-        }
-
-        let mut hi: Felt = 0;
-        let mut hi_pow: Felt = 1;
-        for i in 32u32..64u32 {
-            let idx = i as Felt;
-            hi += (bits[idx] as Felt) * hi_pow;
-            hi_pow *= 2;
-        }
-
-        [lo as u32, hi as u32]
-    }
-
     fn hash_to_u32x8(x: Hash) -> [u32; 8] {
-        let x0 = Self::felt_u64_to_u32x2(x[0]);
-        let x1 = Self::felt_u64_to_u32x2(x[1]);
-        let x2 = Self::felt_u64_to_u32x2(x[2]);
-        let x3 = Self::felt_u64_to_u32x2(x[3]);
+        let x0 = felt_u64_to_u32x2(x[0]);
+        let x1 = felt_u64_to_u32x2(x[1]);
+        let x2 = felt_u64_to_u32x2(x[2]);
+        let x3 = felt_u64_to_u32x2(x[3]);
         let x0_lo: u32 = x0[0];
         let x0_hi: u32 = x0[1];
         let x1_lo: u32 = x1[0];
@@ -185,13 +163,13 @@ impl PsyWithdrawalTreeContractRef {
 
         let mut current = leaf_hash;
         let mut zero: Hash = [0, 0, 0, 0];
-        let mut path_index = idx;
+        let mut path_index = idx as u32;
 
         for level in 0u32..32u32 {
             let level_index = level as Felt;
             let slot = Self::chain_frontier_offset(chain_index, level_index);
-            let is_right: Felt = path_index & 1;
-            if is_right == 0 {
+            let is_right = path_index & 1u32;
+            if is_right == 0u32 {
                 c.frontiers[slot] = Self::hash_to_u256(current);
                 current = hash_two_to_one(current, zero);
             } else {
@@ -199,7 +177,7 @@ impl PsyWithdrawalTreeContractRef {
                 current = hash_two_to_one(left, current);
             };
             zero = hash_two_to_one(zero, zero);
-            path_index = path_index >> 1;
+            path_index = path_index >> 1u32;
         }
 
         c.chain_counts[chain_index] = idx + 1;
@@ -217,10 +195,11 @@ impl PsyWithdrawalTreeContractRef {
 
         for i in 0u32..8u32 {
             let _level = i as Felt;
-            let is_right: Felt = node & 1;
-            let left = if is_right == 0 { node } else { node - 1 };
+            let node_index = node as u32;
+            let is_right = node_index & 1u32;
+            let left = if is_right == 0u32 { node } else { node - 1 };
             let right = left + 1;
-            let parent = node >> 1;
+            let parent = (node_index >> 1u32) as Felt;
             let mut left_hash = c.agg_tree[left].get();
             let mut right_hash = c.agg_tree[right].get();
             // Unwritten aggregate-tree slots are storage zeroes. Interpret them
@@ -262,7 +241,6 @@ impl PsyWithdrawalTreeContractRef {
         recipient: u256,
         nonce: u256
     ) -> (Felt, u256, u256, u256) {
-        assert((destination_chain_index >> 32) == 0, "destination chain index out of uint32 range");
         assert(destination_chain_index < 256, "destination chain index out of range (0-255)");
         assert(
             token_contract_id == Self::token_contract_id()

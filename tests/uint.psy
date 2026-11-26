@@ -28,6 +28,17 @@ fn check_u256(a: u256, b: u256) -> u256 {
 // input: 2,3
 // output: 5
 fn main(a: Felt, b: Felt) -> Felt {
+    let wide = a + 4294967296;
+    assert_eq(wide & 4294967295, a, "mask retains low word");
+    assert_eq(wide >> 32, 1, "shift reads high word");
+    assert_eq(wide >> 4294967296, 0, "large shift distance");
+    let mut bits = wide;
+    bits ^= 4294967296;
+    bits |= 8589934592;
+    bits &= 8589934592;
+    bits >>= 33;
+    bits <<= 32;
+    assert_eq(bits, 4294967296, "Felt compound bitwise operations");
     let words = felt_u64_to_u32x2(a + 4294967295);
     assert_eq(words[0], 1u32, "low word across 32-bit boundary");
     assert_eq(words[1], 1u32, "high word across 32-bit boundary");

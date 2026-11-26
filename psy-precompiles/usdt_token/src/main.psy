@@ -123,7 +123,8 @@ impl USDTTokenContractRef {
     // losslessly: hash preimages, events, and storage felts are unchanged
     // from the previous [u32; 8] representation.
     fn felt_u64_to_u256(x: Felt) -> u256 {
-        transmute::<u256>([0u32, 0u32, 0u32, 0u32, 0u32, 0u32, (x >> 32) as u32, (x & 4294967295) as u32])
+        let words = felt_u64_to_u32x2(x);
+        transmute::<u256>([0u32, 0u32, 0u32, 0u32, 0u32, 0u32, words[1], words[0]])
     }
 
     fn current_contract_id_u256() -> u256 {
@@ -290,13 +291,15 @@ impl USDTTokenContractRef {
             15642499089729770720
         ];
         let leaf: Hash = hash_two_to_one(shield_claim_fingerprint, public_inputs_hash);
+        assert(proof.index < 65536, "proof index exceeds 16-level tree");
+        let index = proof.index as u32;
         let mut current: Hash = leaf;
         for i in 0u32..16u32 {
             let level_index = i as Felt;
             let sibling: Hash = proof.siblings[level_index];
-            let index_bit: Felt = (proof.index >> level_index) & 1;
+            let index_bit = (index >> i) & 1u32;
 
-            if index_bit == 0 {
+            if index_bit == 0u32 {
                 current = hash_two_to_one(current, sibling);
             } else {
                 current = hash_two_to_one(sibling, current);
@@ -492,12 +495,12 @@ impl USDTTokenContractRef {
 
         let mut current: Hash = commitment;
         let mut zero: Hash = [0, 0, 0, 0];
-        let mut path_index: Felt = idx;
+        let mut path_index = idx as u32;
 
         for level in 0u32..20u32 {
             let level_index = level as Felt;
-            let is_right: Felt = path_index & 1;
-            if is_right == 0 {
+            let is_right = path_index & 1u32;
+            if is_right == 0u32 {
                 c.last_path[level_index] = current;
                 current = hash_two_to_one(current, zero);
             } else {
@@ -505,7 +508,7 @@ impl USDTTokenContractRef {
                 current = hash_two_to_one(left, current);
             };
             zero = hash_two_to_one(zero, zero);
-            path_index = path_index >> 1;
+            path_index = path_index >> 1u32;
         }
 
         c.note_root = current;
@@ -560,13 +563,15 @@ impl USDTTokenContractRef {
         ];    
         let leaf: Hash = hash_two_to_one(private_note_inclusion_fingerprint, public_inputs_hash);
 
+        assert(proof.index < 65536, "proof index exceeds 16-level tree");
+        let index = proof.index as u32;
         let mut current: Hash = leaf;
         for i in 0u32..16u32 {
             let level_index = i as Felt;
             let sibling: Hash = proof.siblings[level_index];
-            let index_bit: Felt = (proof.index >> level_index) & 1;
+            let index_bit = (index >> i) & 1u32;
 
-            if index_bit == 0 {
+            if index_bit == 0u32 {
                 current = hash_two_to_one(current, sibling);
             } else {
                 current = hash_two_to_one(sibling, current);

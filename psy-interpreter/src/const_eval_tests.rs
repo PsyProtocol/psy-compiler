@@ -761,28 +761,8 @@ fn c68_felt_add_near_i64_max_no_panic() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn c69_felt_bitxor_does_not_fold() {
-    // FINDING (folding gap): `^` is BitXor, not Pow. Felt bitwise ops
-    // (BitAnd/BitOr/BitXor/BitShl/BitShr) in interpret_binary (lib.rs:856-860)
-    // route to `op_u32_*` opcodes, and `op_std_binary_op_u32`
-    // (exec_context.rs:252-255) ONLY folds operands of op-type ConstantU32.
-    // A pair of Felt *constants* (op-type `Constant`) therefore does NOT fold:
-    // the const compiles (accepts) but silently holds a non-constant symbolic
-    // store reference instead of the value 2 XOR 3 = 1. If this gap is ever
-    // fixed, this test will fail and must be updated to assert 1.
-    let mut c = match compile("const A: Felt = 2 ^ 3;\nfn main() {}", "c69_felt_bitxor") {
-        Outcome::Accept(c) => c,
-        Outcome::Reject(msg) => panic!("[c69_felt_bitxor] expected accept, got reject:\n{msg}"),
-        Outcome::Panic(msg) => panic!("[c69_felt_bitxor] expected accept, got PANIC:\n{msg}"),
-    };
-    match const_value(&mut c, "A") {
-        Some(("Felt", val)) => assert_ne!(
-            val, 1,
-            "[c69_felt_bitxor] Felt BitXor folded to the correct value 1 — the documented \
-             folding gap appears fixed; update this test to assert 1"
-        ),
-        other => panic!("[c69_felt_bitxor] unexpected const result: {other:?}"),
-    }
+fn c69_felt_bitxor_folds_full_width() {
+    expect_const_value("c69_felt_bitxor", "const A: Felt = 4294967296 ^ 3;\nfn main() {}", "A", "Felt", 4294967299);
 }
 
 #[test]

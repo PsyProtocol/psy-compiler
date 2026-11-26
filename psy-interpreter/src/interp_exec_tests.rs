@@ -265,6 +265,15 @@ fn bool_logic_operators_execute() {
 }
 
 #[test]
+fn felt_bitwise_rejects_noncanonical_constant_results() {
+    expect_failure(
+        "felt_bitwise_overflow",
+        "fn main() -> Felt { return 18446744069414584320 | 1; }",
+        "overflow",
+    );
+}
+
+#[test]
 fn constant_division_and_overflow_are_clean_errors() {
     expect_failure(
         "div_by_zero",

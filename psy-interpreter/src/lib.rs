@@ -1299,9 +1299,51 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
         }
     }
 
+    // Felt bitwise operations use the canonical unsigned representative.
+    // Reuse the checked u64 conversion in both directions so the VM and the
+    // circuit reject results outside the field instead of silently reducing them.
+    fn felt_bitwise(&mut self, left: F, right: F, operator: BinaryOperator, location: Option<Location>) -> Result<F> {
+        use BinaryOperator::*;
+        if self.is_constant(left) && self.is_constant(right) {
+            let l = self.context.get_constant_value(left);
+            let r = self.context.get_constant_value(right);
+            let bits = match operator {
+                BitAnd => l & r,
+                BitOr => l | r,
+                BitXor => l ^ r,
+                BitShl | BitShr if r >= 64 => 0,
+                BitShl => l << r,
+                BitShr => l >> r,
+                _ => unreachable!("expected a bitwise operator"),
+            };
+            if psy_vm::dpn::ops::semantics::felt_add(bits, 0) == bits {
+                return Ok(self.context.op_const(bits));
+            }
+            if self.current_branch_definitely_executes() {
+                return Err(Error::ArithmeticOverflow { location });
+            }
+        }
+        let a = self.context.op_uint_from_felt::<2>(left);
+        let b = self.context.op_uint_from_felt::<2>(right);
+        let result = match operator {
+            BitAnd => self.context.op_uint_and(a, b),
+            BitOr => self.context.op_uint_or(a, b),
+            BitXor => self.context.op_uint_xor(a, b),
+            BitShl | BitShr => {
+                let zero = self.context.op_const_u32(0);
+                let width = self.context.op_const_u32(64);
+                let fits_u32 = self.context.op_eq(b[1], zero);
+                let distance = self.context.op_select(fits_u32, b[0], width);
+                if operator == BitShl { self.context.op_uint_shl(a, distance) } else { self.context.op_uint_shr(a, distance) }
+            }
+            _ => unreachable!("expected a bitwise operator"),
+        };
+        Ok(self.context.op_uint_to_felt(result))
+    }
+
     /// Map a compound assignment operator to the binary operator that folds
     /// to the identical native u32 opcodes.
-    fn u32_compound_to_binary(operator: AssignmentOperator) -> BinaryOperator {
+    fn compound_to_binary(operator: AssignmentOperator) -> BinaryOperator {
         use AssignmentOperator::*;
         match operator {
             AddAssign => BinaryOperator::Add,
@@ -1677,12 +1719,7 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Div) => self.context.op_div(*l, *r),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Pow) => self.context.op_exp(*l, *r),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Mod) => self.context.op_mod(*l, *r),
-            // TODO: don't use u32 opcodes
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), BitShr) => self.context.op_u32_shr(*l, *r),
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), BitShl) => self.context.op_u32_shl(*l, *r),
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), BitAnd) => self.context.op_u32_and(*l, *r),
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), BitOr) => self.context.op_u32_or(*l, *r),
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), BitXor) => self.context.op_u32_xor(*l, *r),
+            (CheckedValue::Felt(l), CheckedValue::Felt(r), op @ (BitAnd | BitOr | BitXor | BitShl | BitShr)) => self.felt_bitwise(*l, *r, op, Some(binary_node.location))?,
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Eq) => self.context.op_eq(*l, *r),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Neq) => self.context.op_neq(*l, *r),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), Lt) => self.context.op_lt(*l, *r),
@@ -1763,14 +1800,11 @@ impl<F: ContextFelt + From<u32>, C: DPNContext<F> + 'static> Interpreter<F, C> {
             (CheckedValue::Felt(l), CheckedValue::Felt(r), MulAssign) => CheckedValueRef::from_felt(self.context.op_mul(*l, *r)),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), DivAssign) => CheckedValueRef::from_felt(self.context.op_div(*l, *r)),
             (CheckedValue::Felt(l), CheckedValue::Felt(r), ModAssign) => CheckedValueRef::from_felt(self.context.op_mod(*l, *r)),
-            // TODO: don't use u32 opcodes
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), BitAndAssign) => CheckedValueRef::from_felt(self.context.op_u32_and(*l, *r)),
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), BitOrAssign) => CheckedValueRef::from_felt(self.context.op_u32_or(*l, *r)),
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), BitXorAssign) => CheckedValueRef::from_felt(self.context.op_u32_xor(*l, *r)),
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), BitShlAssign) => CheckedValueRef::from_felt(self.context.op_u32_shl(*l, *r)),
-            (CheckedValue::Felt(l), CheckedValue::Felt(r), BitShrAssign) => CheckedValueRef::from_felt(self.context.op_u32_shr(*l, *r)),
+            (CheckedValue::Felt(l), CheckedValue::Felt(r), op @ (BitAndAssign | BitOrAssign | BitXorAssign | BitShlAssign | BitShrAssign)) => {
+                CheckedValueRef::from_felt(self.felt_bitwise(*l, *r, Self::compound_to_binary(op), None)?)
+            }
 
-            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), op) => CheckedValueRef::from_u32(self.u32_binop(&l[0], &r[0], Self::u32_compound_to_binary(op))),
+            (CheckedValue::Uint(l, UintWidth::U32), CheckedValue::Uint(r, UintWidth::U32), op) => CheckedValueRef::from_u32(self.u32_binop(&l[0], &r[0], Self::compound_to_binary(op))),
 
             (CheckedValue::Bool(l), CheckedValue::Bool(r), BitXorAssign) => CheckedValueRef::from_bool(self.context.op_bool_xor(*l, *r)),
 
