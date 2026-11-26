@@ -746,6 +746,25 @@ fn array_and_struct_parameters_are_materialized() {
 }
 
 #[test]
+fn dot_calls_pass_only_instance_receivers() {
+    let source = r#"
+        struct Item { pub value: Felt, }
+        impl Item {
+            pub fn make() -> Item { return Item { value: 7 }; }
+            pub fn combine(a: Felt, b: Felt) -> Felt { return a * 10 + b; }
+            pub fn add(self, n: Felt) -> Felt { return self.value + n; }
+        }
+        fn main() -> Felt {
+            return Item.make().add(Item.combine(2, 3));
+        }
+    "#;
+    match run(source, "dot_call_receivers") {
+        Outcome::Executed(defs) => assert_eq!(defs[0].circuit_outputs, vec![30]),
+        other => panic!("expected static and instance calls to execute, got {other:?}"),
+    }
+}
+
+#[test]
 fn struct_values_methods_and_mutation_execute() {
     expect_exec(
         "structs",

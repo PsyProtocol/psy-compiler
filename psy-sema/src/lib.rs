@@ -1961,26 +1961,27 @@ impl<F: Clone + From<u32> + ContextFelt, C> AstVisitor<F, C> for TypeChecker<F, 
             }
         }
 
-        let callee = CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
-            target: self.program.exprs.alloc_item(receiver.clone()),
+        let receiver = self.program.exprs.alloc_item(receiver);
+        let callee = self.program.exprs.alloc_item(CheckedExprNode::MemberAccess(CheckedMemberAccessNode {
+            target: receiver,
             field: ctx.expression(call_node.callee).as_member_access().unwrap().field,
             type_id: callee_ty,
             location: call_node.location,
-        });
+        }));
+        let generic_parameters = generic_parameters
+            .into_iter()
+            .map(|generic_param| self.substitute_all(generic_param, ctx))
+            .collect::<Result<Vec<TypeId>>>()?;
+        let args = self.program.exprs.alloc_items(args);
+        let type_id = self.substitute_all(signature.return_type, ctx)?;
+        let location = call_node.location;
 
-        let checked_expr = CheckedExprNode::MemberCall(CheckedMemberCallNode {
-            callee: self.program.exprs.alloc_item(callee),
-            receiver: self.program.exprs.alloc_item(receiver),
-            generic_parameters: generic_parameters
-                .into_iter()
-                .map(|generic_param| self.substitute_all(generic_param, ctx))
-                .collect::<Result<Vec<TypeId>>>()?,
-            args: self.program.exprs.alloc_items(args),
-            type_id: self.substitute_all(signature.return_type, ctx)?,
-            location: call_node.location,
-        });
-
-        return Ok(checked_expr);
+        // A type qualifies the method name but supplies no runtime argument.
+        if is_type_receiver {
+            Ok(CheckedExprNode::Call(CheckedCallNode { callee, generic_parameters, args, type_id, location }))
+        } else {
+            Ok(CheckedExprNode::MemberCall(CheckedMemberCallNode { callee, receiver, generic_parameters, args, type_id, location }))
+        }
     }
 
     #[instrument(level = "debug", skip_all)]
