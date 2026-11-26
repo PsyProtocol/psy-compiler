@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
 
 use psy_common::{Arena, FileResolver, Graph, Tree, TreeNode};
@@ -15,6 +16,10 @@ pub struct Program<F: Clone + From<u32>> {
     pub exprs: Arena<ExprId, ExprNode<F>>,
     pub stmts: Arena<StmtId, StmtNode>,
     pub defs: Arena<DefId, DefinitionNode>,
+    /// ABI declarations with module-qualified names for colliding source types.
+    pub abi_definitions: HashMap<DefId, DefinitionNode>,
+    pub abi_struct_instances: HashMap<IdentId, crate::StructNode>,
+    pub compiled_method_widths: HashMap<String, (usize, usize)>,
     pub compiled_contract_definition: Option<DefId>,
     pub compiled_method_definitions: Vec<DefId>,
     pub interner: Interner,
@@ -53,10 +58,17 @@ impl<F: Clone + From<u32>> Program<F> {
             exprs: Arena::new(),
             stmts: Arena::new(),
             defs: Arena::new(),
+            abi_definitions: HashMap::new(),
+            abi_struct_instances: HashMap::new(),
+            compiled_method_widths: HashMap::new(),
             compiled_contract_definition: None,
             compiled_method_definitions: Vec::new(),
             interner: Interner::new(),
         }
+    }
+
+    pub fn abi_definition(&self, id: DefId) -> &DefinitionNode {
+        self.abi_definitions.get(&id).unwrap_or(&self.defs[id])
     }
 
     pub fn find_module_by_name(&self, name: impl Into<IdentId>) -> Option<ModuleId> {

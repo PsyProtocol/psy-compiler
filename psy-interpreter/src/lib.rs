@@ -1,5 +1,6 @@
 #![feature(try_trait_v2)]
 
+mod abi_types;
 mod control;
 pub mod error;
 mod preprocess;
@@ -318,6 +319,10 @@ fn interpret_with_program(
     let (mut typechecker, mut ctx) = interpreter.typecheck_with_program(crate_path_graph, program)?;
     let compile_results = compile_interpret_result(interpreter, &mut typechecker, &mut ctx, contract_name, method_names)?;
 
+    abi_types::prepare(&typechecker, &mut ctx)?;
+    ctx.program.compiled_method_widths = compile_results.iter().map(|method| {
+        (method.name.clone(), (method.circuit_inputs.len(), method.circuit_outputs.len()))
+    }).collect();
     Ok(InterpretResult {
         compile_results,
         typechecker,

@@ -45,7 +45,7 @@ impl AbiExtractor {
     ) -> Result<Abi, psy_common::Error> {
         let ctx = DefaultVisitorContext::<F, ()>::new(program);
         let contract_struct = self.find_contract_struct(&ctx);
-        let contract_name = contract_struct
+        let contract_name = ctx.program().compiled_contract_definition.and_then(|id| ctx.definition(id).as_struct()).or(contract_struct)
             .map(|struct_node| ctx.ident(struct_node.name).0.to_string())
             .unwrap_or_else(|| self.contract_name.clone());
 
@@ -56,7 +56,7 @@ impl AbiExtractor {
         let mut types: Vec<AbiStructType> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         for (name, struct_node) in &struct_nodes {
-            if self.is_internal_type(name) || *name == contract_name {
+            if self.is_internal_type(name) || contract_struct.is_some_and(|node| std::ptr::eq(node, *struct_node)) {
                 continue;
             }
             if !seen.insert(name.clone()) {
@@ -282,11 +282,20 @@ impl AbiExtractor {
         let struct_nodes = self.collect_struct_nodes(ctx);
         let mut methods = Vec::with_capacity(method_metadata.len());
         for &definition in &ctx.program().compiled_method_definitions {
-            let function = ctx.definition(definition).as_function()
+            let function = ctx.program().abi_definition(definition).as_function()
                 .ok_or_else(|| psy_common::Error::Message("compiled method declaration is not a function".into()))?;
             let name = ctx.ident(function.name);
             if let Some(&(method_id, is_view)) = method_metadata.get(name.0.as_str()) {
-                methods.push(self.function_to_canonical_method(ctx, function, method_id, is_view, &struct_nodes, struct_layouts));
+                let method = self.function_to_canonical_method(ctx, function, method_id, is_view, &struct_nodes, struct_layouts);
+                if let Some(&(inputs, outputs)) = ctx.program().compiled_method_widths.get(name.0.as_str()) {
+                    if (method.input_felt_count, method.output_felt_count) != (inputs, outputs) {
+                        return Err(psy_common::Error::Message(format!(
+                            "ABI width mismatch for {name}: ABI ({}, {}), circuit ({inputs}, {outputs})",
+                            method.input_felt_count, method.output_felt_count
+                        )));
+                    }
+                }
+                methods.push(method);
             }
         }
         if methods.len() != method_metadata.len() {
@@ -378,11 +387,11 @@ impl AbiExtractor {
 
     fn find_contract_struct<'a, F: Clone + From<u32> + Debug>(&self, ctx: &'a DefaultVisitorContext<F, ()>) -> Option<&'a StructNode> {
         if let Some(id) = ctx.program().compiled_contract_definition {
-            return ctx.definition(id).as_struct();
+            return ctx.program().abi_definition(id).as_struct();
         }
         for i in 0..ctx.program().defs.len() {
             let def_id = DefId::from(i);
-            let Some(struct_node) = ctx.definition(def_id).as_struct() else {
+            let Some(struct_node) = ctx.program().abi_definition(def_id).as_struct() else {
                 continue;
             };
             if ctx.ident(struct_node.name).0 == self.contract_name && self.has_contract_attr(struct_node, ctx) {
@@ -396,9 +405,12 @@ impl AbiExtractor {
         let mut structs = BTreeMap::new();
         for i in 0..ctx.program().defs.len() {
             let def_id = DefId::from(i);
-            if let Some(struct_node) = ctx.definition(def_id).as_struct() {
+            if let Some(struct_node) = ctx.program().abi_definition(def_id).as_struct() {
                 structs.insert(ctx.ident(struct_node.name).0.to_string(), struct_node);
             }
+        }
+        for node in ctx.program().abi_struct_instances.values() {
+            structs.insert(ctx.ident(node.name).0.to_string(), node);
         }
         structs
     }
@@ -410,7 +422,7 @@ impl AbiExtractor {
     ) -> Option<&'a UncheckedType> {
         for i in 0..ctx.program().defs.len() {
             let def_id = DefId::from(i);
-            let Some(alias) = ctx.definition(def_id).as_type_alias() else {
+            let Some(alias) = ctx.program().abi_definition(def_id).as_type_alias() else {
                 continue;
             };
             if ctx.ident(alias.name.id).0 == name {
@@ -456,7 +468,7 @@ impl AbiExtractor {
         };
         let mut found = None;
         for index in 0..ctx.program().defs.len() {
-            let (implementor, associated) = match ctx.definition(DefId::from(index)) {
+            let (implementor, associated) = match ctx.program().abi_definition(DefId::from(index)) {
                 DefinitionNode::Impl(node) => (&node.ty, &node.associated_types),
                 DefinitionNode::TraitImpl(node) => (&node.ty, &node.associated_types),
                 _ => continue,
@@ -732,7 +744,7 @@ impl AbiExtractor {
                 }
                 let value = (0..ctx.program().defs.len()).find_map(|index| {
                     let def_id = DefId::from(index);
-                    match ctx.definition(def_id).as_const() {
+                    match ctx.program().abi_definition(def_id).as_const() {
                         Some(item) if ctx.ident(item.name).0 == name => Some(item.value),
                         _ => None,
                     }

@@ -50,6 +50,10 @@ impl<'a, F: Clone + From<u32> + Debug, C> Formatter<'a, F, C> {
         self.output.push('\n');
     }
 
+    pub fn format_type(&self, node: &UncheckedType, ctx: &impl VisitorContext<F, C>) -> String {
+        self.visit_unchecked_type(node, false, ctx)
+    }
+
     fn visit_unchecked_type(&self, node: &UncheckedType, is_generic: bool, ctx: &impl VisitorContext<F, C>) -> String {
         match node {
             UncheckedType::Basic(name) => format!("{}", ctx.ident(name)),
