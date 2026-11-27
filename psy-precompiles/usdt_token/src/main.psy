@@ -132,8 +132,8 @@ impl USDTTokenContractRef {
     }
     fn psy_token_contract_id() -> Felt { 0 }
     fn multisig_policy_contract_id() -> Felt { 1 }
-    // Dense registration 15 under UserIdBitsStrategy5 (heights 12/20/1).
-    fn multisig_policy_user_id() -> Felt { 1966080 }
+    // Dense registration 17 under UserIdBitsStrategy5 (heights 12/20/1).
+    fn multisig_policy_user_id() -> Felt { 1114112 }
     fn zero_u32x8() -> [u32; 8] {
         [0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32]
     }

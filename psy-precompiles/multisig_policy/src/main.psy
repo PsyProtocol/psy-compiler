@@ -105,9 +105,9 @@ impl MultisigPolicyContractRef {
         c.members = next_members;
     }
 
-    // Dense registration 15 under UserIdBitsStrategy5 (heights 12/20/1).
+    // Dense registration 17 under UserIdBitsStrategy5 (heights 12/20/1).
     // The governance multisig account is distinct from the bridge account.
-    fn policy_user_id() -> Felt { 1966080 }
+    fn policy_user_id() -> Felt { 1114112 }
     fn token_contract_id() -> Felt { 0 }
     fn usdt_token_contract_id() -> Felt { 4 }
 
